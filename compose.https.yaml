@@ -1,0 +1,31 @@
+services:
+  gateway:
+    environment:
+      TRUST_PROXY_CIDRS: 172.30.0.2/32
+    networks:
+      qcode:
+        ipv4_address: 172.30.0.3
+  https:
+    image: caddy:2-alpine
+    environment:
+      QCODE_DOMAIN: ${QCODE_DOMAIN:?Set QCODE_DOMAIN to your internal DNS name}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - qcode-caddy:/data
+    networks:
+      qcode:
+        ipv4_address: 172.30.0.2
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+networks:
+  qcode:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+volumes:
+  qcode-caddy:

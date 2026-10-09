@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>QCode · 团队 AI 工作台</title><link rel="stylesheet" href="/styles.css"><script type="module" src="/admin.js"></script></head>
+<body><div class="console"><aside class="sidebar"><a class="brand" href="/" aria-label="QCode 首页"><span class="brand-mark">Q</span><span>QCode<small>团队 AI 编码平台</small></span></a><div class="sidebar-caption">工作空间</div><nav id="tabs" aria-label="管理功能"></nav><div class="sidebar-footer"><span class="status-dot"></span>私有化部署<span class="version">v0.3</span></div></aside>
+<div class="main-area"><header><div><p class="eyebrow">YOUR TEAM. YOUR MODELS.</p><h1>让团队专注于创造</h1><p class="header-description">账号、模型和使用情况，在这里统一管理。</p></div><div id="identity" class="identity"></div></header>
+<p id="message" role="status" aria-live="polite"></p>
+<section id="login-panel" class="card login"><div class="login-icon">Q</div><h2>登录管理工作台</h2><p>使用管理员、运营或审计账号登录</p><form id="login-form"><label>用户名<input name="username" required autocomplete="username" placeholder="请输入用户名"></label><label>密码<input name="password" type="password" required autocomplete="current-password" placeholder="请输入密码"></label><button>登录</button></form><p class="login-footnote">员工请通过 qcode 客户端使用 AI 编程功能</p></section>
+<main id="workspace" hidden><section class="card workspace-card"><div class="section-head"><div><p class="section-kicker">管理控制台</p><h2 id="section-title"></h2><p id="section-note"></p></div><div id="actions" class="actions"></div></div><div id="toolbar" class="toolbar"></div><div id="content"></div></section></main>
+<footer class="page-footer">QCode · 企业内网 AI 工作空间 <span>账号独立 · 凭据集中管理</span></footer></div></div>
+<dialog id="editor"><form id="editor-form"><div class="dialog-header"><h2 id="editor-title"></h2><p>保存后配置将应用于后续请求</p></div><div id="fields"></div><p id="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" id="cancel" class="secondary">取消</button><button type="submit">保存</button></div></form></dialog>
+</body></html>

@@ -1,0 +1,8 @@
+node_modules
+data
+backups
+.env
+.env.*
+.demo-access.txt
+.visual-tests
+.git

@@ -1,0 +1,12 @@
+.git
+.stage1-dsh
+.client-tests
+**/node_modules
+**/data
+**/backups
+**/releases
+**/.env
+**/.env.*
+**/.demo-access.txt
+**/.visual-tests
+**/*.log

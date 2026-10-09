@@ -1,0 +1,6 @@
+.stage1-dsh/
+.env
+.env.*
+!.env.example
+.client-tests/
+**/node_modules/

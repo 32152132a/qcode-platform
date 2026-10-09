@@ -1,0 +1,26 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    env_file: ./apps/server/.env
+    environment:
+      HOST: 0.0.0.0
+      DB_PATH: /app/apps/server/data/qcode.sqlite
+      PORT: 3100
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - qcode-data:/app/apps/server/data
+      - qcode-backups:/app/apps/server/backups
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  qcode-data:
+  qcode-backups:

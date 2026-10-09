@@ -1,0 +1,10 @@
+# Template only: replace the domain and install the internal CA certificate on clients.
+qcode.example.internal {
+    tls internal
+    reverse_proxy 127.0.0.1:3100 {
+        flush_interval -1
+        transport http {
+            response_header_timeout 190s
+        }
+    }
+}

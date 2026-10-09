@@ -1,0 +1,60 @@
+name: QCode checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: apps/server/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run package:client
+      - name: Check PowerShell syntax and build installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem ../../apps/client,../../scripts -Filter *.ps1 -Recurse | ForEach-Object {
+            $errors = $null; $tokens = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+          & ../../scripts/build-installer.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qcode-${{ runner.os }}
+          path: apps/server/releases/*.*
+  browser:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false playwright@1.62.1
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/ui-smoke.js
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f apps/server/Dockerfile -t qcode-test .
