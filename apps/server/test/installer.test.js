@@ -26,14 +26,25 @@ test('custom runtime update validates checksum and rollback preserves user data'
   server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close();});
   const gateway=`http://127.0.0.1:${server.address().port}`;
   const installer=fileURLToPath(new URL('../../client/install.ps1',import.meta.url));
+  const wrapper=path.join(root,'test-installer.ps1');
+  fs.writeFileSync(wrapper,`param([string]$Installer,[string]$InstallRoot,[string]$Gateway,[switch]$Update,[switch]$Rollback)
+function Invoke-WebRequest {
+  param([string]$Uri,[string]$OutFile,[switch]$UseBasicParsing,[int]$TimeoutSec)
+  if(([Uri]$Uri).Host -ne '127.0.0.1'){throw 'External downloads are forbidden in this test'}
+  Microsoft.PowerShell.Utility\\Invoke-WebRequest @PSBoundParameters
+}
+& $Installer -InstallRoot $InstallRoot -Gateway $Gateway -NoPath -Update:$Update -Rollback:$Rollback
+`);
   async function install(flags){
-    const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',installer,'-InstallRoot',root,'-Gateway',gateway,'-SkipRuntime','-NoPath',...flags],{env:{...process.env,QCODE_NODE:process.execPath},windowsHide:true,stdio:['ignore','pipe','pipe']});
+    const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',wrapper,'-Installer',installer,'-InstallRoot',root,'-Gateway',gateway,...flags],{env:{...process.env,QCODE_NODE:''},windowsHide:true,stdio:['ignore','pipe','pipe']});
     let output='';child.stdout.on('data',chunk=>{output+=chunk;});child.stderr.on('data',chunk=>{output+=chunk;});
     const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});return {code,output};
   }
   const bad=await install(['-Update']);assert.notEqual(bad.code,0);assert.match(bad.output,/checksum mismatch/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,'0.3.0');
   corrupt=false;const good=await install(['-Update']);assert.equal(good.code,0,good.output);
+  assert.match(good.output,/Installing the bundled Node/);
+  assert.ok(fs.existsSync(path.join(root,`runtime/node-v24.19.0-win-${manifest.arch}/node.exe`)));
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,manifest.version);
   assert.ok(fs.existsSync(path.join(root,`versions/${manifest.version}/harness-custom/lib/bin.js`)));
   assert.equal(fs.readFileSync(path.join(root,'saved-session-test'),'utf8'),'preserve me');

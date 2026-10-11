@@ -69,8 +69,21 @@ if(-not $PublishDirectory){
         if($bundles.Count -ne 1){throw 'Expected exactly one Harness bundle'}
         $HarnessBundle=$bundles[0].FullName
     }
+    $runtime=Get-Content -LiteralPath ($HarnessBundle+'.json') -Raw|ConvertFrom-Json
+    if($runtime.platform -ne 'win32' -or $runtime.arch -notin @('x64','arm64')){throw 'Unsupported Harness platform'}
+    $nodeCache=Join-Path $artifacts 'node-cache'
+    New-Item -ItemType Directory -Force -Path $nodeCache|Out-Null
+    $nodeName="node-v24.19.0-win-$($runtime.arch).zip"
+    $nodeArchive=Join-Path $nodeCache $nodeName
+    if(-not (Test-Path -LiteralPath $nodeArchive)){
+        $partial=$nodeArchive+'.partial'
+        Invoke-WebRequest "https://nodejs.org/dist/v24.19.0/$nodeName" -OutFile $partial -UseBasicParsing
+        Move-Item -LiteralPath $partial -Destination $nodeArchive
+    }
+    $nodeHash=if($runtime.arch -eq 'arm64'){'8502f4a50b458d4cc38ed8f2001556c2cd239d464920f74017926ccb1e1c157f'}else{'57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'}
+    if((Get-FileHash -LiteralPath $nodeArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $nodeHash){throw "Node cache checksum mismatch; remove the damaged file and retry: $nodeArchive"}
     Invoke-Checked 'node' @((Join-Path $PSScriptRoot 'next-client-version.mjs'),(Join-Path $root 'apps/client/release.json'),$publishedVersion)
-    Invoke-Checked 'node' @((Join-Path $root 'apps/server/scripts/package-client.js'),'--harness-bundle',(Resolve-Path -LiteralPath $HarnessBundle).Path,'--output',$release)
+    Invoke-Checked 'node' @((Join-Path $root 'apps/server/scripts/package-client.js'),'--harness-bundle',(Resolve-Path -LiteralPath $HarnessBundle).Path,'--output',$release,'--node-archive',$nodeArchive)
     & (Join-Path $PSScriptRoot 'build-installer.ps1') -ReleaseDirectory $release -CertificateThumbprint $CertificateThumbprint
     $previousRelease=$env:QCODE_TEST_RELEASE_DIRECTORY
     try{

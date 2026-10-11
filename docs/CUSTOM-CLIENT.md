@@ -47,7 +47,7 @@
 
 员工打开 `http://code.quyongqing.cn`，点击“下载 Windows 客户端”，或访问 `http://code.quyongqing.cn/downloads/installer`。只需下载一个 EXE；ZIP 留在服务器供自动更新，无需员工克隆 Gitee 仓库。
 
-安装器检查运行包散列、版本、架构和启动入口后切换版本；首次安装按需准备 Node。也可解压完整 ZIP 执行 `install.ps1 -Gateway http://code.quyongqing.cn`。许可证和第三方声明随包保留。
+安装器检查运行包散列、版本、架构和启动入口后切换版本；完整安装包内置对应架构的 Node 24.19.0，安装时校验后解压到 QCode 私有目录，不再访问 nodejs.org，不改变全局 Node。安装仍需连接网关完成健康检查；登录、AI 使用与升级也需要网关。也可解压完整 ZIP 执行 `install.ps1 -Gateway http://code.quyongqing.cn`。许可证和第三方声明随包保留。
 
 **从 0.3.0 首次升级使用新的完整 EXE/ZIP**，旧更新器不认识定制运行包。0.4.0 及之后使用 `qcode update` 获取发行清单和更新，`qcode rollback` 回到上一个客户端版本。登录信息、会话和工作目录独立保存；跨 Harness 版本的会话格式兼容仍需验收。
 

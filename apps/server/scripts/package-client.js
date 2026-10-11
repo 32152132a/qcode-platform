@@ -14,6 +14,11 @@ if(bundle){
   runtime=JSON.parse(fs.readFileSync(bundle+'.json','utf8').replace(/^\uFEFF/,''));
   if(runtime.brand!=='QCode'||runtime.platform!=='win32'||!['x64','arm64'].includes(runtime.arch)||runtime.entry!=='lib/bin.js'||!/^[a-f0-9]{40}$/.test(runtime.commit)||createHash('sha256').update(fs.readFileSync(bundle)).digest('hex')!==runtime.sha256)throw new Error('Invalid custom Harness artifact');
 }
+const nodeIndex=process.argv.indexOf('--node-archive');
+if(nodeIndex<0||!process.argv[nodeIndex+1])throw new Error('Provide --node-archive to build a complete installer');
+const nodeArchive=path.resolve(process.argv[nodeIndex+1]);
+const nodeHash=runtime.arch==='arm64'?'8502f4a50b458d4cc38ed8f2001556c2cd239d464920f74017926ccb1e1c157f':'57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73';
+if(createHash('sha256').update(fs.readFileSync(nodeArchive)).digest('hex')!==nodeHash)throw new Error('Bundled Node checksum or architecture mismatch');
 const crcTable=Array.from({length:256},(_,i)=>{let n=i;for(let j=0;j<8;j++)n=(n&1)?0xedb88320^(n>>>1):n>>>1;return n>>>0;});
 function crc32(buffer){let value=0xffffffff;for(const byte of buffer)value=crcTable[(value^byte)&255]^(value>>>8);return (value^0xffffffff)>>>0;}
 function filesIn(directory){return fs.readdirSync(directory,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name)).flatMap(entry=>{
@@ -24,8 +29,10 @@ function filesIn(directory){return fs.readdirSync(directory,{withFileTypes:true}
 const local=[],central=[];let offset=0;
 const entries=filesIn(source).map(filename=>({name:path.relative(source,filename).split(path.sep).join('/'),filename}));
 if(bundle)entries.push({name:'harness-bundle.zip',filename:bundle},{name:'harness-bundle.json',filename:bundle+'.json'});
+entries.push({name:`node-v24.19.0-win-${runtime.arch}.zip`,filename:nodeArchive});
+entries.push({name:'node-bundle.json',data:Buffer.from(JSON.stringify({version:'24.19.0',arch:runtime.arch,sha256:nodeHash}))});
 for(const entry of entries){
-  const name=Buffer.from(entry.name),data=fs.readFileSync(entry.filename),crc=crc32(data);
+  const name=Buffer.from(entry.name),data=entry.data||fs.readFileSync(entry.filename),crc=crc32(data);
   const header=Buffer.alloc(30);header.writeUInt32LE(0x04034b50,0);header.writeUInt16LE(20,4);header.writeUInt16LE(0x800,6);header.writeUInt16LE(33,12);header.writeUInt32LE(crc,14);header.writeUInt32LE(data.length,18);header.writeUInt32LE(data.length,22);header.writeUInt16LE(name.length,26);
   local.push(header,name,data);
   const record=Buffer.alloc(46);record.writeUInt32LE(0x02014b50,0);record.writeUInt16LE(20,4);record.writeUInt16LE(20,6);record.writeUInt16LE(0x800,8);record.writeUInt16LE(33,14);record.writeUInt32LE(crc,16);record.writeUInt32LE(data.length,20);record.writeUInt32LE(data.length,24);record.writeUInt16LE(name.length,28);record.writeUInt32LE(offset,42);

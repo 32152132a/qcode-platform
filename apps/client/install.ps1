@@ -16,9 +16,26 @@ function Assert-Child($Path){$resolved=[IO.Path]::GetFullPath($Path);if(-not $re
 function Expand-CheckedArchive($Archive,$Destination){
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $target=[IO.Path]::GetFullPath($Destination)
+    $prefix=$target+[IO.Path]::DirectorySeparatorChar
     $zip=[IO.Compression.ZipFile]::OpenRead($Archive)
-    try{foreach($entry in $zip.Entries){$entryPath=[IO.Path]::GetFullPath((Join-Path $target $entry.FullName));if(-not $entryPath.StartsWith($target+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Unsafe archive path'}}}finally{$zip.Dispose()}
-    Expand-Archive -LiteralPath $Archive -DestinationPath $Destination -Force
+    try{
+        # Validate every entry before writing, then use .NET instead of Expand-Archive.
+        foreach($entry in $zip.Entries){
+            $entryPath=[IO.Path]::GetFullPath([IO.Path]::Combine($target,$entry.FullName))
+            if(-not $entryPath.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){throw 'Unsafe archive path'}
+        }
+        $elapsed=[Diagnostics.Stopwatch]::StartNew()
+        foreach($entry in $zip.Entries){
+            $entryPath=[IO.Path]::GetFullPath([IO.Path]::Combine($target,$entry.FullName))
+            if($entry.FullName.EndsWith('/') -or $entry.FullName.EndsWith('\')){
+                [IO.Directory]::CreateDirectory($entryPath)|Out-Null
+            }else{
+                [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($entryPath))|Out-Null
+                [IO.Compression.ZipFileExtensions]::ExtractToFile($entry,$entryPath,$true)
+            }
+        }
+        Write-Host "Extracted $($zip.Entries.Count) entries in $([int]$elapsed.Elapsed.TotalSeconds)s."
+    }finally{$zip.Dispose()}
 }
 function Install-CustomRuntime($Source,$Destination){
         $runtimeMetadata=Join-Path $Source 'harness-bundle.json'
@@ -97,10 +114,26 @@ try{
         $expected=if($architecture -eq 'arm64'){'8502f4a50b458d4cc38ed8f2001556c2cd239d464920f74017926ccb1e1c157f'}else{'57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'}
         $runtimeRoot=Assert-Child (Join-Path $InstallRoot 'runtime');New-Item -ItemType Directory -Force -Path $runtimeRoot|Out-Null
         $nodeArchive=Join-Path $runtimeRoot "node-v24.19.0-win-$architecture.zip"
-        Write-Host 'Downloading the pinned Node.js runtime...'
-        Invoke-WebRequest "https://nodejs.org/dist/v24.19.0/node-v24.19.0-win-$architecture.zip" -OutFile $nodeArchive -UseBasicParsing -TimeoutSec 300
+        $bundledNode=Join-Path $source "node-v24.19.0-win-$architecture.zip"
+        if(Test-Path -LiteralPath $bundledNode){
+            Write-Host 'Installing the bundled Node.js runtime...'
+            Copy-Item -LiteralPath $bundledNode -Destination $nodeArchive -Force
+        }elseif(Test-Path -LiteralPath (Join-Path $source 'node-bundle.json')){
+            throw 'Bundled Node runtime is missing; download the complete installer again'
+        }else{
+            Write-Host 'Downloading the pinned Node.js runtime...'
+            Invoke-WebRequest "https://nodejs.org/dist/v24.19.0/node-v24.19.0-win-$architecture.zip" -OutFile $nodeArchive -UseBasicParsing -TimeoutSec 300
+        }
         if((Get-FileHash -LiteralPath $nodeArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected){throw 'Node runtime checksum mismatch'}
-        Expand-CheckedArchive $nodeArchive $runtimeRoot
+        # This official archive has already passed the pinned SHA-256 check.
+        # .NET extraction avoids PowerShell per-file overhead in Node's npm tree.
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $nodeStage=Assert-Child (Join-Path $runtimeRoot ('stage-'+[guid]::NewGuid().ToString('N')))
+        try{
+            [IO.Compression.ZipFile]::ExtractToDirectory($nodeArchive,$nodeStage)
+            if(Test-Path -LiteralPath $nodeDirectory){throw 'An incomplete Node runtime exists; remove that private runtime directory and retry'}
+            Move-Item -LiteralPath (Join-Path $nodeStage "node-v24.19.0-win-$architecture") -Destination $nodeDirectory
+        }finally{if(Test-Path -LiteralPath $nodeStage){Remove-Item -LiteralPath $nodeStage -Recurse -Force}}
     }
     if(-not $SkipHarness -and -not (Test-Path -LiteralPath (Join-Path $target 'harness-custom/lib/bin.js'))){
         if(-not (Test-Path -LiteralPath $node)){if($env:QCODE_NODE){$node=$env:QCODE_NODE}else{throw 'A Node.js runtime is required to install Harness'}}
