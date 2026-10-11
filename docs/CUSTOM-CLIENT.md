@@ -2,6 +2,13 @@
 
 服务器管理账号、模型 Key、额度和审计；员工安装包内置 QCode 定制 Harness Web。源码放 Gitee，安装包放服务器独立发行卷。重新部署网关不会覆盖已发布安装包。
 
+## 双击发布（Windows）
+
+- 双击仓库根目录的 `release-client.cmd`：构建、测试并自动上传新安装包。新版本发布前修改 `apps/client/release.json`。
+- 双击 `publish-client.cmd`：选择已有的发行目录（包含 manifest.json、EXE 和 ZIP），校验后上传，不重复构建。取消选择不会上传。
+
+两个入口都复用同一个发布脚本，完成或失败后窗口保留结果。自动寻找 Node 24，仅修改当前进程 PATH；不会修改系统配置。首次依赖准备、SSH 密钥和服务器前提与下文一致。
+
 ## 一条命令发布
 
 在 Windows 使用 Node.js 24 或更新版本及 Harness 要求的 pnpm。首次准备好两个项目的依赖：平台的 `apps/server` 下执行 `npm ci`，相邻 `qcode-harness` 仓库执行 `pnpm install --frozen-lockfile`。
