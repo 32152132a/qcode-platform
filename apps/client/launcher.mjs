@@ -6,7 +6,8 @@ import { secureStore, lockSession } from './session-store.mjs';
 import { syncSkills } from './skills.mjs';
 import { installUpdate } from './update.mjs';
 import { fileURLToPath } from 'node:url';
-export const version='0.3.0';
+import { prepareHarnessLaunch } from './harness-launch.mjs';
+export const version='0.4.0';
 export function compareVersions(a,b){const left=a.split('.').map(Number),right=b.split('.').map(Number);for(let i=0;i<3;i++){if(left[i]!==right[i])return left[i]-right[i];}return 0;}
 const args=Object.fromEntries(process.argv.slice(2).reduce((all,value,index,array)=>{if(value.startsWith('--'))all.push([value.slice(2),array[index+1]]);return all;},[]));
 let releaseLock,bridge,child,timer,stopping=false;
@@ -46,12 +47,7 @@ try{
   }
   bridge=await startBridge(session,{onConfig:updateSkills});await updateSkills(bridge.configuration);
   const config=bridge.configuration;
-  const patch=[{id:'llm-pi-ai',config:{providers:{qcode:{displayName:config.organizationName,apiKeyEnv:'QCODE_TOKEN',api:'openai-completions',baseURL:bridge.baseUrl,
-    compat:{supportsDeveloperRole:false,maxTokensField:config.maxTokensField},models:[{id:'qcode-model',name:'团队模型',contextWindow:config.contextWindow,maxTokens:config.maxOutputTokens}]}}}},
-    {id:'agent-default-model',config:{provider:'qcode',model:'qcode-model'}}];
-  fs.writeFileSync(path.join(home,'cordis.patch.yml'),JSON.stringify(patch,null,2),{mode:0o600});
-  const command=args.mode==='tui'?'tui':'web', launchArgs=[path.resolve(args.entry),command];
-  if(command==='web'){launchArgs.push('--host','127.0.0.1','--port','0');if(args['no-open']==='true')launchArgs.push('--no-open');}
+  const launchArgs=prepareHarnessLaunch({entry:args.entry,mode:args.mode||'web',home,config,baseUrl:bridge.baseUrl,noOpen:args['no-open']==='true'});
   const env={...process.env,DSH_HOME:home,DSH_AGENTS_HOME:path.join(userRoot,'agents'),QCODE_TOKEN:bridge.token};delete env.DEEPSEEK_API_KEY;delete env.OPENAI_API_KEY;
   console.log(`QCode ${version} · ${session.session.user.username} · ${workdir}`);
   child=spawn(process.execPath,launchArgs,{cwd:workdir,env,stdio:'inherit',windowsHide:true});

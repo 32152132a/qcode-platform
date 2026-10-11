@@ -4,3 +4,4 @@
 !.env.example
 .client-tests/
 **/node_modules/
+apps/server/releases/

@@ -4,7 +4,7 @@ param(
     [string]$Gateway=$env:QCODE_GATEWAY,[string]$WorkDir='', [string]$HarnessEntry=$env:QCODE_HARNESS_ENTRY,[switch]$NoOpen
 )
 $ErrorActionPreference='Stop'
-$clientVersion='0.3.0'
+$clientVersion='0.4.0'
 if($Command -eq 'help'){Write-Host 'qcode [web|tui|login|logout|switch|doctor|update|rollback] [-Gateway URL] [-WorkDir PATH] [-NoOpen]';exit 0}
 $clientRoot=if($env:QCODE_CLIENT_ROOT){$env:QCODE_CLIENT_ROOT}else{Join-Path $env:LOCALAPPDATA 'QCode'}
 New-Item -ItemType Directory -Force -Path $clientRoot | Out-Null
@@ -14,7 +14,7 @@ if(-not $Gateway){$Gateway='http://127.0.0.1:3100'}
 $address=[Uri]$Gateway
 if(-not $address.IsAbsoluteUri -or $address.Scheme -notin @('http','https') -or $address.UserInfo -or $address.Query -or $address.Fragment -or $address.AbsolutePath -ne '/'){throw 'Gateway must be an HTTP(S) origin without credentials or a path.'}
 $Gateway=$Gateway.TrimEnd('/')
-if($address.Scheme -eq 'http' -and -not $address.IsLoopback){Write-Warning 'Unencrypted HTTP: configure company HTTPS before sending real credentials.'}
+if($address.Scheme -eq 'http' -and -not $address.IsLoopback){Write-Warning 'The configured gateway uses an unencrypted HTTP connection.'}
 if($Command -eq 'update'){& (Join-Path $PSScriptRoot 'install.ps1') -Gateway $Gateway -Update;exit $LASTEXITCODE}
 if($Command -eq 'rollback'){& (Join-Path $PSScriptRoot 'install.ps1') -Rollback;exit $LASTEXITCODE}
 $sha=[Security.Cryptography.SHA256]::Create()
@@ -39,8 +39,15 @@ if(-not $nodeExecutable -or [version](& $nodeExecutable -p 'process.versions.nod
     if(-not $env:QCODE_NODE -and (Test-Path -LiteralPath $existingRuntime)){$nodeExecutable=$existingRuntime}else{throw 'Node.js 24 LTS is required; run the QCode installer or set QCODE_NODE.'}
 }
 if(-not $HarnessEntry){
+    $customHarness=Join-Path $PSScriptRoot 'harness-custom/lib/bin.js'
+    if($Command -ne 'tui' -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'harness-bundle.json')) -and -not (Test-Path -LiteralPath $customHarness)){throw 'Custom Harness is incomplete. Extract the full QCode ZIP and run its install.ps1 again.'}
+    $versionedHarness=Join-Path $PSScriptRoot 'harness/node_modules/@deepseek-ai/dsh/lib/bin.js'
     $installedHarness=Join-Path $clientRoot 'harness/node_modules/@deepseek-ai/dsh/lib/bin.js'
+    if($Command -ne 'tui' -and (Test-Path -LiteralPath $customHarness)){$HarnessEntry=$customHarness}
+    elseif(Test-Path -LiteralPath $versionedHarness){$HarnessEntry=$versionedHarness}
+    else{
     if(Test-Path -LiteralPath $installedHarness){$HarnessEntry=$installedHarness}else{$repository=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent;$HarnessEntry=Join-Path $repository '.stage1-dsh/node_modules/@deepseek-ai/dsh/lib/bin.js'}
+    }
 }
 if($Command -eq 'doctor'){
     $health=Invoke-Gateway '/health'

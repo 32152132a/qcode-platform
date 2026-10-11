@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 export function newerVersion(left,right){const a=left.split('.').map(Number),b=right.split('.').map(Number);for(let i=0;i<3;i++)if(a[i]!==b[i])return a[i]>b[i];return false;}
 export async function installUpdate(gateway,currentVersion,installRoot,installer) {
   const url=new URL(gateway);
-  if(url.protocol!=='https:' && !['127.0.0.1','localhost','[::1]'].includes(url.hostname))throw new Error('自动更新要求 HTTPS 网关');
+  if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw new Error('无效的更新网关地址');
   if(!fs.existsSync(path.join(installRoot,'current.json')))return false;
   const response=await fetch(url.origin+'/downloads/manifest.json',{redirect:'error',signal:AbortSignal.timeout(15000)});
   if(!response.ok)throw new Error('暂时无法获取客户端更新');

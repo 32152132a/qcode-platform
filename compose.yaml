@@ -13,6 +13,7 @@ services:
     volumes:
       - qcode-data:/app/apps/server/data
       - qcode-backups:/app/apps/server/backups
+      - qcode-releases:/app/apps/server/releases
     restart: unless-stopped
     init: true
     stop_grace_period: 15s
@@ -24,3 +25,4 @@ services:
 volumes:
   qcode-data:
   qcode-backups:
+  qcode-releases:

@@ -25,7 +25,7 @@ export async function fixture(t, extra = {}) {
     const usage = { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 };
     if (body.stream) {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      const bytes = Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { content: '你好' } }] })}\r\n\r\ndata: ${JSON.stringify({ choices: [], usage })}\r\n\r\n${body.testCase === 'truncated' ? '' : 'data: [DONE]\r\n\r\n'}`);
+      const bytes = Buffer.from(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { role: 'assistant', content: '你好' }, finish_reason: 'stop' }] })}\r\n\r\ndata: ${JSON.stringify({ choices: [], usage })}\r\n\r\n${body.testCase === 'truncated' ? '' : 'data: [DONE]\r\n\r\n'}`);
       for (let i = 0; i < bytes.length; i += 7) res.write(bytes.subarray(i, i + 7));
       res.end();
     } else {

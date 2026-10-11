@@ -1,10 +1,13 @@
 [CmdletBinding()]
-param([string]$CertificateThumbprint='')
+param([string]$CertificateThumbprint='', [string]$ReleaseDirectory='', [ValidateRange(60,3600)][int]$BuildTimeoutSeconds=600)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
-$release=Join-Path $root 'apps/server/releases'
-$archive=Join-Path $release 'qcode-client-0.3.0.zip'
+$release=if($ReleaseDirectory){[IO.Path]::GetFullPath($ReleaseDirectory)}else{Join-Path $root 'apps/server/releases'}
+$archive=Join-Path $release 'qcode-client-0.4.0.zip'
 if(-not (Test-Path -LiteralPath $archive)){throw 'Build the client ZIP with npm run package:client first'}
+$manifestPath=Join-Path $release 'manifest.json'
+$manifest=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json
+if($manifest.version -ne '0.4.0' -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.sha256){throw 'Client ZIP does not match its release manifest'}
 $build=Join-Path $release 'exe-build'
 New-Item -ItemType Directory -Force -Path $build|Out-Null
 Copy-Item -LiteralPath $archive -Destination (Join-Path $build 'client.zip') -Force
@@ -18,7 +21,7 @@ Read-Host 'Press Enter to close'
 '@
 $bootstrap | Set-Content -LiteralPath (Join-Path $build 'bootstrap.ps1') -Encoding utf8
 '@echo off' + "`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0bootstrap.ps1`"`r`n" | Set-Content -LiteralPath (Join-Path $build 'install.cmd') -Encoding ascii
-$target=Join-Path $release 'QCodeSetup-0.3.0.exe'
+$target=Join-Path $release 'QCodeSetup-0.4.0.exe'
 $sed=@"
 [Version]
 Class=IEXPRESS
@@ -35,8 +38,8 @@ RebootMode=N
 InstallPrompt=Install QCode for the current Windows user?
 DisplayLicense=
 FinishMessage=QCode setup finished. Check the installer window for details.
-TargetName=..\QCodeSetup-0.3.0.exe
-FriendlyName=QCode 0.3.0
+TargetName=..\QCodeSetup-0.4.0.exe
+FriendlyName=QCode 0.4.0
 AppLaunched=install.cmd
 PostInstallCmd=<None>
 AdminQuietInstCmd=
@@ -56,12 +59,17 @@ FILE2="install.cmd"
 $sedPath=Join-Path $build 'package.sed'
 $sed|Set-Content -LiteralPath $sedPath -Encoding ascii
 $process=Start-Process -FilePath (Join-Path $env:WINDIR 'System32/iexpress.exe') -ArgumentList @('/N','/Q','package.sed') -WorkingDirectory $build -WindowStyle Hidden -PassThru
-if(-not $process.WaitForExit(60000)){throw 'IExpress compilation timed out; inspect the build process before retrying'}
+$elapsed=[Diagnostics.Stopwatch]::StartNew()
+$nextNotice=30
+while(-not $process.WaitForExit(1000)){
+    if($elapsed.Elapsed.TotalSeconds -ge $BuildTimeoutSeconds){throw "IExpress is still running (PID $($process.Id)); inspect it before retrying"}
+    if($elapsed.Elapsed.TotalSeconds -ge $nextNotice){Write-Output "Compressing installer ($([int]$elapsed.Elapsed.TotalSeconds)s)...";$nextNotice+=30}
+}
 if($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $target)){throw "IExpress did not produce an EXE (exit $($process.ExitCode)); the ZIP installer remains available"}
 if($CertificateThumbprint){$certificate=Get-Item -LiteralPath "Cert:/CurrentUser/My/$CertificateThumbprint";$signature=Set-AuthenticodeSignature -FilePath $target -Certificate $certificate -TimestampServer 'http://timestamp.digicert.com';if($signature.Status -ne 'Valid'){throw 'Installer signature validation failed'}}
 $manifestPath=Join-Path $release 'manifest.json'
 $manifest=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json
-$manifest|Add-Member -NotePropertyName installerUrl -NotePropertyValue '/downloads/QCodeSetup-0.3.0.exe' -Force
+$manifest|Add-Member -NotePropertyName installerUrl -NotePropertyValue '/downloads/QCodeSetup-0.4.0.exe' -Force
 $manifest|Add-Member -NotePropertyName installerSha256 -NotePropertyValue (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -Force
 [IO.File]::WriteAllText($manifestPath,($manifest|ConvertTo-Json),(New-Object Text.UTF8Encoding($false)))
 Write-Output "Built installer: $target"

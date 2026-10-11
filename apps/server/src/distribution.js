@@ -2,9 +2,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fail } from './domain.js';
-export function registerDistribution(app) {
-  const directory=fileURLToPath(new URL('../releases/',import.meta.url));
+export function registerDistribution(app,{directory=fileURLToPath(new URL('../releases/',import.meta.url))}={}) {
+  app.get('/downloads/installer',(_req,res)=>{
+    const filename=path.join(directory,'manifest.json');
+    if(!fs.existsSync(filename))fail(503,'INSTALLER_NOT_PUBLISHED','Windows 安装包尚未发布，请联系管理员');
+    const manifest=JSON.parse(fs.readFileSync(filename,'utf8'));
+    if(!/^\/downloads\/QCodeSetup-\d+\.\d+\.\d+\.exe$/.test(manifest.installerUrl||''))fail(503,'INSTALLER_NOT_PUBLISHED','Windows 安装包尚未发布，请联系管理员');
+    const name=path.basename(manifest.installerUrl);
+    if(!fs.existsSync(path.join(directory,name)))fail(503,'INSTALLER_NOT_PUBLISHED','Windows 安装包尚未发布，请联系管理员');
+    res.setHeader('Cache-Control','no-store');
+    res.download(path.join(directory,name),name);
+  });
   app.get('/downloads/manifest.json',(_req,res)=>{
+    res.setHeader('Cache-Control','no-store');
     const filename=path.join(directory,'manifest.json');
     if(!fs.existsSync(filename))fail(503,'CLIENT_NOT_PACKAGED','客户端安装包尚未生成，请运行 npm run package:client');
     res.sendFile(filename);

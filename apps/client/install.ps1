@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param([string]$Gateway='', [switch]$Update, [switch]$Rollback, [switch]$Uninstall, [switch]$SkipRuntime, [switch]$SkipHarness, [switch]$NoPath, [string]$InstallRoot='')
 $ErrorActionPreference='Stop'
-$version='0.3.0'
+$ProgressPreference='SilentlyContinue'
+# A Node/PowerShell 7 parent can pass a module search path incompatible with Windows PowerShell.
+$env:PSModulePath=(Join-Path $PSHOME 'Modules')+[IO.Path]::PathSeparator+$env:PSModulePath
+$version='0.4.0'
 if(-not $InstallRoot){$InstallRoot=if($env:QCODE_CLIENT_ROOT){$env:QCODE_CLIENT_ROOT}else{Join-Path $env:LOCALAPPDATA 'QCode'}}
 $InstallRoot=[IO.Path]::GetFullPath($InstallRoot)
 $utf8=New-Object Text.UTF8Encoding($false)
@@ -16,6 +19,20 @@ function Expand-CheckedArchive($Archive,$Destination){
     $zip=[IO.Compression.ZipFile]::OpenRead($Archive)
     try{foreach($entry in $zip.Entries){$entryPath=[IO.Path]::GetFullPath((Join-Path $target $entry.FullName));if(-not $entryPath.StartsWith($target+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Unsafe archive path'}}}finally{$zip.Dispose()}
     Expand-Archive -LiteralPath $Archive -DestinationPath $Destination -Force
+}
+function Install-CustomRuntime($Source,$Destination){
+        $runtimeMetadata=Join-Path $Source 'harness-bundle.json'
+        if(Test-Path -LiteralPath $runtimeMetadata){
+            $runtime=Get-Content -LiteralPath $runtimeMetadata -Raw|ConvertFrom-Json
+            $machineArch=if($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64'){'arm64'}else{'x64'}
+            if($runtime.brand -ne 'QCode' -or $runtime.platform -ne 'win32' -or $runtime.arch -ne $machineArch -or $runtime.entry -ne 'lib/bin.js' -or $runtime.sha256 -notmatch '^[a-f0-9]{64}$'){throw 'Custom Harness bundle is invalid or incompatible with this computer'}
+            $bundle=Join-Path $Source 'harness-bundle.zip'
+            if((Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant() -ne $runtime.sha256){throw 'Custom Harness checksum mismatch'}
+            $customStage=Join-Path $Destination 'harness-custom'
+            Expand-CheckedArchive $bundle $customStage
+            $embedded=Get-Content -LiteralPath (Join-Path $customStage 'qcode-runtime.json') -Raw|ConvertFrom-Json
+            if($embedded.commit -ne $runtime.commit -or $embedded.version -ne $runtime.version -or -not (Test-Path -LiteralPath (Join-Path $customStage 'lib/bin.js'))){throw 'Custom Harness payload does not match the release metadata'}
+        }
 }
 New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 $lockPath=Join-Path $InstallRoot 'install.lock'
@@ -38,7 +55,6 @@ try{
     $address=[Uri]$Gateway
     if(-not $address.IsAbsoluteUri -or $address.Scheme -notin @('http','https') -or $address.UserInfo -or $address.Query -or $address.Fragment -or $address.AbsolutePath -ne '/'){throw 'Invalid gateway origin'}
     $Gateway=$Gateway.TrimEnd('/')
-    if($Update -and $address.Scheme -ne 'https' -and -not $address.IsLoopback){throw 'Client updates require HTTPS (loopback development gateways are allowed)'}
     Invoke-RestMethod "$Gateway/health" -TimeoutSec 15|Out-Null
     $source=$PSScriptRoot
     if($Update){
@@ -52,17 +68,25 @@ try{
         Invoke-WebRequest "$Gateway$($manifest.downloadUrl)" -OutFile $archive -UseBasicParsing -TimeoutSec 180
         if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.sha256){throw 'Client archive checksum mismatch'}
         $source=Join-Path $cache 'source';Expand-CheckedArchive $archive $source
+        $releaseInfo=Get-Content -LiteralPath (Join-Path $source 'release.json') -Raw|ConvertFrom-Json
+        if($releaseInfo.version -ne $version){throw 'Downloaded client version does not match the manifest'}
     }
     $target=Assert-Child (Join-Path $InstallRoot "versions/$version")
     if(Test-Path -LiteralPath $target){
         $installed=Join-Path $target '.qcode-release.json'
         if(-not (Test-Path -LiteralPath $installed)){throw 'Release directory already exists without an ownership marker; refusing to overwrite'}
+        $desiredRuntime=Join-Path $source 'harness-bundle.json';$installedRuntime=Join-Path $target 'harness-bundle.json'
+        if((Test-Path -LiteralPath $desiredRuntime) -and (Test-Path -LiteralPath $installedRuntime)){
+            if((Get-Content -LiteralPath $desiredRuntime -Raw|ConvertFrom-Json).sha256 -ne (Get-Content -LiteralPath $installedRuntime -Raw|ConvertFrom-Json).sha256){throw 'This release version already contains a different Harness build; publish a new client version'}
+        }
+        if(-not (Test-Path -LiteralPath (Join-Path $target 'harness-custom/lib/bin.js'))){Install-CustomRuntime $source $target}
     }else{
         $stage=Assert-Child (Join-Path $InstallRoot ('versions/stage-'+[guid]::NewGuid().ToString('N')))
         New-Item -ItemType Directory -Force -Path $stage|Out-Null
         foreach($file in Get-ChildItem -LiteralPath $source -File){if($file.Extension -in @('.ps1','.cmd','.mjs','.json','.md')){Copy-Item -LiteralPath $file.FullName -Destination $stage}}
         $harnessSource=Join-Path $source 'harness';$harnessStage=Join-Path $stage 'harness';New-Item -ItemType Directory -Force -Path $harnessStage|Out-Null
         foreach($file in @('package.json','package-lock.json')){Copy-Item -LiteralPath (Join-Path $harnessSource $file) -Destination $harnessStage}
+        Install-CustomRuntime $source $stage
         Write-JsonFile (Join-Path $stage '.qcode-release.json') @{version=$version;installedAt=[DateTime]::UtcNow.ToString('o')}
         Move-Item -LiteralPath $stage -Destination $target
     }
@@ -78,20 +102,25 @@ try{
         if((Get-FileHash -LiteralPath $nodeArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected){throw 'Node runtime checksum mismatch'}
         Expand-CheckedArchive $nodeArchive $runtimeRoot
     }
-    if(-not $SkipHarness){
+    if(-not $SkipHarness -and -not (Test-Path -LiteralPath (Join-Path $target 'harness-custom/lib/bin.js'))){
         if(-not (Test-Path -LiteralPath $node)){if($env:QCODE_NODE){$node=$env:QCODE_NODE}else{throw 'A Node.js runtime is required to install Harness'}}
-        $harness=Assert-Child (Join-Path $InstallRoot 'harness');New-Item -ItemType Directory -Force -Path $harness|Out-Null
+        $harness=Assert-Child (Join-Path $target 'harness');New-Item -ItemType Directory -Force -Path $harness|Out-Null
         $desiredLock=Join-Path $target 'harness/package-lock.json';$savedLock=Join-Path $harness 'package-lock.json'
         $needsInstall=-not (Test-Path -LiteralPath (Join-Path $harness 'node_modules/@deepseek-ai/dsh/lib/bin.js'))
         if(-not (Test-Path -LiteralPath $savedLock) -or (Get-FileHash -LiteralPath $savedLock).Hash -ne (Get-FileHash -LiteralPath $desiredLock).Hash){$needsInstall=$true}
         if($needsInstall){
             # npm ci uses the reviewed lockfile and verifies package integrity hashes.
-            Copy-Item -LiteralPath $desiredLock -Destination $savedLock -Force
-            Copy-Item -LiteralPath (Join-Path $target 'harness/package.json') -Destination $harness -Force
+            # Dependencies belong to this release, so rollback switches the runtime too.
             $npm=Join-Path (Split-Path $node -Parent) 'node_modules/npm/bin/npm-cli.js'
             $oldPath=$env:PATH
             try{$env:PATH=(Split-Path $node -Parent)+';'+$env:PATH;& $node $npm ci --prefix $harness --no-audit --no-fund;if($LASTEXITCODE -ne 0){throw 'Harness dependency installation failed'}}finally{$env:PATH=$oldPath}
         }
+    }
+    $customEntry=Join-Path $target 'harness-custom/lib/bin.js'
+    if(Test-Path -LiteralPath $customEntry){
+        if(-not (Test-Path -LiteralPath $node)){if($env:QCODE_NODE){$node=$env:QCODE_NODE}else{throw 'Node is required to verify the custom runtime'}}
+        & $node $customEntry --help | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Custom Harness startup verification failed; current release was not changed'}
     }
     New-Item -ItemType Directory -Force -Path $bin|Out-Null
     Copy-Item -LiteralPath (Join-Path $target 'bootstrap.ps1') -Destination $bin -Force
