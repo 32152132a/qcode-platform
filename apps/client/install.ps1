@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 # A Node/PowerShell 7 parent can pass a module search path incompatible with Windows PowerShell.
 $env:PSModulePath=(Join-Path $PSHOME 'Modules')+[IO.Path]::PathSeparator+$env:PSModulePath
-$version='0.4.0'
+$version=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw|ConvertFrom-Json).version
 if(-not $InstallRoot){$InstallRoot=if($env:QCODE_CLIENT_ROOT){$env:QCODE_CLIENT_ROOT}else{Join-Path $env:LOCALAPPDATA 'QCode'}}
 $InstallRoot=[IO.Path]::GetFullPath($InstallRoot)
 $utf8=New-Object Text.UTF8Encoding($false)

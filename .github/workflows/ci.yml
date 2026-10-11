@@ -24,8 +24,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - run: npm run package:client
-      - name: Check PowerShell syntax and build installer
+      - name: Check PowerShell syntax
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -34,11 +33,6 @@ jobs:
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
             if ($errors.Count) { throw ($errors | Out-String) }
           }
-          & ../../scripts/build-installer.ps1
-      - uses: actions/upload-artifact@v4
-        with:
-          name: qcode-${{ runner.os }}
-          path: apps/server/releases/*.*
   browser:
     runs-on: ubuntu-latest
     defaults:

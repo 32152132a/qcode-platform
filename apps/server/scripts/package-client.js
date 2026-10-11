@@ -4,19 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 const outputIndex=process.argv.indexOf('--output');
 const source=fileURLToPath(new URL('../../client/',import.meta.url)), output=outputIndex>=0?path.resolve(process.argv[outputIndex+1]):fileURLToPath(new URL('../releases/',import.meta.url));
-const version='0.4.0';
+const {version}=JSON.parse(fs.readFileSync(path.join(source,'release.json'),'utf8'));
+if(!/^\d+\.\d+\.\d+$/.test(version))throw new Error('Invalid client release version');
 const bundleIndex=process.argv.indexOf('--harness-bundle');
 const bundle=bundleIndex>=0?path.resolve(process.argv[bundleIndex+1]||''):null;
-// Server startup must not replace a published custom build with the stock bootstrap.
-const existingManifest=path.join(output,'manifest.json');
-if(!bundle&&fs.existsSync(existingManifest)){
-  const published=JSON.parse(fs.readFileSync(existingManifest,'utf8').replace(/^\uFEFF/,''));
-  if(published.harnessBrand==='QCode'){
-    const archive=path.join(output,`qcode-client-${published.version}.zip`);
-    if(!/^\d+\.\d+\.\d+$/.test(published.version)||!fs.existsSync(archive)||createHash('sha256').update(fs.readFileSync(archive)).digest('hex')!==published.sha256)throw new Error('Published QCode archive is missing or damaged; restore it before starting');
-    console.log('Preserved published QCode custom client '+published.version);process.exit(0);
-  }
-}
+if(!bundle)throw new Error('Use scripts/release-client.ps1 or provide --harness-bundle; stock bootstrap releases are no longer supported');
 let runtime;
 if(bundle){
   runtime=JSON.parse(fs.readFileSync(bundle+'.json','utf8').replace(/^\uFEFF/,''));
@@ -42,7 +34,7 @@ for(const entry of entries){
 const directory=Buffer.concat(central),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(central.length/2,8);end.writeUInt16LE(central.length/2,10);end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);
 const archive=Buffer.concat([...local,directory,end]);fs.mkdirSync(output,{recursive:true});
 const name=`qcode-client-${version}.zip`;fs.writeFileSync(path.join(output,name),archive);
-const manifest={version,downloadUrl:`/downloads/${name}`,sha256:createHash('sha256').update(archive).digest('hex'),size:archive.length,nodeVersion:'24.19.0',harnessVersion:'0.2.0-rc.2'};
+const manifest={version,downloadUrl:`/downloads/${name}`,sha256:createHash('sha256').update(archive).digest('hex'),size:archive.length,nodeVersion:'24.19.0',harnessVersion:runtime.version};
 if(runtime)Object.assign(manifest,{harnessVersion:runtime.version,harnessCommit:runtime.commit,harnessBrand:'QCode',platform:runtime.platform,arch:runtime.arch});
 const manifestPath=path.join(output,'manifest.json');
 if(fs.existsSync(manifestPath)){

@@ -4,7 +4,7 @@ param(
     [string]$Gateway=$env:QCODE_GATEWAY,[string]$WorkDir='', [string]$HarnessEntry=$env:QCODE_HARNESS_ENTRY,[switch]$NoOpen
 )
 $ErrorActionPreference='Stop'
-$clientVersion='0.4.0'
+$clientVersion=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw|ConvertFrom-Json).version
 if($Command -eq 'help'){Write-Host 'qcode [web|tui|login|logout|switch|doctor|update|rollback] [-Gateway URL] [-WorkDir PATH] [-NoOpen]';exit 0}
 $clientRoot=if($env:QCODE_CLIENT_ROOT){$env:QCODE_CLIENT_ROOT}else{Join-Path $env:LOCALAPPDATA 'QCode'}
 New-Item -ItemType Directory -Force -Path $clientRoot | Out-Null

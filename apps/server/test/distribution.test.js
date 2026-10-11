@@ -27,8 +27,42 @@ test('employee downloads a complete EXE while updates still receive the ZIP',asy
   const response=await fetch(url+'/downloads/installer');assert.equal(response.status,200);assert.match(response.headers.get('content-disposition'),/QCodeSetup-0.4.0.exe/);assert.deepEqual(Buffer.from(await response.arrayBuffer()),exe);
   const metadata=await fetch(url+'/downloads/manifest.json');assert.equal(metadata.headers.get('cache-control'),'no-store');assert.equal((await metadata.json()).downloadUrl,manifest.downloadUrl);
   const partial=await fetch(url+manifest.installerUrl,{headers:{Range:'bytes=0-3'}});assert.equal(partial.status,206);
+  const lock=path.join(directory,'.publish.lock');fs.writeFileSync(lock,'another publisher');
+  assert.throws(()=>publishClient(source,directory),/publication is active/);
+  assert.equal(fs.readFileSync(lock,'utf8'),'another publisher');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'manifest.json'))),manifest);
+  fs.unlinkSync(lock);
   fs.writeFileSync(path.join(source,'QCodeSetup-0.4.0.exe'),'damaged');
   assert.throws(()=>publishClient(source,directory),/checksum/);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'manifest.json'))),manifest);
   assert.deepEqual(fs.readFileSync(path.join(directory,'QCodeSetup-0.4.0.exe')),exe);
+});
+
+test('successful publication retains only the latest Windows files and preserves the Mac namespace',t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-retention-'));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const source=path.join(root,'source'),destination=path.join(root,'releases');
+  fs.mkdirSync(source);fs.mkdirSync(destination);
+  const hash=data=>createHash('sha256').update(data).digest('hex');
+  function build(version){
+    const zip=Buffer.from('zip '+version),exe=Buffer.from('exe '+version);
+    const manifest={version,harnessBrand:'QCode',platform:'win32',downloadUrl:`/downloads/qcode-client-${version}.zip`,sha256:hash(zip),installerUrl:`/downloads/QCodeSetup-${version}.exe`,installerSha256:hash(exe)};
+    fs.writeFileSync(path.join(source,'manifest.json'),JSON.stringify(manifest));
+    fs.writeFileSync(path.join(source,`qcode-client-${version}.zip`),zip);
+    fs.writeFileSync(path.join(source,`QCodeSetup-${version}.exe`),exe);
+    return manifest;
+  }
+  build('1.0.0');publishClient(source,destination);
+  fs.writeFileSync(path.join(destination,'macos','QCode-1.0.0.dmg'),'future Mac fixture');
+  fs.writeFileSync(path.join(destination,'notes.txt'),'keep');
+  const next=build('1.0.1');
+  fs.writeFileSync(path.join(source,'QCodeSetup-1.0.1.exe'),'corrupt');
+  assert.throws(()=>publishClient(source,destination),/checksum/);
+  assert.ok(fs.existsSync(path.join(destination,'QCodeSetup-1.0.0.exe')));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(destination,'manifest.json'))).version,'1.0.0');
+  build('1.0.1');publishClient(source,destination);
+  assert.deepEqual(fs.readdirSync(destination).sort(),['QCodeSetup-1.0.1.exe','macos','manifest.json','notes.txt','qcode-client-1.0.1.zip'].sort());
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(destination,'manifest.json'))),next);
+  assert.equal(fs.readFileSync(path.join(destination,'macos','QCode-1.0.0.dmg'),'utf8'),'future Mac fixture');
+  assert.equal(fs.readFileSync(path.join(destination,'notes.txt'),'utf8'),'keep');
 });

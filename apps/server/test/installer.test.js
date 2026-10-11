@@ -34,8 +34,8 @@ test('custom runtime update validates checksum and rollback preserves user data'
   const bad=await install(['-Update']);assert.notEqual(bad.code,0);assert.match(bad.output,/checksum mismatch/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,'0.3.0');
   corrupt=false;const good=await install(['-Update']);assert.equal(good.code,0,good.output);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,'0.4.0');
-  assert.ok(fs.existsSync(path.join(root,'versions/0.4.0/harness-custom/lib/bin.js')));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,manifest.version);
+  assert.ok(fs.existsSync(path.join(root,`versions/${manifest.version}/harness-custom/lib/bin.js`)));
   assert.equal(fs.readFileSync(path.join(root,'saved-session-test'),'utf8'),'preserve me');
   const rollback=await install(['-Rollback']);assert.equal(rollback.code,0,rollback.output);
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,'0.3.0');

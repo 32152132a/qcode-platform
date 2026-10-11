@@ -16,7 +16,7 @@ export function registerDistribution(app,{directory=fileURLToPath(new URL('../re
   app.get('/downloads/manifest.json',(_req,res)=>{
     res.setHeader('Cache-Control','no-store');
     const filename=path.join(directory,'manifest.json');
-    if(!fs.existsSync(filename))fail(503,'CLIENT_NOT_PACKAGED','客户端安装包尚未生成，请运行 npm run package:client');
+    if(!fs.existsSync(filename))fail(503,'CLIENT_NOT_PACKAGED','客户端安装包尚未发布，请联系管理员');
     res.sendFile(filename);
   });
   app.get('/downloads/:filename',(req,res)=>{

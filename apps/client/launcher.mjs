@@ -7,7 +7,7 @@ import { syncSkills } from './skills.mjs';
 import { installUpdate } from './update.mjs';
 import { fileURLToPath } from 'node:url';
 import { prepareHarnessLaunch } from './harness-launch.mjs';
-export const version='0.4.0';
+export const {version}=JSON.parse(fs.readFileSync(new URL('./release.json',import.meta.url),'utf8'));
 export function compareVersions(a,b){const left=a.split('.').map(Number),right=b.split('.').map(Number);for(let i=0;i<3;i++){if(left[i]!==right[i])return left[i]-right[i];}return 0;}
 const args=Object.fromEntries(process.argv.slice(2).reduce((all,value,index,array)=>{if(value.startsWith('--'))all.push([value.slice(2),array[index+1]]);return all;},[]));
 let releaseLock,bridge,child,timer,stopping=false;

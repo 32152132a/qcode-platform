@@ -33,7 +33,7 @@ cd ../..
 - [交付边界、部署及统一验收清单](docs/product-handoff.md)
 - [客户端源码与安装脚本](apps/client)
 
-运行 `node apps/server/scripts/package-client.js` 构建 ZIP，再在 Windows 运行 `./scripts/build-installer.ps1` 构建 EXE。产物在 `apps/server/releases/`，不纳入源码 Git；网关提供下载接口。EXE 默认未签名，签名需提供企业证书。
+在 Windows 运行 `./scripts/release-client.ps1`，完成测试、构建定制客户端、生成 EXE、上传和切换下载版本。仅本地打包加 `-BuildOnly`。产物在忽略提交的 `artifacts/`，服务器发行卷独立于源码；首次使用需先部署支持发行卷的网关。参见 [客户端发布说明](docs/CUSTOM-CLIENT.md)。EXE 默认未签名，签名需提供企业证书。
 
 ```powershell
 ./Start-QCode.ps1 test
