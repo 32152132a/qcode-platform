@@ -25,7 +25,9 @@ test('Windows release command uploads before activation and stops on preflight o
     if(args.at(-1).startsWith('docker inspect '))console.log(JSON.stringify([{State:{Running:true},Mounts:process.env.QCODE_RELEASE_TEST_MODE==='missing-mount'?[]:[{Type:'volume',RW:true,Destination:'/app/apps/server/releases'}]}]));
   `);
   for(const tool of ['ssh','scp'])fs.writeFileSync(path.join(temporary,tool+'.cmd'),`@echo off\r\nnode "%~dp0remote.cjs" ${tool} %*\r\n`);
-  const script=fileURLToPath(new URL('../../../scripts/release-client.ps1',import.meta.url));
+  const scripts=path.join(temporary,'scripts');fs.mkdirSync(scripts);
+  const script=path.join(scripts,'release-client.ps1');
+  fs.copyFileSync(fileURLToPath(new URL('../../../scripts/release-client.ps1',import.meta.url)),script);
   async function run(mode,target='tester@example.invalid'){
     fs.writeFileSync(log,'');
     const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-PublishDirectory',release,'-Target',target,'-SshKey',key],{windowsHide:true,env:{...process.env,PATH:temporary+path.delimiter+path.dirname(process.execPath)+path.delimiter+process.env.PATH,QCODE_RELEASE_TEST_LOG:log,QCODE_RELEASE_TEST_MODE:mode}});

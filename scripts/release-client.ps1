@@ -27,6 +27,13 @@ function Read-Release([string]$Directory){
 }
 if($BuildOnly -and $PublishDirectory){throw '-BuildOnly cannot be combined with -PublishDirectory'}
 if($PublishDirectory -and $HarnessBundle){throw '-PublishDirectory cannot be combined with -HarnessBundle'}
+$artifacts=Join-Path $root 'artifacts'
+New-Item -ItemType Directory -Force -Path $artifacts|Out-Null
+$lockPath=Join-Path $artifacts 'client-release.lock'
+try{$releaseLock=[IO.File]::Open($lockPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)}
+catch{throw 'A release may already be running. Inspect artifacts/client-release.lock before retrying.'}
+try{
+$publishedVersion=''
 $nodeVersion=& node --version
 if($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v(\d+)\.' -or [int]$Matches[1] -lt 24){throw 'Use Node.js 24 or newer in this terminal'}
 if($PublishDirectory){$release=(Resolve-Path -LiteralPath $PublishDirectory).Path;$manifest=Read-Release $release}
@@ -43,6 +50,9 @@ if(-not $BuildOnly){
     $mount=@($gateway.Mounts|Where-Object {$_.Destination -eq '/app/apps/server/releases' -and $_.RW -and $_.Type -in @('volume','bind')})
     if($mount.Count -ne 1){throw 'Persistent writable release mount is missing; deploy the updated compose configuration first'}
     Invoke-Checked 'ssh' ($sshArguments+@($Target,"docker exec $Container test -f /app/apps/server/scripts/publish-client.js"))
+    $remoteManifest=Invoke-Checked 'ssh' ($sshArguments+@($Target,"docker exec $Container sh -c 'if test -f /app/apps/server/releases/manifest.json; then cat /app/apps/server/releases/manifest.json; else echo {}; fi'"))
+    if($remoteManifest){$publishedVersion=(($remoteManifest -join "`n")|ConvertFrom-Json).version}
+
 }
 if(-not $PublishDirectory){
     $release=Join-Path $root ('artifacts/release-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid().ToString('N').Substring(0,8))
@@ -59,6 +69,7 @@ if(-not $PublishDirectory){
         if($bundles.Count -ne 1){throw 'Expected exactly one Harness bundle'}
         $HarnessBundle=$bundles[0].FullName
     }
+    Invoke-Checked 'node' @((Join-Path $PSScriptRoot 'next-client-version.mjs'),(Join-Path $root 'apps/client/release.json'),$publishedVersion)
     Invoke-Checked 'node' @((Join-Path $root 'apps/server/scripts/package-client.js'),'--harness-bundle',(Resolve-Path -LiteralPath $HarnessBundle).Path,'--output',$release)
     & (Join-Path $PSScriptRoot 'build-installer.ps1') -ReleaseDirectory $release -CertificateThumbprint $CertificateThumbprint
     $previousRelease=$env:QCODE_TEST_RELEASE_DIRECTORY
@@ -84,3 +95,8 @@ try{
 }catch{Write-Warning "Release is active, but staging cleanup failed: $stage. $($_.Exception.Message)"}
 Write-Host "Published QCode $($manifest.version). Download: http://code.quyongqing.cn/downloads/installer"
 Write-Host "Local artifacts: $release"
+
+}finally{
+    $releaseLock.Dispose()
+    Remove-Item -LiteralPath $lockPath
+}

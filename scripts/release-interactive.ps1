@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$PublishExisting)
+param()
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 $previousPath=$env:PATH
@@ -17,22 +17,8 @@ try{
     if(-not $node){throw 'Install Node.js 24 or newer, or set QCODE_NODE to node.exe.'}
     $env:PATH=(Split-Path $node -Parent)+';'+$env:PATH
     $releaseScript=Join-Path $PSScriptRoot 'release-client.ps1'
-    if($PublishExisting){
-        Add-Type -AssemblyName System.Windows.Forms
-        $picker=New-Object System.Windows.Forms.FolderBrowserDialog
-        try{
-            $picker.Description='Select the release folder containing manifest.json, EXE and ZIP'
-            $picker.SelectedPath=Join-Path $root 'artifacts'
-            $picker.ShowNewFolderButton=$false
-            if($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){Write-Host 'Cancelled. No release uploaded.';exit 0}
-            $release=$picker.SelectedPath
-        }finally{$picker.Dispose()}
-        & $releaseScript -PublishDirectory $release
-    }else{
-        Write-Host 'Build, test and publish QCode to the configured server.'
-        Write-Host 'For a new release, update apps/client/release.json before running this command.'
-        & $releaseScript
-    }
+    Write-Host 'Automatically increment version, build, test and publish QCode.'
+    & $releaseScript
     Write-Host 'QCode release completed.' -ForegroundColor Green
 }catch{
     Write-Host ('Release stopped: '+$_.Exception.Message) -ForegroundColor Red

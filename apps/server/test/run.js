@@ -7,3 +7,4 @@ import './maintenance.test.js';
 import './reports.test.js';
 
 import './release-script.test.js';
+import './release-version.test.js';
