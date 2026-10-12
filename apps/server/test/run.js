@@ -8,3 +8,7 @@ import './reports.test.js';
 
 import './release-script.test.js';
 import './release-version.test.js';
+
+import './opencode-launch.test.js';
+
+import './opencode-web.test.js';

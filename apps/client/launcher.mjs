@@ -7,13 +7,17 @@ import { syncSkills } from './skills.mjs';
 import { installUpdate } from './update.mjs';
 import { fileURLToPath } from 'node:url';
 import { prepareHarnessLaunch } from './harness-launch.mjs';
-export const {version}=JSON.parse(fs.readFileSync(new URL('./release.json',import.meta.url),'utf8'));
+import { prepareOpenCodeLaunch } from './opencode-launch.mjs';
+import { startOpenCodeWeb, waitForOpenCodeServer } from './opencode-web.mjs';
+export const {version,runtime:clientRuntime}=JSON.parse(fs.readFileSync(new URL('./release.json',import.meta.url),'utf8'));
 export function compareVersions(a,b){const left=a.split('.').map(Number),right=b.split('.').map(Number);for(let i=0;i<3;i++){if(left[i]!==right[i])return left[i]-right[i];}return 0;}
 const args=Object.fromEntries(process.argv.slice(2).reduce((all,value,index,array)=>{if(value.startsWith('--'))all.push([value.slice(2),array[index+1]]);return all;},[]));
-let releaseLock,bridge,child,timer,stopping=false;
+const useOpenCode=args.runtime==='opencode';
+let releaseLock,bridge,child,web,timer,stopping=false;
 async function close(code=0){
   if(stopping)return;stopping=true;clearInterval(timer);
   if(child && child.exitCode===null)child.kill();
+  await web?.close();
   await bridge?.close(); releaseLock?.();releaseLock=null;process.exitCode=code;
 }
 try{
@@ -22,10 +26,10 @@ try{
   const store=secureStore(args.session), session=new GatewaySession(args.gateway,store.read(),value=>store.write(value));
   await session.renew();
   const startupConfig=await session.json('/client/config');
-  if(startupConfig.autoUpdate && !process.env.QCODE_SKIP_UPDATE){
+  if(startupConfig.autoUpdate && (!useOpenCode||clientRuntime==='opencode') && !process.env.QCODE_SKIP_UPDATE){
     const installRoot=path.dirname(path.dirname(args.session));
     let updated=false;
-    try{updated=await installUpdate(args.gateway,version,installRoot,fileURLToPath(new URL('./install.ps1',import.meta.url)));}
+    try{updated=await installUpdate(args.gateway,version,installRoot,fileURLToPath(new URL('./install.ps1',import.meta.url)),clientRuntime);}
     catch(error){console.warn(`QCode 更新检查失败：${error.message}。继续检查当前版本是否允许使用。`);}
     if(updated){
       releaseLock();releaseLock=null;
@@ -36,7 +40,7 @@ try{
   }
   const userId=session.session.user.id;
   if(!Number.isSafeInteger(userId)||userId<1)throw new Error('Invalid account identity');
-  const userRoot=path.join(path.dirname(args.session),'users',String(userId)), home=path.join(userRoot,(args.mode||'tui')==='tui'?'harness-tui':'harness');
+  const userRoot=path.join(path.dirname(args.session),'users',String(userId)), home=path.join(userRoot,useOpenCode?'opencode':(args.mode||'tui')==='tui'?'harness-tui':'harness');
   const workdir=path.resolve(args.workdir||path.join(userRoot,'workspace'));
   fs.mkdirSync(workdir,{recursive:true});fs.mkdirSync(home,{recursive:true});
   let skillsRevision;
@@ -47,13 +51,26 @@ try{
   }
   bridge=await startBridge(session,{onConfig:updateSkills});await updateSkills(bridge.configuration);
   const config=bridge.configuration;
-  const launchArgs=prepareHarnessLaunch({entry:args.entry,mode:args.mode||'tui',home,config,workdir,baseUrl:bridge.baseUrl,noOpen:args['no-open']==='true'});
+  const launchArgs=useOpenCode?[]:prepareHarnessLaunch({entry:args.entry,mode:args.mode||'tui',home,config,workdir,baseUrl:bridge.baseUrl,noOpen:args['no-open']==='true'});
   const env={...process.env,DSH_HOME:home,DSH_AGENTS_HOME:path.join(userRoot,(args.mode||'tui')==='tui'?'agents-tui':'agents'),QCODE_TOKEN:bridge.token};delete env.DEEPSEEK_API_KEY;delete env.OPENAI_API_KEY;
   console.log(`QCode ${version} · ${session.session.user.username} · ${workdir}`);
-  child=spawn(process.execPath,launchArgs,{cwd:workdir,env,stdio:'inherit',windowsHide:true});
-  child.once('error',async()=>{console.error('Harness 启动失败，请运行 qcode doctor');await close(1);});
+  const launch=useOpenCode?prepareOpenCodeLaunch({entry:args.entry,mode:args.mode||'tui',home,config,baseUrl:bridge.baseUrl,token:bridge.token}):{command:process.execPath,args:launchArgs,env};
+  const webMode=useOpenCode&&args.mode==='web';
+  child=spawn(launch.command,launch.args,{cwd:workdir,env:launch.env,stdio:webMode?['ignore','pipe','inherit']:'inherit',windowsHide:true});
+  child.once('error',async()=>{console.error('QCode 运行内核启动失败，请运行 qcode doctor');await close(1);});
   child.once('exit',code=>void close(code||0));
+  for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>void close());
+  if(webMode){
+    const upstreamUrl=await waitForOpenCodeServer(child);
+    web=await startOpenCodeWeb({upstreamUrl,username:launch.env.OPENCODE_SERVER_USERNAME,password:launch.env.OPENCODE_SERVER_PASSWORD,workdir});
+    if(stopping){await web.close();throw new Error('QCode Web stopped during startup');}
+    console.log(`QCode Web: ${web.url}`);
+    if(args['no-open']!=='true'){
+      const browser=spawn('rundll32.exe',['url.dll,FileProtocolHandler',web.url],{stdio:'ignore',windowsHide:true});
+      browser.once('error',()=>console.warn('无法自动打开浏览器，请复制上方 QCode Web 地址。'));
+      browser.once('exit',code=>{if(code)console.warn('浏览器启动失败，请复制上方 QCode Web 地址。');});
+    }
+  }
   let heartbeat=false;
   timer=setInterval(async()=>{if(heartbeat||stopping)return;heartbeat=true;try{await session.renew();await bridge.refreshConfig(true);}catch(error){console.error(`QCode: ${error.message}`);if(['INVALID_TOKEN','USER_DISABLED','CLIENT_VERSION_REQUIRED'].includes(error.code))await close(1);}finally{heartbeat=false;}},45000);
-  for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>void close());
 }catch(error){console.error(`QCode: ${error.message}`);await close(1);}

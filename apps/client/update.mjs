@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 export function newerVersion(left,right){const a=left.split('.').map(Number),b=right.split('.').map(Number);for(let i=0;i<3;i++)if(a[i]!==b[i])return a[i]>b[i];return false;}
-export async function installUpdate(gateway,currentVersion,installRoot,installer) {
+export async function installUpdate(gateway,currentVersion,installRoot,installer,expectedRuntime) {
   const url=new URL(gateway);
   if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw new Error('无效的更新网关地址');
   if(!fs.existsSync(path.join(installRoot,'current.json')))return false;
@@ -10,6 +10,7 @@ export async function installUpdate(gateway,currentVersion,installRoot,installer
   if(!response.ok)throw new Error('暂时无法获取客户端更新');
   const manifest=await response.json();
   if(!/^\d+\.\d+\.\d+$/.test(manifest.version))throw new Error('无效的客户端更新版本');
+  if(expectedRuntime==='opencode'&&manifest.runtime!=='opencode')throw new Error('Update contains an incompatible runtime');
   if(!newerVersion(manifest.version,currentVersion))return false;
   await new Promise((resolve,reject)=>{
     const process=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',installer,'-Gateway',gateway,'-Update','-InstallRoot',installRoot],{stdio:'inherit',windowsHide:true});

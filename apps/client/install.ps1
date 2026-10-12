@@ -51,6 +51,17 @@ function Install-CustomRuntime($Source,$Destination){
             if($embedded.commit -ne $runtime.commit -or $embedded.version -ne $runtime.version -or -not (Test-Path -LiteralPath (Join-Path $customStage 'lib/bin.js'))){throw 'Custom Harness payload does not match the release metadata'}
         }
 }
+function Install-OpenCodeRuntime($Source,$Destination){
+    $info=Get-Content -LiteralPath (Join-Path $Source 'opencode-bundle.json') -Raw|ConvertFrom-Json
+    $machineArch=if($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64'){'arm64'}else{'x64'}
+    if($info.runtime -ne 'opencode' -or $info.brand -ne 'QCode' -or $info.platform -ne 'win32' -or $info.arch -ne $machineArch -or $info.entry -ne 'bin/qcode-engine.exe' -or $info.sha256 -notmatch '^[a-f0-9]{64}$' -or $info.binarySha256 -notmatch '^[a-f0-9]{64}$'){throw 'Invalid or incompatible OpenCode bundle'}
+    $archive=Join-Path $Source 'opencode-bundle.zip'
+    if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $info.sha256){throw 'OpenCode bundle checksum mismatch'}
+    $runtime=Join-Path $Destination 'opencode'
+    Expand-CheckedArchive $archive $runtime
+    $embedded=Get-Content -LiteralPath (Join-Path $runtime 'qcode-runtime.json') -Raw|ConvertFrom-Json
+    if($embedded.version -ne $info.version -or $embedded.commit -ne $info.commit -or (Get-FileHash -LiteralPath (Join-Path $runtime $info.entry) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $info.binarySha256){throw 'OpenCode payload does not match its metadata'}
+}
 function Install-TuiRuntime($Source,$Destination){
     $metadata=Join-Path $Source 'tui-bundle.json'
     if(-not (Test-Path -LiteralPath $metadata)){throw 'TUI bundle is missing; download the complete QCode installer'}
@@ -72,7 +83,7 @@ try{$installLock=[IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileA
 try{
     $current=if(Test-Path -LiteralPath $pointerFile){Get-Content -LiteralPath $pointerFile -Raw|ConvertFrom-Json}else{$null}
     if($Uninstall){
-        foreach($name in @('qcode.cmd','bootstrap.ps1')){$target=Assert-Child (Join-Path $bin $name);if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target}}
+        foreach($name in @('qcode.cmd','qcodeweb.cmd','bootstrap.ps1')){$target=Assert-Child (Join-Path $bin $name);if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target}}
         if(-not $NoPath){$entries=@([Environment]::GetEnvironmentVariable('Path','User') -split ';'|Where-Object{$_ -and $_ -ne $bin});[Environment]::SetEnvironmentVariable('Path',($entries -join ';'),'User');if(Test-Path -LiteralPath $shortcutFile){Remove-Item -LiteralPath $shortcutFile}}
         Write-Host 'QCode command removed. Projects, encrypted sessions and runtime files were preserved.';return
     }
@@ -91,6 +102,8 @@ try{
     $source=$PSScriptRoot
     if($Update){
         $manifest=Invoke-RestMethod "$Gateway/downloads/manifest.json" -TimeoutSec 15
+        $installerRuntime=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw|ConvertFrom-Json).runtime
+        if($installerRuntime -eq 'opencode' -and $manifest.runtime -ne 'opencode'){throw 'Update contains an incompatible runtime'}
         if($manifest.version -notmatch '^\d+\.\d+\.\d+$' -or $manifest.sha256 -notmatch '^[a-f0-9]{64}$' -or $manifest.downloadUrl -notmatch '^/downloads/qcode-client-\d+\.\d+\.\d+\.zip$'){throw 'Invalid release manifest'}
         if($current -and [version]$manifest.version -le [version]$current.version){Write-Host 'QCode is already current.';return}
         $version=$manifest.version
@@ -102,11 +115,21 @@ try{
         $source=Join-Path $cache 'source';Expand-CheckedArchive $archive $source
         $releaseInfo=Get-Content -LiteralPath (Join-Path $source 'release.json') -Raw|ConvertFrom-Json
         if($releaseInfo.version -ne $version){throw 'Downloaded client version does not match the manifest'}
+        if(($manifest.runtime -eq 'opencode') -ne ($releaseInfo.runtime -eq 'opencode')){throw 'Downloaded client runtime does not match the manifest'}
     }
+    $isOpenCode=(Get-Content -LiteralPath (Join-Path $source 'release.json') -Raw|ConvertFrom-Json).runtime -eq 'opencode'
     $target=Assert-Child (Join-Path $InstallRoot "versions/$version")
     if(Test-Path -LiteralPath $target){
         $installed=Join-Path $target '.qcode-release.json'
         if(-not (Test-Path -LiteralPath $installed)){throw 'Release directory already exists without an ownership marker; refusing to overwrite'}
+        if($isOpenCode){
+            $desired=Get-Content -LiteralPath (Join-Path $source 'opencode-bundle.json') -Raw|ConvertFrom-Json
+            $saved=Get-Content -LiteralPath (Join-Path $target 'opencode-bundle.json') -Raw|ConvertFrom-Json
+            if($desired.sha256 -ne $saved.sha256){throw 'This version contains a different OpenCode build; publish a new client version'}
+            $entry=Join-Path $target 'opencode/bin/qcode-engine.exe'
+            if(-not (Test-Path -LiteralPath $entry)){Install-OpenCodeRuntime $source $target}
+            elseif((Get-FileHash -LiteralPath $entry -Algorithm SHA256).Hash.ToLowerInvariant() -ne $saved.binarySha256){throw 'Installed OpenCode checksum mismatch'}
+        }else{
         $desiredRuntime=Join-Path $source 'harness-bundle.json';$installedRuntime=Join-Path $target 'harness-bundle.json'
         if((Test-Path -LiteralPath $desiredRuntime) -and (Test-Path -LiteralPath $installedRuntime)){
             if((Get-Content -LiteralPath $desiredRuntime -Raw|ConvertFrom-Json).sha256 -ne (Get-Content -LiteralPath $installedRuntime -Raw|ConvertFrom-Json).sha256){throw 'This release version already contains a different Harness build; publish a new client version'}
@@ -116,14 +139,17 @@ try{
         $installedTui=Get-Content -LiteralPath (Join-Path $target 'tui-bundle.json') -Raw|ConvertFrom-Json
         if($desiredTui.sha256 -ne $installedTui.sha256){throw 'This version contains a different TUI build; publish a new client version'}
         if(-not (Test-Path -LiteralPath (Join-Path $target 'harness-tui/node_modules/@deepseek-ai/dsh/lib/bin.js'))){Install-TuiRuntime $source $target}
+        }
     }else{
         $stage=Assert-Child (Join-Path $InstallRoot ('versions/stage-'+[guid]::NewGuid().ToString('N')))
         New-Item -ItemType Directory -Force -Path $stage|Out-Null
         foreach($file in Get-ChildItem -LiteralPath $source -File){if($file.Extension -in @('.ps1','.cmd','.mjs','.json','.md')){Copy-Item -LiteralPath $file.FullName -Destination $stage}}
+        if($isOpenCode){Install-OpenCodeRuntime $source $stage}else{
         $harnessSource=Join-Path $source 'harness';$harnessStage=Join-Path $stage 'harness';New-Item -ItemType Directory -Force -Path $harnessStage|Out-Null
         foreach($file in @('package.json','package-lock.json')){Copy-Item -LiteralPath (Join-Path $harnessSource $file) -Destination $harnessStage}
         Install-CustomRuntime $source $stage
         Install-TuiRuntime $source $stage
+        }
         Write-JsonFile (Join-Path $stage '.qcode-release.json') @{version=$version;installedAt=[DateTime]::UtcNow.ToString('o')}
         Move-Item -LiteralPath $stage -Destination $target
     }
@@ -155,7 +181,7 @@ try{
             Move-Item -LiteralPath (Join-Path $nodeStage "node-v24.19.0-win-$architecture") -Destination $nodeDirectory
         }finally{if(Test-Path -LiteralPath $nodeStage){Remove-Item -LiteralPath $nodeStage -Recurse -Force}}
     }
-    if(-not $SkipHarness -and -not (Test-Path -LiteralPath (Join-Path $target 'harness-custom/lib/bin.js'))){
+    if(-not $isOpenCode -and -not $SkipHarness -and -not (Test-Path -LiteralPath (Join-Path $target 'harness-custom/lib/bin.js'))){
         if(-not (Test-Path -LiteralPath $node)){if($env:QCODE_NODE){$node=$env:QCODE_NODE}else{throw 'A Node.js runtime is required to install Harness'}}
         $harness=Assert-Child (Join-Path $target 'harness');New-Item -ItemType Directory -Force -Path $harness|Out-Null
         $desiredLock=Join-Path $target 'harness/package-lock.json';$savedLock=Join-Path $harness 'package-lock.json'
@@ -169,6 +195,12 @@ try{
             try{$env:PATH=(Split-Path $node -Parent)+';'+$env:PATH;& $node $npm ci --prefix $harness --no-audit --no-fund;if($LASTEXITCODE -ne 0){throw 'Harness dependency installation failed'}}finally{$env:PATH=$oldPath}
         }
     }
+    if($isOpenCode){
+        $engine=Join-Path $target 'opencode/bin/qcode-engine.exe'
+        $expectedVersion=(Get-Content -LiteralPath (Join-Path $target 'opencode-bundle.json') -Raw|ConvertFrom-Json).version
+        $actualVersion=& $engine --version
+        if($LASTEXITCODE -ne 0 -or ($actualVersion -join '').Trim() -ne $expectedVersion){throw 'OpenCode startup verification failed; current release was not changed'}
+    }else{
     $customEntry=Join-Path $target 'harness-custom/lib/bin.js'
     if(Test-Path -LiteralPath $customEntry){
         if(-not (Test-Path -LiteralPath $node)){if($env:QCODE_NODE){$node=$env:QCODE_NODE}else{throw 'Node is required to verify the custom runtime'}}
@@ -177,9 +209,11 @@ try{
     }
     & $node (Join-Path $target 'harness-tui/node_modules/@deepseek-ai/dsh/lib/bin.js') --help | Out-Null
     if($LASTEXITCODE -ne 0){throw 'TUI core startup verification failed; current release was not changed'}
+    }
     New-Item -ItemType Directory -Force -Path $bin|Out-Null
     Copy-Item -LiteralPath (Join-Path $target 'bootstrap.ps1') -Destination $bin -Force
     [IO.File]::WriteAllText((Join-Path $bin 'qcode.cmd'),"@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0bootstrap.ps1`" %*`r`n",[Text.Encoding]::ASCII)
+    [IO.File]::WriteAllText((Join-Path $bin 'qcodeweb.cmd'),"@echo off`r`ncall `"%~dp0qcode.cmd`" web %*`r`n",[Text.Encoding]::ASCII)
     Write-JsonFile $pointerFile @{version=$version;previous=$(if($current -and $current.version -ne $version){$current.version}else{$current.previous})}
     Write-JsonFile (Join-Path $InstallRoot 'settings.json') @{gateway=$Gateway}
     if(-not $NoPath){

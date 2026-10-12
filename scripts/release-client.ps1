@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$BuildOnly,
-    [string]$HarnessRepository='',
-    [string]$HarnessBundle='',
+    [string]$OpenCodeRepository='',
+    [string]$OpenCodeBundle='',
     [string]$PublishDirectory='',
     [string]$Target='root@81.69.61.183',
     [string]$SshKey='',
@@ -26,7 +26,7 @@ function Read-Release([string]$Directory){
     return $manifest
 }
 if($BuildOnly -and $PublishDirectory){throw '-BuildOnly cannot be combined with -PublishDirectory'}
-if($PublishDirectory -and $HarnessBundle){throw '-PublishDirectory cannot be combined with -HarnessBundle'}
+if($PublishDirectory -and $OpenCodeBundle){throw '-PublishDirectory cannot be combined with -OpenCodeBundle'}
 $artifacts=Join-Path $root 'artifacts'
 New-Item -ItemType Directory -Force -Path $artifacts|Out-Null
 $lockPath=Join-Path $artifacts 'client-release.lock'
@@ -59,18 +59,14 @@ if(-not $PublishDirectory){
     New-Item -ItemType Directory -Path $release -Force|Out-Null
     Write-Host "Building in $release"
     Invoke-Checked 'node' @((Join-Path $root 'apps/server/test/run.js'))
-    if(-not $HarnessBundle){
-        if(-not $HarnessRepository){$HarnessRepository=Join-Path (Split-Path $root -Parent) 'qcode-harness'}
-        Push-Location $HarnessRepository
-        try{Invoke-Checked 'pnpm' @('run','build:qcode')}finally{Pop-Location}
+    if(-not $OpenCodeBundle){
+        if(-not $OpenCodeRepository){$OpenCodeRepository=Join-Path (Split-Path $root -Parent) 'qcode-opencode'}
         $bundleDirectory=Join-Path $release 'runtime-build'
-        & (Join-Path $PSScriptRoot 'build-harness-bundle.ps1') -HarnessRepository $HarnessRepository -OutputDirectory $bundleDirectory
-        $bundles=@(Get-ChildItem -LiteralPath $bundleDirectory -Filter '*.zip' -File)
-        if($bundles.Count -ne 1){throw 'Expected exactly one Harness bundle'}
-        $HarnessBundle=$bundles[0].FullName
+        & (Join-Path $PSScriptRoot 'build-opencode-bundle.ps1') -OpenCodeRepository $OpenCodeRepository -OutputDirectory $bundleDirectory
+        $OpenCodeBundle=Join-Path $bundleDirectory 'qcode-opencode-bundle.zip'
     }
-    $runtime=Get-Content -LiteralPath ($HarnessBundle+'.json') -Raw|ConvertFrom-Json
-    if($runtime.platform -ne 'win32' -or $runtime.arch -notin @('x64','arm64')){throw 'Unsupported Harness platform'}
+    $runtime=Get-Content -LiteralPath ($OpenCodeBundle+'.json') -Raw|ConvertFrom-Json
+    if($runtime.runtime -ne 'opencode' -or $runtime.platform -ne 'win32' -or $runtime.arch -notin @('x64','arm64')){throw 'Unsupported OpenCode platform'}
     $nodeCache=Join-Path $artifacts 'node-cache'
     New-Item -ItemType Directory -Force -Path $nodeCache|Out-Null
     $nodeName="node-v24.19.0-win-$($runtime.arch).zip"
@@ -82,11 +78,8 @@ if(-not $PublishDirectory){
     }
     $nodeHash=if($runtime.arch -eq 'arm64'){'8502f4a50b458d4cc38ed8f2001556c2cd239d464920f74017926ccb1e1c157f'}else{'57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'}
     if((Get-FileHash -LiteralPath $nodeArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $nodeHash){throw "Node cache checksum mismatch; remove the damaged file and retry: $nodeArchive"}
-    $tuiDirectory=Join-Path $release 'tui-build'
-    & (Join-Path $PSScriptRoot 'build-tui-bundle.ps1') -OutputDirectory $tuiDirectory
-    $tuiBundle=Join-Path $tuiDirectory 'qcode-tui-bundle.zip'
     Invoke-Checked 'node' @((Join-Path $PSScriptRoot 'next-client-version.mjs'),(Join-Path $root 'apps/client/release.json'),$publishedVersion)
-    Invoke-Checked 'node' @((Join-Path $root 'apps/server/scripts/package-client.js'),'--harness-bundle',(Resolve-Path -LiteralPath $HarnessBundle).Path,'--output',$release,'--node-archive',$nodeArchive,'--tui-bundle',$tuiBundle)
+    Invoke-Checked 'node' @((Join-Path $root 'apps/server/scripts/package-client.js'),'--opencode-bundle',(Resolve-Path -LiteralPath $OpenCodeBundle).Path,'--output',$release,'--node-archive',$nodeArchive)
     & (Join-Path $PSScriptRoot 'build-installer.ps1') -ReleaseDirectory $release -CertificateThumbprint $CertificateThumbprint
     $previousRelease=$env:QCODE_TEST_RELEASE_DIRECTORY
     try{

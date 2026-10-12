@@ -46,7 +46,7 @@ function Invoke-WebRequest {
   assert.match(good.output,/Installing the bundled Node/);
   assert.ok(fs.existsSync(path.join(root,`runtime/node-v24.19.0-win-${manifest.arch}/node.exe`)));
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,manifest.version);
-  assert.ok(fs.existsSync(path.join(root,`versions/${manifest.version}/harness-custom/lib/bin.js`)));
+  assert.ok(fs.existsSync(path.join(root,`versions/${manifest.version}/${manifest.runtime==='opencode'?'opencode/bin/qcode-engine.exe':'harness-custom/lib/bin.js'}`)));
   assert.equal(fs.readFileSync(path.join(root,'saved-session-test'),'utf8'),'preserve me');
   const rollback=await install(['-Rollback']);assert.equal(rollback.code,0,rollback.output);
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,'0.3.0');

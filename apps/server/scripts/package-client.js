@@ -6,19 +6,23 @@ const outputIndex=process.argv.indexOf('--output');
 const source=fileURLToPath(new URL('../../client/',import.meta.url)), output=outputIndex>=0?path.resolve(process.argv[outputIndex+1]):fileURLToPath(new URL('../releases/',import.meta.url));
 const {version}=JSON.parse(fs.readFileSync(path.join(source,'release.json'),'utf8'));
 if(!/^\d+\.\d+\.\d+$/.test(version))throw new Error('Invalid client release version');
-const bundleIndex=process.argv.indexOf('--harness-bundle');
+const openCodeIndex=process.argv.indexOf('--opencode-bundle');
+const isOpenCode=openCodeIndex>=0;
+const bundleIndex=isOpenCode?openCodeIndex:process.argv.indexOf('--harness-bundle');
 const bundle=bundleIndex>=0?path.resolve(process.argv[bundleIndex+1]||''):null;
-if(!bundle)throw new Error('Use scripts/release-client.ps1 or provide --harness-bundle; stock bootstrap releases are no longer supported');
-let runtime;
-if(bundle){
-  runtime=JSON.parse(fs.readFileSync(bundle+'.json','utf8').replace(/^\uFEFF/,''));
-  if(runtime.brand!=='QCode'||runtime.platform!=='win32'||!['x64','arm64'].includes(runtime.arch)||runtime.entry!=='lib/bin.js'||!/^[a-f0-9]{40}$/.test(runtime.commit)||createHash('sha256').update(fs.readFileSync(bundle)).digest('hex')!==runtime.sha256)throw new Error('Invalid custom Harness artifact');
+if(!bundle)throw new Error('Provide --opencode-bundle or --harness-bundle');
+const runtime=JSON.parse(fs.readFileSync(bundle+'.json','utf8').replace(/^\uFEFF/,''));
+const expectedEntry=isOpenCode?'bin/qcode-engine.exe':'lib/bin.js';
+if(runtime.brand!=='QCode'||runtime.platform!=='win32'||!['x64','arm64'].includes(runtime.arch)||runtime.entry!==expectedEntry||!/^[a-f0-9]{40}$/.test(runtime.commit)||createHash('sha256').update(fs.readFileSync(bundle)).digest('hex')!==runtime.sha256)throw new Error('Invalid custom runtime artifact');
+if(isOpenCode&&(runtime.runtime!=='opencode'||!/^[a-f0-9]{64}$/.test(runtime.binarySha256)))throw new Error('Invalid OpenCode artifact');
+let tui, tuiBundle;
+if(!isOpenCode){
+  const tuiIndex=process.argv.indexOf('--tui-bundle');
+  if(tuiIndex<0||!process.argv[tuiIndex+1])throw new Error('Provide --tui-bundle to include the compatible TUI runtime');
+  tuiBundle=path.resolve(process.argv[tuiIndex+1]);
+  tui=JSON.parse(fs.readFileSync(tuiBundle+'.json','utf8').replace(/^\uFEFF/,''));
+  if(tui.platform!==runtime.platform||tui.arch!==runtime.arch||tui.entry!=='node_modules/@deepseek-ai/dsh/lib/bin.js'||!/^[a-f0-9]{64}$/.test(tui.lockSha256)||createHash('sha256').update(fs.readFileSync(tuiBundle)).digest('hex')!==tui.sha256)throw new Error('Invalid TUI artifact');
 }
-const tuiIndex=process.argv.indexOf('--tui-bundle');
-if(tuiIndex<0||!process.argv[tuiIndex+1])throw new Error('Provide --tui-bundle to include the compatible TUI runtime');
-const tuiBundle=path.resolve(process.argv[tuiIndex+1]);
-const tui=JSON.parse(fs.readFileSync(tuiBundle+'.json','utf8').replace(/^\uFEFF/,''));
-if(tui.platform!==runtime.platform||tui.arch!==runtime.arch||tui.entry!=='node_modules/@deepseek-ai/dsh/lib/bin.js'||!/^[a-f0-9]{64}$/.test(tui.lockSha256)||createHash('sha256').update(fs.readFileSync(tuiBundle)).digest('hex')!==tui.sha256)throw new Error('Invalid TUI artifact');
 const nodeIndex=process.argv.indexOf('--node-archive');
 if(nodeIndex<0||!process.argv[nodeIndex+1])throw new Error('Provide --node-archive to build a complete installer');
 const nodeArchive=path.resolve(process.argv[nodeIndex+1]);
@@ -32,9 +36,11 @@ function filesIn(directory){return fs.readdirSync(directory,{withFileTypes:true}
   if(entry.isDirectory())return filesIn(full);return /\.(ps1|cmd|mjs|json|md)$/.test(entry.name)?[full]:[];
 });}
 const local=[],central=[];let offset=0;
-const entries=filesIn(source).map(filename=>({name:path.relative(source,filename).split(path.sep).join('/'),filename}));
-if(bundle)entries.push({name:'harness-bundle.zip',filename:bundle},{name:'harness-bundle.json',filename:bundle+'.json'});
-entries.push({name:'tui-bundle.zip',filename:tuiBundle},{name:'tui-bundle.json',filename:tuiBundle+'.json'});
+const entries=filesIn(source).filter(filename=>!isOpenCode||!path.relative(source,filename).startsWith('harness'+path.sep)).map(filename=>({name:path.relative(source,filename).split(path.sep).join('/'),filename}));
+const runtimeName=isOpenCode?'opencode-bundle':'harness-bundle';
+entries.push({name:runtimeName+'.zip',filename:bundle},{name:runtimeName+'.json',filename:bundle+'.json'});
+if(isOpenCode){const release=entries.find(entry=>entry.name==='release.json');release.data=Buffer.from(JSON.stringify({version,runtime:'opencode'}));}
+if(tuiBundle)entries.push({name:'tui-bundle.zip',filename:tuiBundle},{name:'tui-bundle.json',filename:tuiBundle+'.json'});
 entries.push({name:`node-v24.19.0-win-${runtime.arch}.zip`,filename:nodeArchive});
 entries.push({name:'node-bundle.json',data:Buffer.from(JSON.stringify({version:'24.19.0',arch:runtime.arch,sha256:nodeHash}))});
 for(const entry of entries){
@@ -47,8 +53,9 @@ for(const entry of entries){
 const directory=Buffer.concat(central),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(central.length/2,8);end.writeUInt16LE(central.length/2,10);end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);
 const archive=Buffer.concat([...local,directory,end]);fs.mkdirSync(output,{recursive:true});
 const name=`qcode-client-${version}.zip`;fs.writeFileSync(path.join(output,name),archive);
-const manifest={version,downloadUrl:`/downloads/${name}`,sha256:createHash('sha256').update(archive).digest('hex'),size:archive.length,nodeVersion:'24.19.0',harnessVersion:runtime.version,tuiVersion:tui.tuiVersion,tuiHarnessVersion:tui.harnessVersion};
+const manifest={version,downloadUrl:`/downloads/${name}`,sha256:createHash('sha256').update(archive).digest('hex'),size:archive.length,nodeVersion:'24.19.0',runtime:isOpenCode?'opencode':'harness',tuiVersion:tui?.tuiVersion,tuiHarnessVersion:tui?.harnessVersion};
 if(runtime)Object.assign(manifest,{harnessVersion:runtime.version,harnessCommit:runtime.commit,harnessBrand:'QCode',platform:runtime.platform,arch:runtime.arch});
+if(isOpenCode)Object.assign(manifest,{opencodeVersion:runtime.version,opencodeCommit:runtime.commit});
 const manifestPath=path.join(output,'manifest.json');
 if(fs.existsSync(manifestPath)){
   const previous=JSON.parse(fs.readFileSync(manifestPath,'utf8').replace(/^\uFEFF/,''));

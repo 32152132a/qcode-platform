@@ -1,10 +1,12 @@
 [CmdletBinding()]
 param(
     [Parameter(Position=0)][ValidateSet('web','tui','login','logout','switch','doctor','update','rollback','help')][string]$Command='tui',
-    [string]$Gateway=$env:QCODE_GATEWAY,[string]$WorkDir='', [string]$HarnessEntry=$env:QCODE_HARNESS_ENTRY,[switch]$NoOpen
+    [string]$Gateway=$env:QCODE_GATEWAY,[string]$WorkDir='', [string]$HarnessEntry=$env:QCODE_HARNESS_ENTRY,[string]$OpenCodeEntry=$env:QCODE_OPENCODE_ENTRY,[switch]$NoOpen
 )
 $ErrorActionPreference='Stop'
 $clientVersion=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw|ConvertFrom-Json).version
+$releaseRuntime=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw|ConvertFrom-Json).runtime
+if(-not $OpenCodeEntry -and $releaseRuntime -eq 'opencode'){$OpenCodeEntry=Join-Path $PSScriptRoot 'opencode/bin/qcode-engine.exe'}
 if($Command -eq 'help'){Write-Host 'qcode (default: TUI) [web|tui|login|logout|switch|doctor|update|rollback] [-Gateway URL] [-WorkDir PATH] [-NoOpen]';exit 0}
 $clientRoot=if($env:QCODE_CLIENT_ROOT){$env:QCODE_CLIENT_ROOT}else{Join-Path $env:LOCALAPPDATA 'QCode'}
 New-Item -ItemType Directory -Force -Path $clientRoot | Out-Null
@@ -15,6 +17,7 @@ $address=[Uri]$Gateway
 if(-not $address.IsAbsoluteUri -or $address.Scheme -notin @('http','https') -or $address.UserInfo -or $address.Query -or $address.Fragment -or $address.AbsolutePath -ne '/'){throw 'Gateway must be an HTTP(S) origin without credentials or a path.'}
 $Gateway=$Gateway.TrimEnd('/')
 if($address.Scheme -eq 'http' -and -not $address.IsLoopback){Write-Warning 'The configured gateway uses an unencrypted HTTP connection.'}
+if($OpenCodeEntry -and $releaseRuntime -ne 'opencode' -and $Command -in @('update','rollback')){throw 'OpenCode preview updates are not published yet; update/rollback would install Harness.'}
 if($Command -eq 'update'){& (Join-Path $PSScriptRoot 'install.ps1') -Gateway $Gateway -Update;exit $LASTEXITCODE}
 if($Command -eq 'rollback'){& (Join-Path $PSScriptRoot 'install.ps1') -Rollback;exit $LASTEXITCODE}
 $sha=[Security.Cryptography.SHA256]::Create()
@@ -38,7 +41,7 @@ if(-not $nodeExecutable -or [version](& $nodeExecutable -p 'process.versions.nod
     $existingRuntime=Join-Path $env:USERPROFILE '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe'
     if(-not $env:QCODE_NODE -and (Test-Path -LiteralPath $existingRuntime)){$nodeExecutable=$existingRuntime}else{throw 'Node.js 24 LTS is required; run the QCode installer or set QCODE_NODE.'}
 }
-if(-not $HarnessEntry){
+if(-not $HarnessEntry -and -not $OpenCodeEntry -and $Command -in @('tui','web','doctor')){
     $customHarness=Join-Path $PSScriptRoot 'harness-custom/lib/bin.js'
     $versionedHarness=Join-Path $PSScriptRoot 'harness/node_modules/@deepseek-ai/dsh/lib/bin.js'
     $installedHarness=Join-Path $clientRoot 'harness/node_modules/@deepseek-ai/dsh/lib/bin.js'
@@ -52,9 +55,11 @@ if(-not $HarnessEntry){
     else{$repository=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent;$HarnessEntry=Join-Path $repository '.stage1-dsh/node_modules/@deepseek-ai/dsh/lib/bin.js'}
 }
 if($Command -eq 'doctor'){
+    $runtimeEntry=if($OpenCodeEntry){$OpenCodeEntry}else{$HarnessEntry}
+    $runtimeName=if($OpenCodeEntry){'OpenCode'}else{'Harness'}
     $health=Invoke-Gateway '/health'
     Write-Host "QCode: $clientVersion | Gateway: $Gateway ($($health.status))"
-    Write-Host "Node: $(& $nodeExecutable -p 'process.versions.node') | Harness installed: $(Test-Path -LiteralPath $HarnessEntry) | Saved login: $(Test-Path -LiteralPath $sessionFile)"
+    Write-Host "Node: $(& $nodeExecutable -p 'process.versions.node') | $runtimeName installed: $(Test-Path -LiteralPath $runtimeEntry) | Saved login: $(Test-Path -LiteralPath $sessionFile)"
     exit 0
 }
 $session=$null
@@ -82,11 +87,13 @@ if(-not $session){
 }
 [IO.File]::WriteAllText($settingsFile,(@{gateway=$Gateway}|ConvertTo-Json),$utf8)
 if($Command -in @('login','switch')){Write-Host "Logged in as $($session.user.username). Run qcode web or qcode tui.";exit 0}
-if(-not (Test-Path -LiteralPath $HarnessEntry -PathType Leaf)){throw 'Harness is missing; run the QCode installer or set QCODE_HARNESS_ENTRY.'}
+if($OpenCodeEntry){$HarnessEntry=$OpenCodeEntry}
+if(-not (Test-Path -LiteralPath $HarnessEntry -PathType Leaf)){throw 'Runtime is missing; check QCODE_OPENCODE_ENTRY or reinstall QCode.'}
 $previousPath=$env:PATH
 try{
     $env:PATH=(Split-Path $nodeExecutable -Parent)+';'+$env:PATH
     $launcherArguments=@((Join-Path $PSScriptRoot 'launcher.mjs'),'--gateway',$Gateway,'--session',$sessionFile,'--entry',$HarnessEntry,'--mode',$Command,'--no-open',([string]$NoOpen.IsPresent).ToLowerInvariant())
+    if($OpenCodeEntry){$launcherArguments+=@('--runtime','opencode')}
     if($WorkDir){$launcherArguments+=@('--workdir',$WorkDir)}
     & $nodeExecutable @launcherArguments
     if($LASTEXITCODE -ne 0){throw 'QCode exited with an error. If your session was revoked, run qcode switch.'}
