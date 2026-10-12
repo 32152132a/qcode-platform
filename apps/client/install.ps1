@@ -98,7 +98,8 @@ try{
     $address=[Uri]$Gateway
     if(-not $address.IsAbsoluteUri -or $address.Scheme -notin @('http','https') -or $address.UserInfo -or $address.Query -or $address.Fragment -or $address.AbsolutePath -ne '/'){throw 'Invalid gateway origin'}
     $Gateway=$Gateway.TrimEnd('/')
-    Invoke-RestMethod "$Gateway/health" -TimeoutSec 15|Out-Null
+    # Local installation must work offline; login and updates validate connectivity.
+    if($Update){Invoke-RestMethod "$Gateway/health" -TimeoutSec 15|Out-Null}
     $source=$PSScriptRoot
     if($Update){
         $manifest=Invoke-RestMethod "$Gateway/downloads/manifest.json" -TimeoutSec 15

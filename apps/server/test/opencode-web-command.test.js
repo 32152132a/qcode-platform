@@ -10,7 +10,7 @@ import {fixture} from './gateway.test.js';
 import {secureStore} from '../../client/session-store.mjs';
 
 test('qcodeweb command starts an authenticated local Web service',{
-  skip:!process.env.QCODE_TEST_OPENCODE_ENTRY,
+  skip:!process.env.QCODE_TEST_OPENCODE_ENTRY&&!process.env.QCODE_TEST_INSTALLED_ROOT,
   timeout:90000
 },async t=>{
   const platform=fileURLToPath(new URL('../../../',import.meta.url));
@@ -18,13 +18,13 @@ test('qcodeweb command starts an authenticated local Web service',{
   const pty=require('node-pty');
   const f=await fixture(t);const user=await f.create();
   const login=(await f.request('/auth/login','POST',{username:'alice',password:'user-password'})).body;
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-web-command-'));
+  const root=process.env.QCODE_TEST_INSTALLED_ROOT||fs.mkdtempSync(path.join(os.tmpdir(),'qcode-web-command-'));
   const serverId=createHash('sha256').update(f.url).digest('hex').toUpperCase().slice(0,24);
   const serverRoot=path.join(root,serverId);fs.mkdirSync(serverRoot);
   secureStore(path.join(serverRoot,'session.json')).write(login);
   const terminal=pty.spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-Command','& $env:QCODE_TEST_WEB_COMMAND -Gateway $env:QCODE_GATEWAY -NoOpen'],{
     name:'xterm-256color',cols:220,rows:36,cwd:root,
-    env:{...process.env,QCODE_NODE:process.execPath,QCODE_TEST_WEB_COMMAND:path.join(platform,'apps/client/qcodeweb.cmd'),QCODE_GATEWAY:f.url,QCODE_CLIENT_ROOT:root,QCODE_OPENCODE_ENTRY:process.env.QCODE_TEST_OPENCODE_ENTRY,QCODE_HARNESS_ENTRY:'',QCODE_SKIP_UPDATE:'1',DSH_TELEMETRY_DISABLED:'1',DEEPSEEK_API_KEY:'',OPENAI_API_KEY:''}
+    env:{...process.env,QCODE_NODE:process.env.QCODE_TEST_INSTALLED_ROOT?'':process.execPath,QCODE_TEST_WEB_COMMAND:process.env.QCODE_TEST_INSTALLED_ROOT?path.join(root,'bin/qcodeweb.cmd'):path.join(platform,'apps/client/qcodeweb.cmd'),QCODE_GATEWAY:f.url,QCODE_CLIENT_ROOT:root,QCODE_OPENCODE_ENTRY:process.env.QCODE_TEST_INSTALLED_ROOT?'':process.env.QCODE_TEST_OPENCODE_ENTRY,QCODE_HARNESS_ENTRY:'',QCODE_SKIP_UPDATE:'1',DSH_TELEMETRY_DISABLED:'1',DEEPSEEK_API_KEY:'',OPENAI_API_KEY:''}
   });
   t.after(()=>{try{terminal.kill();}catch{}});
   let output = '';

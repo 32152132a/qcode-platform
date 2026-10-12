@@ -106,3 +106,28 @@ node --test --test-name-pattern="qcodeweb command" apps/server/test/opencode-web
 - 产物：`artifacts/opencode-build-6c335949f6704751b4fe54913eac160b/qcode-opencode-bundle.zip`，未加入 Git。
 - 对新编译的定制程序运行 4 项集成测试全部通过：网关对话、默认 qcode TUI、write/edit/bash 与会话继续、Web API/页面及 CLI 会话继续。全部使用本地模拟模型；此次没有开启浏览器视觉检查。
 - 上一轮平台 37 项回归已通过。后续仍须构建员工安装 EXE 并验收安装、升级、桌面入口、品牌视觉及真实模型，不把运行内核 ZIP 当成员工安装包。
+
+
+## Windows 完整安装包 0.4.5（2026-10-12）
+
+本地构建目录：`artifacts/release-20261012-205439-0e912ee1`。EXE 为 `QCodeSetup-0.4.5.exe`，98,435,072 字节（约 94 MiB）；ZIP 为自动更新包，99,892,071 字节。包含定制 OpenCode 1.19.0-qcode.1 和私有 Node 24.19.0，无需员工自行安装 Bun 或下载 Node。
+
+- 首次本地安装不再强制访问 /health；登录和在线更新仍需要网关。安装时需按提示输入网关地址，当前为 `http://code.quyongqing.cn`。
+- 37 项平台回归通过。
+- `installer-offline.test.js` 从真实 EXE 用 /Q /C 解包，再执行其中的安装脚本；拦截并禁止安装脚本的 Invoke-WebRequest、Invoke-RestMethod，使用不可用的网关地址仍安装成功。校验私有 Node、内核、命令入口、配置和项目保留。没有关闭宿主机网卡或修改防火墙，因此这是安装脚本断网条件验证，不等同于整台虚拟机断网验收。
+- 更新包校验失败时保留旧版，正常更新成功，回滚保留用户测试数据，两项安装测试均通过，并纳入发布脚本。
+- 设置 QCODE_TEST_INSTALLED_ROOT 指向上述隔离安装结果，不指定 QCODE_NODE 或内核路径；实际 bin/qcode.cmd 的默认 TUI 对话和 bin/qcodeweb.cmd Web 服务两项测试通过（本地模拟网关）。
+- 安装测试使用 -NoPath，不改开发电脑的全局/用户 PATH 和桌面；桌面快捷方式人工点击、首次交互登录、生产模型和完整断网虚拟机体验仍待员工验收。
+- 本轮未推送、未上传服务器，安装包仅在本地。构建产物不加入 Git。
+
+复测离线安装和更新：设置 QCODE_TEST_RELEASE_DIRECTORY 为构建目录，使用 Node 24 执行：
+
+```powershell
+node --test apps/server/test/installer.test.js apps/server/test/installer-offline.test.js
+```
+
+复测安装后入口：设置 QCODE_TEST_INSTALLED_ROOT 为测试安装目录（仅使用隔离测试目录），顺序运行以避免客户端锁冲突：
+
+```powershell
+node --test --test-concurrency=1 --test-name-pattern="OpenCode TUI|qcodeweb command" apps/server/test/opencode-tui.test.js apps/server/test/opencode-web-command.test.js
+```

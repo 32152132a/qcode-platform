@@ -84,7 +84,7 @@ if(-not $PublishDirectory){
     $previousRelease=$env:QCODE_TEST_RELEASE_DIRECTORY
     try{
         $env:QCODE_TEST_RELEASE_DIRECTORY=$release
-        Invoke-Checked 'node' @('--test',(Join-Path $root 'apps/server/test/installer.test.js'))
+        Invoke-Checked 'node' @('--test',(Join-Path $root 'apps/server/test/installer.test.js'),(Join-Path $root 'apps/server/test/installer-offline.test.js'))
     }finally{$env:QCODE_TEST_RELEASE_DIRECTORY=$previousRelease}
     $manifest=Read-Release $release
 }
