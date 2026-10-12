@@ -91,6 +91,18 @@ node --test --test-name-pattern="qcodeweb command" apps/server/test/opencode-web
 - 安装后的 qcode 自动选择定制内核；预览模式仍禁止在线更新。正式包拒绝 Harness 更新清单并核对包内运行时标记。
 - 首次从老 Harness 迁移需使用新 EXE：旧安装器不支持新的运行包结构。后续版本沿用 QCode 更新命令。
 
-构建阻塞：私有 Bun 1.3.14 使用官方 npm 源，仍在移动 Windows 二进制依赖到缓存时出现 NtSetInformationFile / EPERM；复制后端、单连接也未解决，已停止失败的安装进程。具体文件占用原因未确定，未关闭安全软件或更改系统权限。上游相似报告（不代表本机根因）：https://github.com/oven-sh/bun/issues/22017 。
+此前构建阻塞（已绕过，见下文）：私有 Bun 1.3.14 使用官方 npm 源，仍在移动 Windows 二进制依赖到缓存时出现 NtSetInformationFile / EPERM；复制后端、单连接也未解决，已停止失败的安装进程。具体文件占用原因未确定，未关闭安全软件或更改系统权限。上游相似报告（不代表本机根因）：https://github.com/oven-sh/bun/issues/22017 。
 
-新增更新保护测试通过；尚无新的定制 EXE，完整安装/升级和品牌效果仍待构建验收。不要用旧官方二进制冒充定制构建发布。
+当时新增更新保护测试通过，尚无新的定制 EXE；后续结果见下文。完整安装/升级和品牌视觉效果仍待验收。不要用旧官方二进制冒充定制构建发布。
+
+
+## 定制构建通过（2026-10-12）
+
+- 代码快照：平台 ef9173e，定制内核 689c7fc；均为本地提交，未推送或部署。
+- 安装范围缩小为 `bun install --frozen-lockfile --registry https://registry.npmjs.org --filter ./packages/opencode --filter ./packages/app`，写入构建脚本。参考：https://bun.sh/docs/pm/filter 。
+- 剩余失败项为 @sentry/cli-win32-x64@2.58.6。官方 tgz 的 SHA-512 与 bun.lock 一致，系统 tar 解压和 PowerShell 移动成功。将这份已验证的完整包放入项目私有 Bun 缓存中缺失的对应目录后，安装成功。这是本机构建环境的绕行处理，尚未证明 Bun 底层错误根因；没有修改安全软件、全局权限、依赖锁文件或供应商代码。
+- 若新机器复现，不应盲目关闭安全软件或无校验复制缓存。先保存安装日志，再核对官方包与锁文件的完整性。缓存内部路径属于 Bun 实现细节，因此未把手工缓存修复硬编码进发布脚本。
+- `build-opencode-bundle.ps1` 完整执行成功，Web 嵌入成功，版本为 1.19.0-qcode.1；运行包约 60 MiB，含 LICENSE 和运行时 SHA-256 元数据。
+- 产物：`artifacts/opencode-build-6c335949f6704751b4fe54913eac160b/qcode-opencode-bundle.zip`，未加入 Git。
+- 对新编译的定制程序运行 4 项集成测试全部通过：网关对话、默认 qcode TUI、write/edit/bash 与会话继续、Web API/页面及 CLI 会话继续。全部使用本地模拟模型；此次没有开启浏览器视觉检查。
+- 上一轮平台 37 项回归已通过。后续仍须构建员工安装 EXE 并验收安装、升级、桌面入口、品牌视觉及真实模型，不把运行内核 ZIP 当成员工安装包。

@@ -33,7 +33,7 @@ try{
     $null=Get-Content -LiteralPath $snapshot -Raw|ConvertFrom-Json
     $env:MODELS_DEV_API_JSON=$snapshot
     $env:npm_config_registry='https://registry.npmjs.org'
-    Invoke-Build @('install','--frozen-lockfile','--registry','https://registry.npmjs.org')
+    Invoke-Build @('install','--frozen-lockfile','--registry','https://registry.npmjs.org','--filter','./packages/opencode','--filter','./packages/app')
     # Git on Windows can check out symlinks as text files. Restore those exact bytes after building.
     foreach($line in (& git ls-files -s -- packages/app/public)){
         if($line -notmatch '^120000 [a-f0-9]+ 0\s+(.+)$'){continue}
