@@ -1,11 +1,11 @@
 [CmdletBinding()]
 param(
-    [Parameter(Position=0)][ValidateSet('web','tui','login','logout','switch','doctor','update','rollback','help')][string]$Command='web',
+    [Parameter(Position=0)][ValidateSet('web','tui','login','logout','switch','doctor','update','rollback','help')][string]$Command='tui',
     [string]$Gateway=$env:QCODE_GATEWAY,[string]$WorkDir='', [string]$HarnessEntry=$env:QCODE_HARNESS_ENTRY,[switch]$NoOpen
 )
 $ErrorActionPreference='Stop'
 $clientVersion=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw|ConvertFrom-Json).version
-if($Command -eq 'help'){Write-Host 'qcode [web|tui|login|logout|switch|doctor|update|rollback] [-Gateway URL] [-WorkDir PATH] [-NoOpen]';exit 0}
+if($Command -eq 'help'){Write-Host 'qcode (default: TUI) [web|tui|login|logout|switch|doctor|update|rollback] [-Gateway URL] [-WorkDir PATH] [-NoOpen]';exit 0}
 $clientRoot=if($env:QCODE_CLIENT_ROOT){$env:QCODE_CLIENT_ROOT}else{Join-Path $env:LOCALAPPDATA 'QCode'}
 New-Item -ItemType Directory -Force -Path $clientRoot | Out-Null
 $settingsFile=Join-Path $clientRoot 'settings.json'
@@ -40,14 +40,16 @@ if(-not $nodeExecutable -or [version](& $nodeExecutable -p 'process.versions.nod
 }
 if(-not $HarnessEntry){
     $customHarness=Join-Path $PSScriptRoot 'harness-custom/lib/bin.js'
-    if($Command -ne 'tui' -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'harness-bundle.json')) -and -not (Test-Path -LiteralPath $customHarness)){throw 'Custom Harness is incomplete. Extract the full QCode ZIP and run its install.ps1 again.'}
     $versionedHarness=Join-Path $PSScriptRoot 'harness/node_modules/@deepseek-ai/dsh/lib/bin.js'
     $installedHarness=Join-Path $clientRoot 'harness/node_modules/@deepseek-ai/dsh/lib/bin.js'
-    if($Command -ne 'tui' -and (Test-Path -LiteralPath $customHarness)){$HarnessEntry=$customHarness}
+    if($Command -eq 'tui'){
+        $HarnessEntry=Join-Path $PSScriptRoot 'harness-tui/node_modules/@deepseek-ai/dsh/lib/bin.js'
+        if(-not (Test-Path -LiteralPath $HarnessEntry)){throw 'The bundled TUI is missing. Install the complete QCode release or use qcode web.'}
+    }elseif(Test-Path -LiteralPath $customHarness){$HarnessEntry=$customHarness}
+    elseif(Test-Path -LiteralPath (Join-Path $PSScriptRoot 'harness-bundle.json')){throw 'Custom Harness is incomplete. Extract the full QCode ZIP and run its install.ps1 again.'}
     elseif(Test-Path -LiteralPath $versionedHarness){$HarnessEntry=$versionedHarness}
-    else{
-    if(Test-Path -LiteralPath $installedHarness){$HarnessEntry=$installedHarness}else{$repository=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent;$HarnessEntry=Join-Path $repository '.stage1-dsh/node_modules/@deepseek-ai/dsh/lib/bin.js'}
-    }
+    elseif(Test-Path -LiteralPath $installedHarness){$HarnessEntry=$installedHarness}
+    else{$repository=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent;$HarnessEntry=Join-Path $repository '.stage1-dsh/node_modules/@deepseek-ai/dsh/lib/bin.js'}
 }
 if($Command -eq 'doctor'){
     $health=Invoke-Gateway '/health'

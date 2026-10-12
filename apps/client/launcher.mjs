@@ -29,14 +29,14 @@ try{
     catch(error){console.warn(`QCode 更新检查失败：${error.message}。继续检查当前版本是否允许使用。`);}
     if(updated){
       releaseLock();releaseLock=null;
-      const restart=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(installRoot,'bin','bootstrap.ps1'),args.mode||'web','-Gateway',args.gateway,...(args.workdir?['-WorkDir',args.workdir]:[]),...(args['no-open']==='true'?['-NoOpen']:[])],{stdio:'inherit',windowsHide:true,env:{...process.env,QCODE_SKIP_UPDATE:'1'}});
+      const restart=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(installRoot,'bin','bootstrap.ps1'),args.mode||'tui','-Gateway',args.gateway,...(args.workdir?['-WorkDir',args.workdir]:[]),...(args['no-open']==='true'?['-NoOpen']:[])],{stdio:'inherit',windowsHide:true,env:{...process.env,QCODE_SKIP_UPDATE:'1'}});
       await new Promise((resolve,reject)=>{restart.once('error',reject);restart.once('exit',code=>{process.exitCode=code||0;resolve();});});
       process.exit(process.exitCode||0);
     }
   }
   const userId=session.session.user.id;
   if(!Number.isSafeInteger(userId)||userId<1)throw new Error('Invalid account identity');
-  const userRoot=path.join(path.dirname(args.session),'users',String(userId)), home=path.join(userRoot,'harness');
+  const userRoot=path.join(path.dirname(args.session),'users',String(userId)), home=path.join(userRoot,(args.mode||'tui')==='tui'?'harness-tui':'harness');
   const workdir=path.resolve(args.workdir||path.join(userRoot,'workspace'));
   fs.mkdirSync(workdir,{recursive:true});fs.mkdirSync(home,{recursive:true});
   let skillsRevision;
@@ -47,8 +47,8 @@ try{
   }
   bridge=await startBridge(session,{onConfig:updateSkills});await updateSkills(bridge.configuration);
   const config=bridge.configuration;
-  const launchArgs=prepareHarnessLaunch({entry:args.entry,mode:args.mode||'web',home,config,baseUrl:bridge.baseUrl,noOpen:args['no-open']==='true'});
-  const env={...process.env,DSH_HOME:home,DSH_AGENTS_HOME:path.join(userRoot,'agents'),QCODE_TOKEN:bridge.token};delete env.DEEPSEEK_API_KEY;delete env.OPENAI_API_KEY;
+  const launchArgs=prepareHarnessLaunch({entry:args.entry,mode:args.mode||'tui',home,config,workdir,baseUrl:bridge.baseUrl,noOpen:args['no-open']==='true'});
+  const env={...process.env,DSH_HOME:home,DSH_AGENTS_HOME:path.join(userRoot,(args.mode||'tui')==='tui'?'agents-tui':'agents'),QCODE_TOKEN:bridge.token};delete env.DEEPSEEK_API_KEY;delete env.OPENAI_API_KEY;
   console.log(`QCode ${version} · ${session.session.user.username} · ${workdir}`);
   child=spawn(process.execPath,launchArgs,{cwd:workdir,env,stdio:'inherit',windowsHide:true});
   child.once('error',async()=>{console.error('Harness 启动失败，请运行 qcode doctor');await close(1);});

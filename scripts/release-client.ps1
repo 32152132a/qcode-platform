@@ -82,8 +82,11 @@ if(-not $PublishDirectory){
     }
     $nodeHash=if($runtime.arch -eq 'arm64'){'8502f4a50b458d4cc38ed8f2001556c2cd239d464920f74017926ccb1e1c157f'}else{'57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'}
     if((Get-FileHash -LiteralPath $nodeArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $nodeHash){throw "Node cache checksum mismatch; remove the damaged file and retry: $nodeArchive"}
+    $tuiDirectory=Join-Path $release 'tui-build'
+    & (Join-Path $PSScriptRoot 'build-tui-bundle.ps1') -OutputDirectory $tuiDirectory
+    $tuiBundle=Join-Path $tuiDirectory 'qcode-tui-bundle.zip'
     Invoke-Checked 'node' @((Join-Path $PSScriptRoot 'next-client-version.mjs'),(Join-Path $root 'apps/client/release.json'),$publishedVersion)
-    Invoke-Checked 'node' @((Join-Path $root 'apps/server/scripts/package-client.js'),'--harness-bundle',(Resolve-Path -LiteralPath $HarnessBundle).Path,'--output',$release,'--node-archive',$nodeArchive)
+    Invoke-Checked 'node' @((Join-Path $root 'apps/server/scripts/package-client.js'),'--harness-bundle',(Resolve-Path -LiteralPath $HarnessBundle).Path,'--output',$release,'--node-archive',$nodeArchive,'--tui-bundle',$tuiBundle)
     & (Join-Path $PSScriptRoot 'build-installer.ps1') -ReleaseDirectory $release -CertificateThumbprint $CertificateThumbprint
     $previousRelease=$env:QCODE_TEST_RELEASE_DIRECTORY
     try{

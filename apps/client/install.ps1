@@ -51,6 +51,21 @@ function Install-CustomRuntime($Source,$Destination){
             if($embedded.commit -ne $runtime.commit -or $embedded.version -ne $runtime.version -or -not (Test-Path -LiteralPath (Join-Path $customStage 'lib/bin.js'))){throw 'Custom Harness payload does not match the release metadata'}
         }
 }
+function Install-TuiRuntime($Source,$Destination){
+    $metadata=Join-Path $Source 'tui-bundle.json'
+    if(-not (Test-Path -LiteralPath $metadata)){throw 'TUI bundle is missing; download the complete QCode installer'}
+    $info=Get-Content -LiteralPath $metadata -Raw|ConvertFrom-Json
+    $machineArch=if($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64'){'arm64'}else{'x64'}
+    if($info.platform -ne 'win32' -or $info.arch -ne $machineArch -or $info.entry -ne 'node_modules/@deepseek-ai/dsh/lib/bin.js' -or $info.sha256 -notmatch '^[a-f0-9]{64}$'){throw 'Invalid or incompatible TUI bundle'}
+    $archive=Join-Path $Source 'tui-bundle.zip'
+    if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $info.sha256){throw 'TUI bundle checksum mismatch'}
+    $runtime=Join-Path $Destination 'harness-tui'
+    Expand-CheckedArchive $archive $runtime
+    $embedded=Get-Content -LiteralPath (Join-Path $runtime 'qcode-tui-runtime.json') -Raw|ConvertFrom-Json
+    $core=Get-Content -LiteralPath (Join-Path $runtime 'node_modules/@deepseek-ai/dsh/package.json') -Raw|ConvertFrom-Json
+    $plugin=Get-Content -LiteralPath (Join-Path $runtime 'node_modules/@deepseek-harness-tui/dsh-tui/package.json') -Raw|ConvertFrom-Json
+    if($embedded.lockSha256 -ne $info.lockSha256 -or $core.version -ne $info.harnessVersion -or $plugin.version -ne $info.tuiVersion -or -not (Test-Path -LiteralPath (Join-Path $runtime $info.entry))){throw 'TUI runtime does not match its metadata'}
+}
 New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 $lockPath=Join-Path $InstallRoot 'install.lock'
 try{$installLock=[IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}catch{throw 'Another QCode installer is running'}
@@ -97,6 +112,10 @@ try{
             if((Get-Content -LiteralPath $desiredRuntime -Raw|ConvertFrom-Json).sha256 -ne (Get-Content -LiteralPath $installedRuntime -Raw|ConvertFrom-Json).sha256){throw 'This release version already contains a different Harness build; publish a new client version'}
         }
         if(-not (Test-Path -LiteralPath (Join-Path $target 'harness-custom/lib/bin.js'))){Install-CustomRuntime $source $target}
+        $desiredTui=Get-Content -LiteralPath (Join-Path $source 'tui-bundle.json') -Raw|ConvertFrom-Json
+        $installedTui=Get-Content -LiteralPath (Join-Path $target 'tui-bundle.json') -Raw|ConvertFrom-Json
+        if($desiredTui.sha256 -ne $installedTui.sha256){throw 'This version contains a different TUI build; publish a new client version'}
+        if(-not (Test-Path -LiteralPath (Join-Path $target 'harness-tui/node_modules/@deepseek-ai/dsh/lib/bin.js'))){Install-TuiRuntime $source $target}
     }else{
         $stage=Assert-Child (Join-Path $InstallRoot ('versions/stage-'+[guid]::NewGuid().ToString('N')))
         New-Item -ItemType Directory -Force -Path $stage|Out-Null
@@ -104,6 +123,7 @@ try{
         $harnessSource=Join-Path $source 'harness';$harnessStage=Join-Path $stage 'harness';New-Item -ItemType Directory -Force -Path $harnessStage|Out-Null
         foreach($file in @('package.json','package-lock.json')){Copy-Item -LiteralPath (Join-Path $harnessSource $file) -Destination $harnessStage}
         Install-CustomRuntime $source $stage
+        Install-TuiRuntime $source $stage
         Write-JsonFile (Join-Path $stage '.qcode-release.json') @{version=$version;installedAt=[DateTime]::UtcNow.ToString('o')}
         Move-Item -LiteralPath $stage -Destination $target
     }
@@ -155,6 +175,8 @@ try{
         & $node $customEntry --help | Out-Null
         if($LASTEXITCODE -ne 0){throw 'Custom Harness startup verification failed; current release was not changed'}
     }
+    & $node (Join-Path $target 'harness-tui/node_modules/@deepseek-ai/dsh/lib/bin.js') --help | Out-Null
+    if($LASTEXITCODE -ne 0){throw 'TUI core startup verification failed; current release was not changed'}
     New-Item -ItemType Directory -Force -Path $bin|Out-Null
     Copy-Item -LiteralPath (Join-Path $target 'bootstrap.ps1') -Destination $bin -Force
     [IO.File]::WriteAllText((Join-Path $bin 'qcode.cmd'),"@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0bootstrap.ps1`" %*`r`n",[Text.Encoding]::ASCII)
@@ -164,5 +186,5 @@ try{
         $entries=@([Environment]::GetEnvironmentVariable('Path','User') -split ';'|Where-Object{$_ -and $_ -ne $bin});[Environment]::SetEnvironmentVariable('Path',(($entries+$bin) -join ';'),'User')
         $shell=New-Object -ComObject WScript.Shell;$shortcut=$shell.CreateShortcut($shortcutFile);$shortcut.TargetPath=Join-Path $bin 'qcode.cmd';$shortcut.Arguments='web';$shortcut.Save()
     }
-    Write-Host "QCode $version installed. Open a new terminal and run qcode web."
+    Write-Host "QCode $version installed. Open a new terminal and run qcode (TUI) or qcode web."
 }finally{$installLock.Dispose();if(Test-Path -LiteralPath $lockPath){Remove-Item -LiteralPath $lockPath}}
