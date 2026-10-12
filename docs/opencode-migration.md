@@ -131,3 +131,18 @@ node --test apps/server/test/installer.test.js apps/server/test/installer-offlin
 ```powershell
 node --test --test-concurrency=1 --test-name-pattern="OpenCode TUI|qcodeweb command" apps/server/test/opencode-tui.test.js apps/server/test/opencode-web-command.test.js
 ```
+
+
+## 0.4.5 发布实测（2026-10-12）
+
+使用现有发布入口的 `scripts/release-client.ps1 -PublishDirectory artifacts/release-20261012-205439-0e912ee1`，复用已通过验收的产物；实际 SSH/SCP 上传、校验、激活和清理全部成功。没有重启服务或修改服务器项目代码；服务器现有 publish-client.js 与本地 SHA-256 相同。
+
+- 公网 `/downloads/manifest.json` 返回 0.4.5、runtime=opencode。
+- `http://code.quyongqing.cn/downloads/installer` 返回 HTTP 200，文件名 QCodeSetup-0.4.5.exe，长度 98,435,072。
+- 服务器 EXE 和 ZIP 的 SHA-256 与本地产物及发布清单一致。
+- 发布目录仅保留 0.4.5 的 Windows EXE/ZIP、manifest 和 macos 目录；旧 Windows 包已清理。网关保持 healthy。
+- 本轮验证的是既有产物的真实上传发布；双击 release-client.cmd 仍执行自动增版、重新构建、测试再上传。此前 Bun 缓存问题属于构建环境说明，不代表任意新机器都能无需准备直接构建。
+
+分支状态：平台本地 master、harness-latest 和 opencode-migration 均保留，Gitee 已核对存在 master 与 harness-latest，opencode-migration 尚未推送。定制内核本地 upstream 为官方 v1.19.0，master 为 QCode 定制；尚未配置自有 Gitee remote，等待仓库地址后再备份。不要向名为 upstream 的官方远程推送定制代码。
+
+升级流程：先备份当前可用版本，获取官方新版本并更新官方基线分支，再合入定制分支，处理品牌/更新入口冲突，运行平台回归、真实内核 TUI/Web/工具测试、安装与更新回滚测试，通过后生成并发布新版本。当前改动集中，品牌合并成本较低；配置、协议或启动方式发生变化仍可能需要适配，不能承诺每次升级都能直接发布。
