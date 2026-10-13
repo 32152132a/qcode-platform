@@ -77,16 +77,15 @@ function Install-TuiRuntime($Source,$Destination){
     $plugin=Get-Content -LiteralPath (Join-Path $runtime 'node_modules/@deepseek-harness-tui/dsh-tui/package.json') -Raw|ConvertFrom-Json
     if($embedded.lockSha256 -ne $info.lockSha256 -or $core.version -ne $info.harnessVersion -or $plugin.version -ne $info.tuiVersion -or -not (Test-Path -LiteralPath (Join-Path $runtime $info.entry))){throw 'TUI runtime does not match its metadata'}
 }
+if($Uninstall){
+    & (Join-Path $PSScriptRoot 'uninstall.ps1') -InstallRoot $InstallRoot -NonInteractive
+    exit $LASTEXITCODE
+}
 New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 $lockPath=Join-Path $InstallRoot 'install.lock'
 try{$installLock=[IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}catch{throw 'Another QCode installer is running'}
 try{
     $current=if(Test-Path -LiteralPath $pointerFile){Get-Content -LiteralPath $pointerFile -Raw|ConvertFrom-Json}else{$null}
-    if($Uninstall){
-        foreach($name in @('qcode.cmd','qcodeweb.cmd','bootstrap.ps1')){$target=Assert-Child (Join-Path $bin $name);if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target}}
-        if(-not $NoPath){$entries=@([Environment]::GetEnvironmentVariable('Path','User') -split ';'|Where-Object{$_ -and $_ -ne $bin});[Environment]::SetEnvironmentVariable('Path',($entries -join ';'),'User');if(Test-Path -LiteralPath $shortcutFile){Remove-Item -LiteralPath $shortcutFile}}
-        Write-Host 'QCode command removed. Projects, encrypted sessions and runtime files were preserved.';return
-    }
     if($Rollback){
         if(-not $current.previous -or $current.previous -notmatch '^\d+\.\d+\.\d+$'){throw 'No previous QCode release is available'}
         $previousDir=Assert-Child (Join-Path $InstallRoot "versions/$($current.previous)")
@@ -217,9 +216,31 @@ try{
     [IO.File]::WriteAllText((Join-Path $bin 'qcodeweb.cmd'),"@echo off`r`ncall `"%~dp0qcode.cmd`" web %*`r`n",[Text.Encoding]::ASCII)
     Write-JsonFile $pointerFile @{version=$version;previous=$(if($current -and $current.version -ne $version){$current.version}else{$current.previous})}
     Write-JsonFile (Join-Path $InstallRoot 'settings.json') @{gateway=$Gateway}
+    Write-JsonFile (Join-Path $InstallRoot '.qcode-install.json') @{product='QCode';scope='CurrentUser';installedAt=[DateTime]::UtcNow.ToString('o')}
+    # Older update ZIPs lack uninstallers; retain the pair shipped with this installer.
+    $uninstallSource=$null
+    foreach($candidate in @($source,$PSScriptRoot)){
+        if((Test-Path -LiteralPath (Join-Path $candidate 'uninstall.ps1')) -and (Test-Path -LiteralPath (Join-Path $candidate 'uninstall.cmd'))){$uninstallSource=$candidate;break}
+    }
+    if($uninstallSource){
+        foreach($name in @('uninstall.ps1','uninstall.cmd')){
+            $uninstallFile=Join-Path $uninstallSource $name;$destination=Join-Path $InstallRoot $name
+            if([IO.Path]::GetFullPath($uninstallFile) -ne [IO.Path]::GetFullPath($destination)){Copy-Item -LiteralPath $uninstallFile -Destination $destination -Force}
+        }
+    }
+    $icon=Join-Path $InstallRoot 'qcode.ico'
+    foreach($candidate in @($source,$PSScriptRoot)){
+        $iconSource=Join-Path $candidate 'branding/qcode.ico'
+        if(Test-Path -LiteralPath $iconSource){Copy-Item -LiteralPath $iconSource -Destination $icon -Force;break}
+    }
     if(-not $NoPath){
         $entries=@([Environment]::GetEnvironmentVariable('Path','User') -split ';'|Where-Object{$_ -and $_ -ne $bin});[Environment]::SetEnvironmentVariable('Path',(($entries+$bin) -join ';'),'User')
-        $shell=New-Object -ComObject WScript.Shell;$shortcut=$shell.CreateShortcut($shortcutFile);$shortcut.TargetPath=Join-Path $bin 'qcode.cmd';$shortcut.Arguments='web';$shortcut.Save()
+        $shell=New-Object -ComObject WScript.Shell;$shortcut=$shell.CreateShortcut($shortcutFile);$shortcut.TargetPath=Join-Path $bin 'qcode.cmd';$shortcut.Arguments='web';if(Test-Path -LiteralPath $icon){$shortcut.IconLocation="$icon,0"};$shortcut.Save()
+        $startMenuDirectory=Join-Path ([Environment]::GetFolderPath('Programs')) 'QCode';New-Item -ItemType Directory -Force -Path $startMenuDirectory|Out-Null
+        $startShortcut=$shell.CreateShortcut((Join-Path $startMenuDirectory 'QCode.lnk'));$startShortcut.TargetPath=Join-Path $bin 'qcode.cmd';$startShortcut.Arguments='web';if(Test-Path -LiteralPath $icon){$startShortcut.IconLocation="$icon,0"};$startShortcut.Save()
+        if((Test-Path -LiteralPath (Join-Path $InstallRoot 'uninstall.ps1')) -and (Test-Path -LiteralPath (Join-Path $InstallRoot 'uninstall.cmd'))){
+            $uninstallShortcut=$shell.CreateShortcut((Join-Path $startMenuDirectory '卸载 QCode.lnk'));$uninstallShortcut.TargetPath=Join-Path $InstallRoot 'uninstall.cmd';$uninstallShortcut.WorkingDirectory=$InstallRoot;if(Test-Path -LiteralPath $icon){$uninstallShortcut.IconLocation="$icon,0"};$uninstallShortcut.Save()
+        }
     }
     Write-Host "QCode $version installed. Open a new terminal and run qcode (TUI) or qcode web."
 }finally{$installLock.Dispose();if(Test-Path -LiteralPath $lockPath){Remove-Item -LiteralPath $lockPath}}

@@ -16,8 +16,9 @@ test('Windows EXE runs its packaged install command and installs the client runt
   const installed=path.join(root,'employee install');
   fs.mkdirSync(installed);
   fs.writeFileSync(path.join(installed,'personal-project.txt'),'preserve my project');
+  const configuredGateway=fs.readFileSync(path.join(release,'exe-build/gateway.txt'),'utf8').trim();
   const child=spawn(path.join(release,`QCodeSetup-${manifest.version}.exe`),['/Q:A','/R:N'],{
-    windowsHide:true,stdio:'ignore',env:{...process.env,QCODE_CLIENT_ROOT:installed,QCODE_SETUP_NO_PAUSE:'1',QCODE_NODE:'',QCODE_OPENCODE_ENTRY:'',QCODE_HARNESS_ENTRY:''}});
+    windowsHide:true,stdio:'ignore',env:{...process.env,QCODE_CLIENT_ROOT:installed,QCODE_SETUP_NO_PAUSE:'1',QCODE_SETUP_NO_PATH:'1',QCODE_GATEWAY:'',QCODE_NODE:'',QCODE_OPENCODE_ENTRY:'',QCODE_HARNESS_ENTRY:''}});
   t.after(()=>{if(child.exitCode===null)child.kill();});
   await new Promise((resolve,reject)=>{
     child.once('error',reject);
@@ -38,7 +39,7 @@ test('Windows EXE runs its packaged install command and installs the client runt
   assert.match(setupLog,/QCode setup is starting/);
   assert.match(setupLog,/QCode installation succeeded/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(installed,'current.json'))).version,manifest.version);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(installed,'settings.json'))).gateway,'https://code.quyongqing.cn');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(installed,'settings.json'))).gateway,configuredGateway);
   assert.equal(fs.readFileSync(path.join(installed,'personal-project.txt'),'utf8'),'preserve my project');
   assert.ok(fs.existsSync(path.join(installed,`runtime/node-v24.19.0-win-${manifest.arch}/node.exe`)));
   const runtimeEntry=manifest.runtime==='opencode'?'opencode/bin/qcode-engine.exe':'harness-custom/lib/bin.js';

@@ -4,6 +4,7 @@ $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 $env:PSModulePath=(Join-Path $PSHOME 'Modules')+';'+$env:PSModulePath
 $exitCode=1;$transcribing=$false;$logFile=''
+if($env:QCODE_SETUP_NO_PATH -eq '1'){$NoPath=$true}
 try{
     if(-not $InstallRoot){$InstallRoot=if($env:QCODE_CLIENT_ROOT){$env:QCODE_CLIENT_ROOT}else{Join-Path $env:LOCALAPPDATA 'QCode'}}
     $logs=Join-Path $InstallRoot 'logs'
@@ -24,7 +25,7 @@ try{
         $Gateway=(Get-Content -LiteralPath $gatewayFile -Raw).Trim()
     }
     $gatewayUri=$null
-    if(-not [Uri]::TryCreate($Gateway,[UriKind]::Absolute,[ref]$gatewayUri) -or $gatewayUri.Scheme -notin @('http','https')){throw 'QCode gateway must be an absolute HTTP(S) URL.'}
+    if(-not [Uri]::TryCreate($Gateway,[UriKind]::Absolute,[ref]$gatewayUri) -or $gatewayUri.Scheme -notin @('http','https') -or $gatewayUri.UserInfo -or $gatewayUri.Query -or $gatewayUri.Fragment -or $gatewayUri.AbsolutePath -ne '/'){throw 'QCode gateway must be an HTTP(S) origin without credentials, path, query or fragment.'}
     $destination=Join-Path $env:TEMP ('qcode-setup-'+[guid]::NewGuid().ToString('N'))
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     Write-Host 'Extracting the bundled client...'

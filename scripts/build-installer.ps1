@@ -7,7 +7,7 @@ $gatewayLine=Get-Content -LiteralPath $clientEnvironment | Where-Object { $_ -ma
 if(-not $gatewayLine){throw 'QCODE_GATEWAY is missing from config/client.env'}
 $gateway=($gatewayLine -split '=',2)[1].Trim()
 $gatewayUri=$null
-if(-not [Uri]::TryCreate($gateway,[UriKind]::Absolute,[ref]$gatewayUri) -or $gatewayUri.Scheme -notin @('http','https')){throw 'QCODE_GATEWAY in config/client.env must be an absolute HTTP(S) URL'}
+if(-not [Uri]::TryCreate($gateway,[UriKind]::Absolute,[ref]$gatewayUri) -or $gatewayUri.Scheme -notin @('http','https') -or $gatewayUri.UserInfo -or $gatewayUri.Query -or $gatewayUri.Fragment -or $gatewayUri.AbsolutePath -ne '/'){throw 'QCODE_GATEWAY in config/client.env must be an HTTP(S) origin without credentials, path, query or fragment'}
 $release=if($ReleaseDirectory){[IO.Path]::GetFullPath($ReleaseDirectory)}else{Join-Path $root 'apps/server/releases'}
 $manifestPath=Join-Path $release 'manifest.json'
 $manifest=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json
@@ -80,6 +80,7 @@ while(-not $process.WaitForExit(1000)){
     if($elapsed.Elapsed.TotalSeconds -ge $nextNotice){Write-Output "Compressing installer ($([int]$elapsed.Elapsed.TotalSeconds)s)...";$nextNotice+=30}
 }
 if($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $target)){throw "IExpress did not produce an EXE (exit $($process.ExitCode)); the ZIP installer remains available"}
+& (Join-Path $PSScriptRoot 'set-exe-icon.ps1') -Executable $target -Icon (Join-Path $root 'apps/client/branding/qcode.ico')
 if($CertificateThumbprint){$certificate=Get-Item -LiteralPath "Cert:/CurrentUser/My/$CertificateThumbprint";$signature=Set-AuthenticodeSignature -FilePath $target -Certificate $certificate -TimestampServer 'http://timestamp.digicert.com';if($signature.Status -ne 'Valid'){throw 'Installer signature validation failed'}}
 $manifestPath=Join-Path $release 'manifest.json'
 $manifest=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json

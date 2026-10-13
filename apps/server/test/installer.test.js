@@ -8,6 +8,27 @@ import {once} from 'node:events';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
+test('old update payload uses the executing installer uninstall pair',{skip:process.platform!=='win32'},async()=>{
+  const parent=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-old-payload-'));
+  try{
+    const source=path.join(parent,'old-payload'),root=path.join(parent,'installed');fs.mkdirSync(source);fs.mkdirSync(root);
+    const client=fileURLToPath(new URL('../../client/',import.meta.url));
+    const text=fs.readFileSync(path.join(client,'install.ps1'),'utf8');
+    const start=text.indexOf('    $uninstallSource=$null');const end=text.indexOf('    if(-not $NoPath){',start);
+    assert.ok(start>=0&&end>start);
+    const script=path.join(parent,'copy-uninstaller.ps1');
+    const quoted=value=>"'"+value.replaceAll("'","''")+"'";
+    fs.copyFileSync(path.join(client,'uninstall.ps1'),path.join(parent,'uninstall.ps1'));fs.copyFileSync(path.join(client,'uninstall.cmd'),path.join(parent,'uninstall.cmd'));
+    fs.writeFileSync(script,`\uFEFF$ErrorActionPreference='Stop'\n$source=${quoted(source)}\n$InstallRoot=${quoted(root)}\n${text.slice(start,end)}`);
+    const result=await new Promise((resolve,reject)=>{
+      const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script],{windowsHide:true});
+      let output='';child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>output+=chunk);child.on('error',reject);child.on('close',code=>resolve({code,output}));
+    });
+    assert.equal(result.code,0,result.output);
+    for(const name of ['uninstall.ps1','uninstall.cmd'])assert.deepEqual(fs.readFileSync(path.join(root,name)),fs.readFileSync(path.join(client,name)));
+  }finally{fs.rmSync(parent,{recursive:true,force:true});}
+});
+
 test('custom runtime update validates checksum and rollback preserves user data',{skip:!process.env.QCODE_TEST_RELEASE_DIRECTORY,timeout:240000},async t=>{
   const release=process.env.QCODE_TEST_RELEASE_DIRECTORY;
   const manifest=JSON.parse(fs.readFileSync(path.join(release,'manifest.json'),'utf8'));
@@ -48,6 +69,8 @@ function Invoke-WebRequest {
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,manifest.version);
   assert.ok(fs.existsSync(path.join(root,`versions/${manifest.version}/${manifest.runtime==='opencode'?'opencode/bin/qcode-engine.exe':'harness-custom/lib/bin.js'}`)));
   assert.equal(fs.readFileSync(path.join(root,'saved-session-test'),'utf8'),'preserve me');
+  assert.ok(fs.existsSync(path.join(root,'uninstall.ps1')));
+  assert.ok(fs.existsSync(path.join(root,'uninstall.cmd')));
   const rollback=await install(['-Rollback']);assert.equal(rollback.code,0,rollback.output);
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,'0.3.0');
   console.log('Installer test location: '+root);
