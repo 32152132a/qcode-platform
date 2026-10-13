@@ -154,6 +154,8 @@ node --test --test-concurrency=1 --test-name-pattern="OpenCode TUI|qcodeweb comm
 - 登录页默认用户名 admin，增加密码显示/隐藏按钮，保留浏览器密码管理器 autocomplete。不把真实管理员密码写入公开 HTML、JS 或 Git。后台已有账号时 ADMIN_PASSWORD 只用于首次初始化，不能只改 env 就认为数据库密码已改变。
 - 安装 EXE 的整个引导流程（包括解压）纳入异常处理，日志保存到安装目录 logs/setup-*.log；CMD 外层保留窗口并返回真实退出码，失败不会显示成安装成功。默认网关为 http://code.quyongqing.cn，无需首次安装手输地址。
 - 新增缺失/损坏 ZIP 引导失败日志测试；离线 EXE 测试改为执行真实 bootstrap，而不是跳过引导直接调用 install.ps1。
-- 已发现 HTTPS 子域名证书不匹配。当前 Nginx 仅为主域名配置 HTTPS，code 子域名仍是 HTTP，尚未擅自改 Nginx/证书。浏览器下载警告的具体原文仍需用户确认。
+- 经用户授权，code.quyongqing.cn 已配置独立有效 HTTPS 证书（有效至 2027-01-10），IPv4/IPv6 健康检查和下载入口均通过。修复了域名有 AAAA 记录但虚拟主机未监听 IPv6 导致访问错站点的问题。HTTP 暂时保留兼容旧客户端。自动续期的 systemd 文件已提交 deploy-qyq，尚待额外授权安装启用。浏览器下载警告的具体原文仍需用户确认。
 - 当前 EXE 未签名，本机未发现可用的个人代码签名证书。填写作者文字无法变成可信发布者；需要受信任 CA 代码签名证书或签名服务。现有 build-installer.ps1 支持 CertificateThumbprint，但本轮不伪造签名、不关闭系统防护。
-- 管理员临时密码及是否配置子域名 HTTPS 需按用户确认执行；不公开管理员凭据。签名参考：https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation 。
+- 管理员临时密码仍待用户确认；不公开管理员凭据。签名参考：https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation 。
+
+验证补充：38 项平台测试、浏览器管理页面 smoke、真实 EXE 离线引导安装及更新回滚 2 项测试通过。平台 master 已快进至 5b0ad0e 并推送 Gitee，opencode-migration 与 harness-latest 分支保留；线上应用重建仍待授权，不能将已推送等同于已部署。
