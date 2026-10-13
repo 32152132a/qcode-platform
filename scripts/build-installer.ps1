@@ -13,16 +13,19 @@ if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant(
 $build=Join-Path $release 'exe-build'
 New-Item -ItemType Directory -Force -Path $build|Out-Null
 Copy-Item -LiteralPath $archive -Destination (Join-Path $build 'client.zip') -Force
-$bootstrap=@'
-$ErrorActionPreference='Stop'
-$source=Join-Path $PSScriptRoot 'client.zip'
-$destination=Join-Path $env:TEMP ('qcode-setup-'+[guid]::NewGuid().ToString('N'))
-Expand-Archive -LiteralPath $source -DestinationPath $destination
-try { & (Join-Path $destination 'install.ps1') } catch { Write-Host $_.Exception.Message -ForegroundColor Red }
-Read-Host 'Press Enter to close'
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'installer-bootstrap.ps1') -Destination (Join-Path $build 'bootstrap.ps1') -Force
+$command=@'
+@echo off
+setlocal
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0bootstrap.ps1"
+set "setup_exit=%errorlevel%"
+echo.
+echo QCode setup exit code: %setup_exit%
+echo If setup failed, keep the message above and the setup log.
+pause
+exit /b %setup_exit%
 '@
-$bootstrap | Set-Content -LiteralPath (Join-Path $build 'bootstrap.ps1') -Encoding utf8
-'@echo off' + "`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0bootstrap.ps1`"`r`n" | Set-Content -LiteralPath (Join-Path $build 'install.cmd') -Encoding ascii
+[IO.File]::WriteAllText((Join-Path $build 'install.cmd'),($command -replace "`r?`n","`r`n"),[Text.Encoding]::ASCII)
 $target=Join-Path $release "QCodeSetup-$version.exe"
 $sed=@"
 [Version]
@@ -39,7 +42,7 @@ CAB_ResvCodeSigning=0
 RebootMode=N
 InstallPrompt=Install QCode for the current Windows user?
 DisplayLicense=
-FinishMessage=QCode setup finished. Check the installer window for details.
+FinishMessage=See the QCode setup window for the result and log location.
 TargetName=..\QCodeSetup-$version.exe
 FriendlyName=QCode $version
 AppLaunched=install.cmd

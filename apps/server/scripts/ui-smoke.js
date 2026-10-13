@@ -25,6 +25,11 @@ try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.getByLabel('用户名', { exact: true }).fill('admin');
   await page.getByLabel('密码', { exact: true }).fill('ui-test-password');
+  await page.getByRole('button',{name:'显示密码',exact:true}).click();
+  assert.equal(await page.getByLabel('密码',{exact:true}).getAttribute('type'),'text');
+  assert.equal(await page.getByLabel('密码',{exact:true}).inputValue(),'ui-test-password');
+  await page.getByRole('button',{name:'隐藏密码',exact:true}).click();
+  assert.equal(await page.getByLabel('密码',{exact:true}).getAttribute('type'),'password');
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await page.getByRole('button', { name: '部门管理', exact: true }).click();
   await page.getByRole('button', { name: '创建部门', exact: true }).click();

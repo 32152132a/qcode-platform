@@ -24,12 +24,10 @@ $process=Start-Process -FilePath $Setup -ArgumentList @('/Q','/C',('/T:'+ $Paylo
 if(-not $process.WaitForExit(60000)){throw 'EXE extraction timed out'}
 if($process.ExitCode -ne 0){throw 'EXE extraction failed'}
 if(-not (Test-Path -LiteralPath (Join-Path $Payload 'install.cmd'))){throw 'EXE bootstrap missing'}
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$source=Join-Path $Payload 'client'
-[IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $Payload 'client.zip'),$source)
 function Invoke-WebRequest { [IO.File]::AppendAllText($NetworkLog,'WebRequest');throw 'Network forbidden during offline install' }
 function Invoke-RestMethod { [IO.File]::AppendAllText($NetworkLog,'RestMethod');throw 'Network forbidden during offline install' }
-& (Join-Path $source 'install.ps1') -InstallRoot $InstallRoot -Gateway 'http://127.0.0.1:1' -NoPath
+& (Join-Path $Payload 'bootstrap.ps1') -InstallRoot $InstallRoot -Gateway 'http://127.0.0.1:1' -NoPath
+if($LASTEXITCODE -ne 0){throw 'Installer bootstrap failed'}
 if(-not (Test-Path -LiteralPath (Join-Path $InstallRoot 'bin/qcodeweb.cmd'))){throw 'Web command missing'}
 & (Join-Path $InstallRoot 'bin/qcode.cmd') help
 if($LASTEXITCODE -ne 0){throw 'Installed command failed'}
@@ -45,6 +43,8 @@ if($LASTEXITCODE -ne 0){throw 'Installed command failed'}
   assert.equal(fs.existsSync(networkLog),false,'Installer attempted a network request');
   assert.match(output,/Installing the bundled Node/);
   assert.match(output,/default: TUI/);
+  assert.match(output,/QCode installation succeeded/);
+  assert.ok(fs.readdirSync(path.join(installed,'logs')).some(name=>name.endsWith('.log')));
   assert.equal(JSON.parse(fs.readFileSync(path.join(installed,'current.json'))).version,manifest.version);
   assert.equal(JSON.parse(fs.readFileSync(path.join(installed,'settings.json'))).gateway,'http://127.0.0.1:1');
   assert.equal(fs.readFileSync(path.join(installed,'personal-project.txt'),'utf8'),'preserve my project');

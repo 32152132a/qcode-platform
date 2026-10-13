@@ -82,12 +82,18 @@ function showWorkspace() {
     const tab=button(label,async()=>{section=key;await load();});tab.className='';tab.dataset.section=key;tab.replaceChildren();const icon=document.createElement('span');icon.className='nav-symbol';icon.textContent=symbols[index];icon.setAttribute('aria-hidden','true');tab.append(icon,document.createTextNode(label));$('tabs').append(tab);
   }
 }
+$('toggle-password').onclick = () => {
+  const input = $('login-password'), show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  $('toggle-password').setAttribute('aria-pressed', String(show));
+  $('toggle-password').setAttribute('aria-label', show ? '隐藏密码' : '显示密码');
+};
 $('login-form').onsubmit = async event => {
   event.preventDefault(); const submit = event.submitter; submit.disabled = true;
   try {
     const result = await api('/auth/login', 'POST', {...Object.fromEntries(new FormData(event.target)),device:'管理工作台'}); saveSession(result);
     if (!result.user.permissions.length) { await api('/auth/logout', 'POST'); signOut(); throw new Error('员工账号请通过 qcode 客户端使用'); }
-    event.target.reset(); $('message').textContent = ''; showWorkspace();
+    event.target.reset(); $('login-password').type='password'; $('toggle-password').setAttribute('aria-pressed','false'); $('toggle-password').setAttribute('aria-label','显示密码'); $('message').textContent = ''; showWorkspace();
     await load();
   } catch (error) { notice(error); } finally { submit.disabled = false; }
 };

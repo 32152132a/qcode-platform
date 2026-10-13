@@ -146,3 +146,14 @@ node --test --test-concurrency=1 --test-name-pattern="OpenCode TUI|qcodeweb comm
 分支状态：平台本地 master、harness-latest 和 opencode-migration 均保留，Gitee 已核对存在 master 与 harness-latest，opencode-migration 尚未推送。定制内核本地 upstream 为官方 v1.19.0，master 为 QCode 定制；尚未配置自有 Gitee remote，等待仓库地址后再备份。不要向名为 upstream 的官方远程推送定制代码。
 
 升级流程：先备份当前可用版本，获取官方新版本并更新官方基线分支，再合入定制分支，处理品牌/更新入口冲突，运行平台回归、真实内核 TUI/Web/工具测试、安装与更新回滚测试，通过后生成并发布新版本。当前改动集中，品牌合并成本较低；配置、协议或启动方式发生变化仍可能需要适配，不能承诺每次升级都能直接发布。
+
+
+## 0.4.6 修复与待提供项（2026-10-13）
+
+- qcode-opencode 已补齐官方历史并推到 https://gitee.com/quyongqing/qcode-opencode ，master=689c7fc、upstream=733b2c6，远程哈希已核对。此前浅克隆被 Gitee 拒绝，后续中断的推送也未生效；本次实际推送成功。
+- 登录页默认用户名 admin，增加密码显示/隐藏按钮，保留浏览器密码管理器 autocomplete。不把真实管理员密码写入公开 HTML、JS 或 Git。后台已有账号时 ADMIN_PASSWORD 只用于首次初始化，不能只改 env 就认为数据库密码已改变。
+- 安装 EXE 的整个引导流程（包括解压）纳入异常处理，日志保存到安装目录 logs/setup-*.log；CMD 外层保留窗口并返回真实退出码，失败不会显示成安装成功。默认网关为 http://code.quyongqing.cn，无需首次安装手输地址。
+- 新增缺失/损坏 ZIP 引导失败日志测试；离线 EXE 测试改为执行真实 bootstrap，而不是跳过引导直接调用 install.ps1。
+- 已发现 HTTPS 子域名证书不匹配。当前 Nginx 仅为主域名配置 HTTPS，code 子域名仍是 HTTP，尚未擅自改 Nginx/证书。浏览器下载警告的具体原文仍需用户确认。
+- 当前 EXE 未签名，本机未发现可用的个人代码签名证书。填写作者文字无法变成可信发布者；需要受信任 CA 代码签名证书或签名服务。现有 build-installer.ps1 支持 CertificateThumbprint，但本轮不伪造签名、不关闭系统防护。
+- 管理员临时密码及是否配置子域名 HTTPS 需按用户确认执行；不公开管理员凭据。签名参考：https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation 。

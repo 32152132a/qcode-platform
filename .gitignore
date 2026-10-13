@@ -6,3 +6,5 @@
 **/node_modules/
 apps/server/releases/
 artifacts/
+
+.visual-tests/
