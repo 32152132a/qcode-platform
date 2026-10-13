@@ -37,7 +37,7 @@ node --env-file=.env scripts/maintenance.js archive-audits --days 180
 
 访问凭据和刷新凭据通过 Windows DPAPI 保存，运行期间自动轮换。Harness 只获得回环桥接凭据。每网关/用户使用独立 Harness 配置、Skill 与默认项目目录；同一 Windows 账号仍可读取其权限范围内其他文件，目录隔离不是操作系统沙箱。
 
-更新要求 HTTPS（本机回环除外），验证 ZIP SHA256 和解压路径；版本目录不可变并支持指针回滚。当前运行环境和 Harness 版本固定共享，回滚针对客户端代码。卸载 `install.ps1 -Uninstall` 移除命令和快捷方式，保留项目及用户数据；离职时还应在后台禁用账号。
+更新要求 HTTPS（本机回环除外），验证 ZIP SHA256 和解压路径；版本目录不可变并支持指针回滚。当前运行环境和 Harness 版本固定共享，回滚针对客户端代码。可双击安装目录中的 `uninstall.cmd` 或开始菜单“卸载 QCode”：默认删除程序、内置运行环境、启动快捷方式和自身 PATH 项，保留个人配置与加密登录会话，以及用于后续清理数据的卸载入口；仅在选择完整清理并输入“删除全部 QCode 本地数据”后删除本地配置、会话及登录 Token。用户项目、默认 workspace 和无法识别的文件始终保留。卸载前校验安装标记并拒绝链接、目录联接或仍运行的客户端；失败原因会显示并写入 `%LOCALAPPDATA%\QCode-uninstall-logs`。旧安装可使用新脚本加 `-InstallRoot` 指向旧目录，脚本会验证版本所有权。离职时还应在后台禁用账号。
 
 ## 部署和检查
 

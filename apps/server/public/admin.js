@@ -8,6 +8,9 @@ const symbols = ['◈','◇','▦','⌘','◉','▤','▥','≡','✓','⚙','�
 const can = permission => currentUser?.permissions?.includes(permission) || false;
 const quotaLabels = { totalTokens: '总 Token 额度', totalRequests: '总请求额度', dailyTokens: '每日 Token', dailyRequests: '每日请求', monthlyTokens: '每月 Token', monthlyRequests: '每月请求' };
 const logFilters={requests:{offset:0},audits:{offset:0}};
+const showLogin = () => { $('login-error').textContent = ''; if (!$('login-panel').open) $('login-panel').showModal(); };
+$('admin-login-trigger').onclick = showLogin;
+$('close-login').onclick = () => $('login-panel').close();
 function saveSession(result) { token = result.token; refreshToken = result.refreshToken; currentUser = result.user; sessionStorage.setItem('qcode.session', JSON.stringify(result)); }
 async function renew() {
   if (!refreshing) refreshing = (async () => {
@@ -72,9 +75,9 @@ function edit(title, fields, save) {
   $('editor').showModal();
 }
 $('cancel').onclick = () => $('editor').close();
-function signOut() { token = ''; refreshToken = ''; currentUser = null; sessionStorage.removeItem('qcode.session'); $('workspace').hidden = true; $('login-panel').hidden = false; $('identity').replaceChildren(); $('tabs').replaceChildren(); }
+function signOut() { token = ''; refreshToken = ''; currentUser = null; sessionStorage.removeItem('qcode.session'); $('console').hidden = true; $('public-site').hidden = false; if ($('login-panel').open) $('login-panel').close(); $('identity').replaceChildren(); $('tabs').replaceChildren(); }
 function showWorkspace() {
-  $('login-panel').hidden=true;$('workspace').hidden=false;
+  if ($('login-panel').open) $('login-panel').close();$('public-site').hidden=true;$('console').hidden=false;
   $('identity').replaceChildren(document.createTextNode(currentUser.username+' '),button('修改密码',()=>edit('修改自己的密码',[{name:'currentPassword',label:'当前密码',type:'password'},{name:'password',label:'新密码（至少 10 位）',type:'password'}],async data=>{await api('/auth/password','POST',data);signOut();})),button('退出',async()=>{await api('/auth/logout','POST');signOut();}));
   $('tabs').replaceChildren();
   for(const [index,[key,label]] of Object.entries(labels).entries()){
@@ -90,12 +93,13 @@ $('toggle-password').onclick = () => {
 };
 $('login-form').onsubmit = async event => {
   event.preventDefault(); const submit = event.submitter; submit.disabled = true;
+  $('login-error').textContent = '';
   try {
     const result = await api('/auth/login', 'POST', {...Object.fromEntries(new FormData(event.target)),device:'管理工作台'}); saveSession(result);
-    if (!result.user.permissions.length) { await api('/auth/logout', 'POST'); signOut(); throw new Error('员工账号请通过 qcode 客户端使用'); }
+    if (!result.user.permissions.length) { await api('/auth/logout', 'POST'); signOut(); showLogin(); throw new Error('员工账号请通过 QCode 客户端使用'); }
     event.target.reset(); $('login-password').type='password'; $('toggle-password').setAttribute('aria-pressed','false'); $('toggle-password').setAttribute('aria-label','显示密码'); $('message').textContent = ''; showWorkspace();
     await load();
-  } catch (error) { notice(error); } finally { submit.disabled = false; }
+  } catch (error) { $('login-error').textContent = error.message || String(error); } finally { submit.disabled = false; }
 };
 async function userEditor(user) {
   const [keys, models, departments] = await Promise.all([can('keys:read')?api('/admin/keys'):[],can('models:read')?api('/admin/models'):[],api('/admin/departments')]);
