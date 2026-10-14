@@ -19,3 +19,5 @@ import './uninstaller.test.js';
 import './providers.test.js';
 
 import './web-login.test.js';
+
+import './knowledge.test.js';

@@ -1,10 +1,11 @@
 'use strict';
+import { renderKnowledge } from './knowledge-ui.js';
 import { openModelEditor, modelCards } from './model-ui.js';
 import { renderEnterprise } from './enterprise-ui.js';
 import { importUsersCsv, downloadText } from './csv.js';
 const $ = id => document.getElementById(id);
 let token = '', refreshToken = '', refreshing, section = 'overview', currentUser;
-const labels = { overview: '工作台概览', users: '用户管理', departments: '部门管理', keys: 'Key 管理', models: '模型配置', skills: '共享 Skill', usage: '用量统计', requests: '请求日志', audits: '操作审计', settings: '系统设置', system: '系统状态' };
+const labels = { overview: '工作台概览', users: '用户管理', departments: '部门管理', keys: 'Key 管理', models: '模型配置', skills: '共享 Skill', usage: '用量统计', requests: '请求日志', audits: '操作审计', settings: '系统设置', system: '系统状态', knowledge: '知识库' };
 const symbols = ['◈','◇','▦','⌘','◉','▤','▥','≡','✓','⚙','⊙'];
 const can = permission => currentUser?.permissions?.includes(permission) || false;
 const quotaLabels = { totalTokens: '总 Token 额度', totalRequests: '总请求额度', dailyTokens: '每日 Token', dailyRequests: '每日请求', monthlyTokens: '每月 Token', monthlyRequests: '每月请求' };
@@ -83,7 +84,7 @@ function showWorkspace() {
   $('tabs').replaceChildren();
   for(const [index,[key,label]] of Object.entries(labels).entries()){
     if(!can(`${key==='overview'?'usage':key}:read`))continue;
-    const tab=button(label,async()=>{section=key;await load();});tab.className='';tab.dataset.section=key;tab.replaceChildren();const icon=document.createElement('span');icon.className='nav-symbol';icon.textContent=symbols[index];icon.setAttribute('aria-hidden','true');tab.append(icon,document.createTextNode(label));$('tabs').append(tab);
+    const tab=button(label,async()=>{section=key;await load();});tab.className='';tab.dataset.section=key;tab.replaceChildren();const icon=document.createElement('span');icon.className='nav-symbol';icon.textContent=symbols[index]||'▤';icon.setAttribute('aria-hidden','true');tab.append(icon,document.createTextNode(label));$('tabs').append(tab);
   }
 }
 $('toggle-password').onclick = () => {
@@ -146,6 +147,7 @@ async function load() {
   const query=logFilters[active]?`?${new URLSearchParams({...logFilters[active],limit:25})}`:'';
   const data = await api(`/admin/${active==='overview'?'usage':active}${query}`);
   if (section !== active || !token) return;
+  if(active==='knowledge'){ $('section-note').textContent='手动上传团队资料，通过共享 Skill 提供给员工 AI，关键词检索无需向量服务。';renderKnowledge({data,api,load,can,notice});return; }
   $('content').replaceChildren();
   if(renderEnterprise(active,data,{content:$('content'),toolbar:$('actions'),actions,api,button,table,edit,load,can,quotaLabels}))return;
   if(['users','keys','models'].includes(active)){const search=document.createElement('input');search.placeholder='搜索当前列表';search.setAttribute('aria-label','搜索当前列表');search.oninput=()=>{for(const row of $('content').querySelectorAll('tbody tr,.model-card'))row.hidden=!row.textContent.toLowerCase().includes(search.value.toLowerCase());};$('toolbar').append(search);}

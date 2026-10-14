@@ -60,7 +60,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       state.departments = state.departments.filter(d => d.id !== req.params.id); audit(state, req.user, 'department.delete', req.params.id);
     }); res.json({ ok: true });
   });
-  app.get('/admin/skills', (_req, res) => res.json(db.read().skills));
+  app.get('/admin/skills', (_req, res) => res.json(db.read().skills.filter(s=>s.kind!=='knowledge')));
   function saveSkill(state, body, actor, existing) {
     const name = text(body.name, 'Skill 名称', 64);
     if (!/^[a-z][a-z0-9-]*$/.test(name)) fail(400, 'INVALID_SKILL_NAME', 'Skill 名称只能使用小写字母、数字和短横线，并以字母开头');
@@ -84,12 +84,12 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
   }
   app.post('/admin/skills', (req, res) => res.status(201).json(db.transaction(state => saveSkill(state, req.body || {}, req.user))));
   app.put('/admin/skills/:id', (req, res) => res.json(db.transaction(state => {
-    const skill = state.skills.find(s => s.id === req.params.id);
+    const skill = state.skills.find(s => s.id === req.params.id && s.kind!=='knowledge');
     if (!skill) fail(404, 'SKILL_NOT_FOUND', 'Skill 不存在');
     return saveSkill(state, req.body || {}, req.user, skill);
   })));
   app.delete('/admin/skills/:id', (req, res) => {
-    db.transaction(state => { if (!state.skills.some(s => s.id === req.params.id)) fail(404, 'SKILL_NOT_FOUND', 'Skill 不存在'); state.skills = state.skills.filter(s => s.id !== req.params.id); audit(state, req.user, 'skill.delete', req.params.id); }); res.json({ ok: true });
+    db.transaction(state => { if (!state.skills.some(s => s.id === req.params.id && s.kind!=='knowledge')) fail(404, 'SKILL_NOT_FOUND', 'Skill 不存在'); state.skills = state.skills.filter(s => s.id !== req.params.id); audit(state, req.user, 'skill.delete', req.params.id); }); res.json({ ok: true });
   });
   app.get('/admin/settings', (_req, res) => res.json(settingsFor(db.read())));
   app.put('/admin/settings', (req, res) => res.json(db.transaction(state => {
