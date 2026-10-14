@@ -15,6 +15,7 @@ async function fixture(t) {
     if(mode==='delay')await new Promise(resolve=>setTimeout(resolve,80));
     if(mode==='failure')return res.writeHead(401).end('sk-secret-private upstream-address');
     const tool=body.tool_choice?.type==='function';
+    if(body.model==='deepseek-test'&&tool&&body.thinking?.type!=='disabled')return res.writeHead(400).end('forced tools unsupported in thinking mode');
     const usage={input_tokens:5,output_tokens:3,total_tokens:8};
     if(req.url==='/v1/responses'){
       if(!body.stream)return res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({id:'response_test',status:'completed',output:[{type:'message',content:[{type:'output_text',text:'OK'}]}],usage}));
@@ -52,12 +53,13 @@ async function fixture(t) {
 }
 test('all relay brands support model-bound keys, catalogue and streaming tool round trips',async t=>{
   const f=await fixture(t);
-  for(const family of ['gpt','gemini','claude','grok','mistral']){
+  for(const family of ['gpt','gemini','claude','grok','mistral','deepseek']){
     const model=await f.model(family,family==='gpt'?'responses':'chat-completions');
     const catalogue=await f.request('/admin/models/catalog','POST',{baseUrl:model.base_url,keyId:f.key.id},f.admin);assert.equal(catalogue.status,200);assert.equal(catalogue.body.models.length,5);
     const checked=await f.request(`/admin/models/${model.id}/check`,'POST',{},f.admin);
     assert.equal(checked.body.status,'verified',JSON.stringify(checked));assert.equal(checked.body.tool_result,true);
     const forward=f.received.at(-1);assert.equal(forward.auth,'Bearer sk-test-private-relay');
+    if(family==='deepseek'){assert.equal(forward.body.thinking.type,'disabled');assert.equal(checked.body.test_mode,'non-thinking');}
     if(family==='gpt'){assert.equal(forward.path,'/v1/responses');assert.ok(forward.body.input.some(item=>item.type==='function_call_output'));}
     if(family==='gemini')assert.equal(forward.body.messages[1].tool_calls[0].extra_content.google.thought_signature,'opaque-signature');
     const user=await f.request('/admin/users','POST',{username:family,password:'user-password',modelId:model.id},f.admin);assert.equal(user.status,201);
@@ -78,7 +80,7 @@ test('all relay brands support model-bound keys, catalogue and streaming tool ro
 test('failed provider probes are sanitized, logged, and never marked verified',async t=>{
   const f=await fixture(t),model=await f.model('gpt','responses');f.mode('failure');
   const checked=await f.request(`/admin/models/${model.id}/check`,'POST',{},f.admin);
-  assert.equal(checked.body.status,'failed');assert.doesNotMatch(JSON.stringify(checked),/sk-secret|upstream-address/);
+  assert.equal(checked.body.status,'failed');assert.match(checked.body.message,/Key 无效/);assert.doesNotMatch(JSON.stringify(checked),/sk-secret|upstream-address/);
   assert.equal(f.db.read().requests[0].status,'failed');assert.ok(f.db.read().requests[0].charged_tokens>0);
   assert.equal((await f.request(`/admin/models/${model.id}`,'PUT',{name:'GPT',publicName:'gpt',baseUrl:'https://example.test/v1',upstreamModel:'gpt',protocol:'gemini-native'},f.admin)).status,400);
 });

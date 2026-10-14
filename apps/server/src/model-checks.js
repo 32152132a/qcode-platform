@@ -84,7 +84,11 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         const outbound=providerRequest(body,model,key?vault.decrypt(key.secret):undefined,outputLimit);
         const response=await fetch(outbound.url,{method:'POST',redirect:'error',headers:outbound.headers,body:JSON.stringify(outbound.payload),signal:controller.signal});
         upstreamStatus=response.status;
-        if(!response.ok){await response.body?.cancel();fail(502,'UPSTREAM_ERROR',`模型测试失败：HTTP ${response.status}`);}
+        if(!response.ok){
+          await response.body?.cancel();
+          const reasons={400:'请求参数不兼容，请检查模型名、协议及思考/工具参数',401:'Key 无效或已失效',402:'账户余额或额度不足',403:'Key 或模型访问权限不足',404:'服务地址或模型不存在',429:'上游限流或额度限制',500:'模型服务内部异常',502:'上游网关异常',503:'模型服务暂不可用'};
+          fail(502,'UPSTREAM_ERROR',`模型测试失败：HTTP ${response.status}，${reasons[response.status]||'上游服务拒绝请求'}`);
+        }
         const type=response.headers.get('content-type')||'';
         if(!type.includes(body.stream?'text/event-stream':'application/json')){await response.body?.cancel();fail(502,'INVALID_UPSTREAM_RESPONSE','上游响应格式不匹配');}
         result=body.stream?await collectStream(model.protocol==='responses'?responseStream(response.body,model):response.body):chatResponse(await boundedJson(response),model);
@@ -102,6 +106,7 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         });
       }
     }
+    const nonThinking=model.provider==='deepseek'&&model.protocol!=='responses';
     let verification={status:'failed',checked_at:now(),key_id:key?.id||null,stream:false,tools:false,tool_result:false};
     try {
       if(model.provider==='ollama'){
@@ -109,16 +114,17 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         if(!result.choices[0]?.message?.content?.trim())fail(502,'EMPTY_MODEL_RESPONSE','模型未返回文本');
         verification.stream=true;verification.status='connected';verification.message='本地模型聊天连通，工具调用未验证。';
       }else{
-      const body={messages:[{role:'user',content:'Call qcode_connection_check with ok=true. Do not call any other tool.'}],tools:[{type:'function',function:{name:'qcode_connection_check',description:'Checks model tool calling without running code.',parameters:{type:'object',properties:{ok:{type:'boolean'}},required:['ok'],additionalProperties:false}}}],tool_choice:{type:'function',function:{name:'qcode_connection_check'}},stream:true};
+      // DeepSeek defaults to thinking mode, where named tool_choice returns HTTP 400.
+      const body={...(nonThinking?{thinking:{type:'disabled'}}:{}),messages:[{role:'user',content:'Call qcode_connection_check with ok=true. Do not call any other tool.'}],tools:[{type:'function',function:{name:'qcode_connection_check',description:'Checks model tool calling without running code.',parameters:{type:'object',properties:{ok:{type:'boolean'}},required:['ok'],additionalProperties:false}}}],tool_choice:{type:'function',function:{name:'qcode_connection_check'}},stream:true};
       const result=await perform(body);verification.stream=true;
       const call=result.choices[0]?.message?.tool_calls?.[0];
       if(!call?.id||call.function?.name!=='qcode_connection_check')fail(502,'TOOL_CALL_UNSUPPORTED','流式响应成功，但工具调用未通过');
       let args;try{args=JSON.parse(call.function.arguments);}catch{fail(502,'TOOL_CALL_INVALID','工具调用参数不是有效 JSON');}
       if(args.ok!==true)fail(502,'TOOL_CALL_INVALID','工具调用参数不符合测试要求');
       verification.tools=true;
-      const follow=await perform({messages:[...body.messages,result.choices[0].message,{role:'tool',tool_call_id:call.id,content:'{"ok":true}'},{role:'user',content:'The tool succeeded. Reply with OK, do not call tools.'}],stream:false});
+      const follow=await perform({...(nonThinking?{thinking:{type:'disabled'}}:{}),messages:[...body.messages,result.choices[0].message,{role:'tool',tool_call_id:call.id,content:'{"ok":true}'},{role:'user',content:'The tool succeeded. Reply with OK, do not call tools.'}],stream:false});
       if(!follow.choices[0]?.message?.content)fail(502,'TOOL_RESULT_UNSUPPORTED','工具结果回传后未获得文本回复');
-      verification.tool_result=true;verification.status='verified';
+      verification.tool_result=true;verification.status='verified';if(nonThinking){verification.test_mode='non-thinking';verification.message='非思考模式下，流式输出、工具调用和结果回传验证通过。';}
       }
     }catch(error){verification.error_code=error.code||'UPSTREAM_UNAVAILABLE';verification.message=error.status?error.message:'模型验证失败';}
     let stale=false;

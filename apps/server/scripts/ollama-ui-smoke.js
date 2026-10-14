@@ -21,7 +21,7 @@ try{
  await page.getByRole('button',{name:'读取服务支持的模型列表'}).click();await page.getByText('已读取 1 个模型，在上游模型输入框中选择。',{exact:true}).waitFor();
  await page.getByLabel('服务来源').selectOption('ollama');await page.waitForFunction(()=>document.querySelector('[name=upstreamModel]')?.value==='qwen:0.5b');
  await page.getByRole('button',{name:'保存',exact:true}).click();
- page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'测试聊天连通性',exact:true}).click();await page.getByText('聊天连通 · 工具未验证',{exact:true}).waitFor();
+ page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'测试聊天连通性',exact:true}).click();await page.getByText('聊天连通 · 工具未验证',{exact:true}).waitFor();assert.equal(await page.locator('.model-card .badge').evaluate(node=>node.classList.contains('muted')),false);
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.deepEqual(errors,[]);fs.mkdirSync('.visual-tests',{recursive:true});await page.screenshot({path:'.visual-tests/ollama-model-mobile.png',fullPage:true});
  console.log('Ollama UI passed: preset, keyless catalogue, save, text connectivity, honest badge and mobile layout.');
 }finally{await browser?.close();server.closeAllConnections();server.close();upstream.closeAllConnections();upstream.close();}

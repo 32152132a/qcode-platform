@@ -28,3 +28,9 @@ Key 优先级为用户专用、部门专用、模型默认。希望用模型 Key
 providers.test.js 使用模拟服务覆盖五品牌、模型 Key、目录、JSON/流式、工具结果往返、签名元数据保留、权限、用量、错误脱敏、Key 替换和残缺流。浏览器通过隔离本地网关验证登录、草稿目录、保存和探针，1440/768/390px 布局无横向溢出。截图位于 artifacts/model-admin-desktop.png 与 artifacts/model-editor-mobile.png，仅使用模拟数据。
 
 未调用真实中转站。最终需管理员提供站点 Key、真实可用模型名称，并使用员工 Web/TUI 验证真实项目；探针通过不代表余额、长上下文或客户端签名回传已全面验证。
+
+## DeepSeek 验证兼容与状态说明
+
+DeepSeek Chat Completions 当前默认开启思考，强制指定工具会返回 HTTP 400。管理端验证在两次诊断请求中显式关闭思考，结果标为“非思考测试”；员工正常请求的思考设置不变。依据：https://api-docs.deepseek.com/api/create-chat-completion/ 。HTTP 401、402、403、404、429 等显示对应 Key、余额、权限、地址和限流提示，不展示原始上游错误内容。
+
+Ollama connected 状态显示成功颜色，同时保留“工具未验证”说明。模型卡片直接显示最近验证结果，刷新后仍能看到失败原因。模型编辑器输入与选择控件的样式仅作用于模型弹窗。
