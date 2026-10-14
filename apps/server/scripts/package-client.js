@@ -33,7 +33,7 @@ function crc32(buffer){let value=0xffffffff;for(const byte of buffer)value=crcTa
 function filesIn(directory){return fs.readdirSync(directory,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name)).flatMap(entry=>{
   if(entry.name==='node_modules'||entry.name.startsWith('.'))return [];
   const full=path.join(directory,entry.name);if(entry.isSymbolicLink())throw new Error('Symlinks are not allowed in client distributions');
-  if(entry.isDirectory())return filesIn(full);return /\.(ps1|cmd|vbs|mjs|json|md|png|ico)$/.test(entry.name)?[full]:[];
+  if(entry.isDirectory())return filesIn(full);return /\.(ps1|cmd|vbs|mjs|html|json|md|png|ico)$/.test(entry.name)?[full]:[];
 });}
 const local=[],central=[];let offset=0;
 const entries=filesIn(source).filter(filename=>!isOpenCode||!path.relative(source,filename).startsWith('harness'+path.sep)).map(filename=>({name:path.relative(source,filename).split(path.sep).join('/'),filename}));

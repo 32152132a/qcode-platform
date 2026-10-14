@@ -1,3 +1,4 @@
+import { initializeSelects } from './ui-select.js';
 'use strict';
 import { renderKnowledge } from './knowledge-ui.js';
 import { openModelEditor, modelCards } from './model-ui.js';
@@ -5,6 +6,7 @@ import { renderEnterprise } from './enterprise-ui.js';
 import { importUsersCsv, downloadText } from './csv.js';
 import { renderUsage } from './usage-ui.js';
 const usageStyles=document.createElement('link');usageStyles.rel='stylesheet';usageStyles.href='/usage.css';document.head.append(usageStyles);
+initializeSelects();
 const $ = id => document.getElementById(id);
 let token = '', refreshToken = '', refreshing, section = 'overview', currentUser;
 const labels = { overview: '工作台概览', users: '用户管理', departments: '部门管理', keys: 'Key 管理', models: '模型配置', skills: '共享 Skill', usage: '用量统计', requests: '请求日志', audits: '操作审计', settings: '系统设置', system: '系统状态', knowledge: '知识库' };

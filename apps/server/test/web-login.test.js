@@ -23,7 +23,8 @@ async function fixture(t,{saved=false,failStart=false,progress=''}={}){
  return {local,headers,state,wait,session:()=>session,starts:()=>starts,stops:()=>stops,received:()=>received};
 }
 test('Web login forwards credentials only to gateway and returns no gateway credentials to the browser',async t=>{
- const f=await fixture(t);const html=await (await fetch(f.local.origin+'/')).text();assert.match(html,/用户名/);assert.match(html,/显示密码/);assert.doesNotMatch(html,/gateway-access-secret/);
+ const f=await fixture(t);const html=await (await fetch(f.local.origin+'/')).text();assert.match(html,/用户名/);assert.match(html,/显示密码/);assert.doesNotMatch(html,/gateway-access-secret|关闭 QCode|id="stop"/);
+ const icon=await fetch(f.local.origin+'/icon.png');assert.equal(icon.status,200);assert.equal(icon.headers.get('content-type'),'image/png');assert.equal(Buffer.from(await icon.arrayBuffer()).subarray(0,8).toString('hex'),'89504e470d0a1a0a');
  assert.equal((await fetch(f.local.origin+'/status')).status,401);
  assert.equal((await fetch(f.local.origin+'/login',{method:'POST',headers:{...f.headers,Origin:'https://evil.example'},body:'{}'})).status,403);
  const wrong=await fetch(f.local.origin+'/login',{method:'POST',headers:f.headers,body:JSON.stringify({username:'alice',password:'wrong'})});assert.equal(wrong.status,401);assert.doesNotMatch(await wrong.text(),/private-provider-password/);
