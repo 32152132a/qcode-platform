@@ -17,3 +17,5 @@ import './installer-bootstrap.test.js';
 import './uninstaller.test.js';
 
 import './providers.test.js';
+
+import './web-login.test.js';

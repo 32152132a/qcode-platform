@@ -28,7 +28,10 @@ if(-not $InnoCompiler){
     }
 }
 if(-not $InnoCompiler -or -not (Test-Path -LiteralPath $InnoCompiler)){throw 'Inno Setup 6 compiler missing. Install it or pass -InnoCompiler path/to/ISCC.exe.'}
-$arguments=@('/Qp',"/DClientVersion=$version",('/DBuildDirectory="'+$build+'"'),('/DOutputDirectory="'+$release+'"'),('/DProjectRoot="'+$root+'"'),('"'+(Join-Path $PSScriptRoot 'qcode-setup.iss')+'"'))
+# Use isolated Windows user temp output for Inno executable resource updates.
+$compilerOutput=Join-Path (Join-Path $env:LOCALAPPDATA 'Temp') ('qcode-inno-'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $compilerOutput -Force|Out-Null
+$arguments=@('/Qp',"/DClientVersion=$version",('/DBuildDirectory="'+$build+'"'),('/DOutputDirectory="'+$compilerOutput+'"'),('/DProjectRoot="'+$root+'"'),('"'+(Join-Path $PSScriptRoot 'qcode-setup.iss')+'"'))
 $compilerLog=Join-Path $build 'compiler.log';$compilerErrors=Join-Path $build 'compiler-errors.log'
 $process=Start-Process -FilePath $InnoCompiler -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $compilerLog -RedirectStandardError $compilerErrors
 $null=$process.Handle
@@ -38,8 +41,12 @@ while(-not $process.WaitForExit(1000)){
     if($elapsed.Elapsed.TotalSeconds -ge $BuildTimeoutSeconds){throw "Inno compiler is still running (PID $($process.Id)); inspect it before retrying"}
     if($elapsed.Elapsed.TotalSeconds -ge $nextNotice){Write-Output "Compressing installer ($([int]$elapsed.Elapsed.TotalSeconds)s)...";$nextNotice+=30}
 }
+$compiled=Join-Path $compilerOutput "QCodeSetup-$version.exe"
 $target=Join-Path $release "QCodeSetup-$version.exe"
-if($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $target)){throw "Inno Setup compilation failed (exit $($process.ExitCode)); see $compilerLog and $compilerErrors"}
+if($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $compiled)){throw "Inno Setup compilation failed (exit $($process.ExitCode)); see $compilerLog and $compilerErrors"}
+Copy-Item -LiteralPath $compiled -Destination $target -Force
+Remove-Item -LiteralPath $compiled
+try{[IO.Directory]::Delete($compilerOutput)}catch{Write-Warning "Compiler temporary folder retained: $compilerOutput"}
 if($CertificateThumbprint){$certificate=Get-Item -LiteralPath "Cert:/CurrentUser/My/$CertificateThumbprint";$signature=Set-AuthenticodeSignature -FilePath $target -Certificate $certificate -TimestampServer 'http://timestamp.digicert.com';if($signature.Status -ne 'Valid'){throw 'Installer signature validation failed'}}
 $manifestPath=Join-Path $release 'manifest.json'
 $manifest=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json

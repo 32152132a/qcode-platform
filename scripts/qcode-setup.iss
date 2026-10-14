@@ -37,8 +37,8 @@ Source: "{#ProjectRoot}\apps\client\uninstall.cmd"; DestDir: "{app}"; Flags: ign
 Source: "{#ProjectRoot}\apps\client\branding\qcode.ico"; DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
 
 [Icons]
-Name: "{userdesktop}\QCode"; Filename: "{app}\bin\qcode.cmd"; Parameters: "web"; IconFilename: "{app}\qcode.ico"; Check: CreateShortcuts
-Name: "{userprograms}\QCode\QCode"; Filename: "{app}\bin\qcode.cmd"; Parameters: "web"; IconFilename: "{app}\qcode.ico"; Check: CreateShortcuts
+Name: "{userdesktop}\QCode"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\bin\desktop.ps1"""; IconFilename: "{app}\qcode.ico"; Check: CreateShortcuts
+Name: "{userprograms}\QCode\QCode"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\bin\desktop.ps1"""; IconFilename: "{app}\qcode.ico"; Check: CreateShortcuts
 Name: "{userprograms}\QCode\卸载 QCode"; Filename: "{uninstallexe}"; IconFilename: "{app}\qcode.ico"; Check: CreateShortcuts
 
 [Code]

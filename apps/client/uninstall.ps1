@@ -51,7 +51,9 @@ function Remove-IfPresent([string]$Path,[switch]$Recurse){
 }
 function Remove-Shortcut([string]$Path){
     if(-not (Test-Path -LiteralPath $Path -PathType Leaf)){return}
-    $shell=New-Object -ComObject WScript.Shell;$shortcut=$shell.CreateShortcut($Path);$target=[IO.Path]::GetFullPath($shortcut.TargetPath);if($target.StartsWith($InstallRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){Remove-Item -LiteralPath $Path -Force}
+    $shell=New-Object -ComObject WScript.Shell;$shortcut=$shell.CreateShortcut($Path);$target=[IO.Path]::GetFullPath($shortcut.TargetPath);$desktop=Join-Path $InstallRoot 'bin/desktop.ps1';$expected='-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File '+[char]34+$desktop+[char]34
+    $ownedDesktop=($target -eq (Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe')) -and ($shortcut.Arguments -eq $expected)
+    if($ownedDesktop -or $target.StartsWith($InstallRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){Remove-Item -LiteralPath $Path -Force}
 }
 try{
     Start-Transcript -LiteralPath $logFile -Force|Out-Null;$transcriptStarted=$true
@@ -105,7 +107,7 @@ try{
         $startMenuDirectory=Join-Path $programs 'QCode';if((Test-Path -LiteralPath $startMenuDirectory) -and -not (Get-ChildItem -LiteralPath $startMenuDirectory -Force)){Remove-Item -LiteralPath $startMenuDirectory -Force}
         Remove-IfPresent (Join-Path $InstallRoot 'settings.json')
         foreach($gateway in Get-ChildItem -LiteralPath $InstallRoot -Directory | Where-Object{$_.Name -match '^[A-Fa-f0-9]{24}$'}){
-            foreach($name in @('session.json','running.lock')){Remove-IfPresent (Join-Path $gateway.FullName $name)}
+            foreach($name in @('session.json','running.lock','web-launch.json')){Remove-IfPresent (Join-Path $gateway.FullName $name)}
             $users=Join-Path $gateway.FullName 'users'
             if(Test-Path -LiteralPath $users){foreach($user in Get-ChildItem -LiteralPath $users -Directory | Where-Object{$_.Name -match '^(?:\d+|[A-Fa-f0-9]{32})$'}){
                 foreach($name in @('opencode','harness','harness-tui','agents','agents-tui')){Remove-IfPresent (Join-Path $user.FullName $name) -Recurse}

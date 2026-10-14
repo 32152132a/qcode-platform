@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Position=0)][ValidateSet('web','tui','login','logout','switch','doctor','update','rollback','help')][string]$Command='tui',
     [string]$Gateway=$env:QCODE_GATEWAY,[string]$WorkDir='', [string]$HarnessEntry=$env:QCODE_HARNESS_ENTRY,[string]$OpenCodeEntry=$env:QCODE_OPENCODE_ENTRY,[switch]$NoOpen
@@ -60,6 +60,14 @@ if($Command -eq 'doctor'){
     $health=Invoke-Gateway '/health'
     Write-Host "QCode: $clientVersion | Gateway: $Gateway ($($health.status))"
     Write-Host "Node: $(& $nodeExecutable -p 'process.versions.node') | $runtimeName installed: $(Test-Path -LiteralPath $runtimeEntry) | Saved login: $(Test-Path -LiteralPath $sessionFile)"
+    exit 0
+}
+if($Command -eq 'web' -and $OpenCodeEntry -and $env:QCODE_WEB_LOGIN_CHILD -ne '1'){
+    [IO.File]::WriteAllText($settingsFile,(@{gateway=$Gateway}|ConvertTo-Json),$utf8)
+    $webArguments=@((Join-Path $PSScriptRoot 'web-login.mjs'),'--gateway',$Gateway,'--session',$sessionFile,'--entry',$OpenCodeEntry,'--runtime','opencode','--no-open',([string]$NoOpen.IsPresent).ToLowerInvariant())
+    if($WorkDir){$webArguments+=@('--workdir',$WorkDir)}
+    & $nodeExecutable @webArguments
+    if($LASTEXITCODE -ne 0){throw 'QCode 网页启动失败；若已经打开，请先关闭原客户端。可运行 qcode doctor 检查。'}
     exit 0
 }
 $session=$null
