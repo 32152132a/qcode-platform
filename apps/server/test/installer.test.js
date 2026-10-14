@@ -62,9 +62,11 @@ function Invoke-WebRequest {
     const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});return {code,output};
   }
   const bad=await install(['-Update']);assert.notEqual(bad.code,0);assert.match(bad.output,/checksum mismatch/);
+  assert.deepEqual(fs.readdirSync(path.join(root,'downloads')),[],'failed update cleans its downloaded payload');
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,'0.3.0');
   corrupt=false;const good=await install(['-Update']);assert.equal(good.code,0,good.output);
   assert.match(good.output,/Installing the bundled Node/);
+  assert.deepEqual(fs.readdirSync(path.join(root,'downloads')),[],'successful update cleans its downloaded payload');
   assert.ok(fs.existsSync(path.join(root,`runtime/node-v24.19.0-win-${manifest.arch}/node.exe`)));
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,manifest.version);
   assert.ok(fs.existsSync(path.join(root,`versions/${manifest.version}/${manifest.runtime==='opencode'?'opencode/bin/qcode-engine.exe':'harness-custom/lib/bin.js'}`)));
@@ -73,5 +75,6 @@ function Invoke-WebRequest {
   assert.ok(fs.existsSync(path.join(root,'uninstall.cmd')));
   const rollback=await install(['-Rollback']);assert.equal(rollback.code,0,rollback.output);
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,'0.3.0');
-  console.log('Installer test location: '+root);
+  t.after(()=>{assert.equal(path.dirname(root),path.resolve(os.tmpdir()));fs.rmSync(root,{recursive:true,force:true,maxRetries:3});});
+  console.log('Installer test passed; isolated fixture scheduled for cleanup.');
 });

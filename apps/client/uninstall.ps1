@@ -1,7 +1,8 @@
 ﻿[CmdletBinding()]
-param([string]$InstallRoot='', [switch]$RemoveAllData, [string]$ConfirmAllData='', [switch]$NonInteractive, [switch]$SystemUninstall)
+param([string]$InstallRoot='', [switch]$RemoveAllData, [string]$ConfirmAllData='', [switch]$NonInteractive, [switch]$SystemUninstall, [switch]$Gui)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
+[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)
 $env:PSModulePath=(Join-Path $PSHOME 'Modules')+[IO.Path]::PathSeparator+$env:PSModulePath
 if(-not $InstallRoot){$InstallRoot=if(Test-Path -LiteralPath (Join-Path $PSScriptRoot '.qcode-install.json')){$PSScriptRoot}elseif($env:QCODE_CLIENT_ROOT){$env:QCODE_CLIENT_ROOT}else{Join-Path $env:LOCALAPPDATA 'QCode'}}
 $InstallRoot=[IO.Path]::GetFullPath($InstallRoot).TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)
@@ -55,6 +56,7 @@ function Remove-Shortcut([string]$Path){
     $ownedDesktop=($target -eq (Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe')) -and ($shortcut.Arguments -eq $expected)
     if($ownedDesktop -or $target.StartsWith($InstallRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){Remove-Item -LiteralPath $Path -Force}
 }
+function Show-UninstallResult([string]$Message){if($Gui){Add-Type -AssemblyName PresentationFramework;[Windows.MessageBox]::Show($Message,'QCode 卸载')|Out-Null}}
 try{
     Start-Transcript -LiteralPath $logFile -Force|Out-Null;$transcriptStarted=$true
     Write-Host "QCode 卸载日志：$logFile"
@@ -72,7 +74,6 @@ try{
     if(-not (Test-Path -LiteralPath $InstallRoot)){Write-Host 'QCode 已卸载，无需再次清理。' -ForegroundColor Green;exit 0}
     $lockPath=Join-Path $InstallRoot 'install.lock'
     try{$installLock=[IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}catch{throw '另一个 QCode 安装或卸载正在运行，请稍后重试'}
-    if(-not $NonInteractive -and -not $RemoveAllData){Write-Host '1. 卸载 QCode（默认，保留个人配置与登录会话）';Write-Host '2. 删除全部 QCode 本地数据（包含登录 Token）';if((Read-Host '请选择 [1]') -eq '2'){$RemoveAllData=$true}}
     if($RemoveAllData){if(-not $ConfirmAllData -and -not $NonInteractive){$ConfirmAllData=Read-Host '此操作不可恢复。请输入“删除全部 QCode 本地数据”继续'};if($ConfirmAllData -cne '删除全部 QCode 本地数据'){throw '未收到正确的完整数据删除确认，已取消卸载'}}
     Write-Host "卸载目录：$InstallRoot"
     # Never remove user workspaces or arbitrary files inside a custom installation root.
@@ -102,6 +103,10 @@ try{
     Remove-Shortcut (Join-Path ([Environment]::GetFolderPath('Desktop')) 'QCode.lnk')
     $programs=[Environment]::GetFolderPath('Programs')
     Remove-Shortcut (Join-Path $programs 'QCode\QCode.lnk')
+    # Credentials are removed even when personal configuration and history are retained.
+    foreach($gateway in Get-ChildItem -LiteralPath $InstallRoot -Directory | Where-Object{$_.Name -match '^[A-Fa-f0-9]{24}$'}){
+        foreach($name in @('session.json','web-launch.json')){Remove-IfPresent (Join-Path $gateway.FullName $name)}
+    }
     if($RemoveAllData){
         Remove-Shortcut (Join-Path $programs 'QCode\卸载 QCode.lnk')
         $startMenuDirectory=Join-Path $programs 'QCode';if((Test-Path -LiteralPath $startMenuDirectory) -and -not (Get-ChildItem -LiteralPath $startMenuDirectory -Force)){Remove-Item -LiteralPath $startMenuDirectory -Force}
@@ -119,7 +124,7 @@ try{
     if($RemoveAllData){
         $installLock.Dispose();$installLock=$null
         Remove-IfPresent $lockPath
-        foreach($name in @('uninstall.cmd','uninstall.ps1','.qcode-install.json','qcode.ico')){Remove-IfPresent (Join-Path $InstallRoot $name)}
+        foreach($name in @('uninstall.cmd','uninstall.ps1','uninstall.vbs','.qcode-install.json','qcode.ico')){Remove-IfPresent (Join-Path $InstallRoot $name)}
         foreach($gateway in Get-ChildItem -LiteralPath $InstallRoot -Directory | Where-Object{$_.Name -match '^[A-Fa-f0-9]{24}$'}){
             $users=Join-Path $gateway.FullName 'users'
             if(Test-Path -LiteralPath $users){
@@ -131,7 +136,7 @@ try{
         if(-not (Get-ChildItem -LiteralPath $InstallRoot -Force)){Remove-Item -LiteralPath $InstallRoot -Force}
         Write-Host 'QCode 本地配置、会话及登录 Token 已删除；用户项目已保留。' -ForegroundColor Green
     }else{
-        Write-Host 'QCode 程序、内置运行环境、启动快捷方式及 PATH 项已删除；个人配置、登录会话和“卸载 QCode”数据清理入口已保留。' -ForegroundColor Green
+        Write-Host 'QCode 程序和登录 Token 已删除，下次使用需要重新登录；个人配置、历史会话、项目和数据清理入口已保留。' -ForegroundColor Green
     }
-    Write-Host "卸载日志：$logFile";exit 0
-}catch{Write-Host "QCode 卸载失败：$($_.Exception.Message)" -ForegroundColor Red;Write-Host "卸载日志：$logFile";exit 1}finally{if($installLock){$installLock.Dispose();if(Test-Path -LiteralPath $lockPath){Remove-Item -LiteralPath $lockPath -Force}};if($transcriptStarted){Stop-Transcript|Out-Null}}
+    Write-Host "卸载日志：$logFile";Show-UninstallResult "卸载完成，登录凭据已删除。用户项目已保留。日志：$logFile";exit 0
+}catch{Write-Host "QCode 卸载失败：$($_.Exception.Message)" -ForegroundColor Red;Write-Host "卸载日志：$logFile";Show-UninstallResult "卸载未完成：$($_.Exception.Message)`n日志：$logFile";exit 1}finally{if($installLock){$installLock.Dispose();if(Test-Path -LiteralPath $lockPath){Remove-Item -LiteralPath $lockPath -Force}};if($transcriptStarted){Stop-Transcript|Out-Null}}

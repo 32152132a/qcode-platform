@@ -30,7 +30,7 @@ try{
     const installRoot=path.dirname(path.dirname(args.session));
     let updated=false;
     try{updated=await installUpdate(args.gateway,version,installRoot,fileURLToPath(new URL('./install.ps1',import.meta.url)),clientRuntime);}
-    catch(error){console.warn(`QCode 更新检查失败：${error.message}。继续检查当前版本是否允许使用。`);}
+    catch(error){console.log(`QCode 更新：更新未完成，将继续使用当前版本。${error.message}`);}
     if(updated){
       releaseLock();releaseLock=null;
       const restart=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(installRoot,'bin','bootstrap.ps1'),args.mode||'tui','-Gateway',args.gateway,...(args.workdir?['-WorkDir',args.workdir]:[]),...(args['no-open']==='true'?['-NoOpen']:[])],{stdio:'inherit',windowsHide:true,env:{...process.env,QCODE_SKIP_UPDATE:'1'}});

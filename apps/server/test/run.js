@@ -19,3 +19,7 @@ import './uninstaller.test.js';
 import './providers.test.js';
 
 import './web-login.test.js';
+import './update-experience.test.js';
+import './usage-statistics.test.js';
+
+import './knowledge.test.js';

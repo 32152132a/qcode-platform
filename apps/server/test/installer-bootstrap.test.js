@@ -8,10 +8,11 @@ import {fileURLToPath} from 'node:url';
 
 test('installer bootstrap reports missing or corrupt payloads and retains failure logs',{skip:process.platform!=='win32',timeout:45000},async t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-bootstrap-'));
-  const script=path.join(root,'bootstrap.ps1'),installed=path.join(root,'isolated install');
+  const script=path.join(root,'bootstrap.ps1'),installed=path.join(root,'isolated install'),temp=path.join(root,'temp');
+  fs.mkdirSync(temp);
   fs.copyFileSync(fileURLToPath(new URL('../../../scripts/installer-bootstrap.ps1',import.meta.url)),script);
   async function run(){
-    const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-NoPath','-InstallRoot',installed],{windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...process.env,QCODE_GATEWAY:''}});
+    const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-NoPath','-InstallRoot',installed],{windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...process.env,QCODE_GATEWAY:'',TEMP:temp,TMP:temp}});
     t.after(()=>{if(child.exitCode===null)child.kill();});
     let output='';child.stdout.on('data',data=>output+=data);child.stderr.on('data',data=>output+=data);
     const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});
@@ -26,10 +27,12 @@ test('installer bootstrap reports missing or corrupt payloads and retains failur
   assert.equal(logs.length,2);
   assert.ok(logs.every(file=>fs.readFileSync(path.join(installed,'logs',file),'utf8').includes('QCode installation failed')));
   assert.equal(fs.existsSync(path.join(installed,'current.json')),false);
+  assert.deepEqual(fs.readdirSync(temp),[],'failed extraction must clean its temporary directory');
 });
 
 test('gateway config precedence and invalid origins',{skip:process.platform!=='win32',timeout:120000},async()=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-gateway-')),payload=path.join(root,'payload'),installed=path.join(root,'installed');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-gateway-')),payload=path.join(root,'payload'),installed=path.join(root,'installed'),temp=path.join(root,'temp');
+  fs.mkdirSync(temp);
   fs.mkdirSync(payload);fs.mkdirSync(installed);
   const script=path.join(root,'bootstrap.ps1');
   fs.copyFileSync(fileURLToPath(new URL('../../../scripts/installer-bootstrap.ps1',import.meta.url)),script);
@@ -39,13 +42,14 @@ test('gateway config precedence and invalid origins',{skip:process.platform!=='w
   fs.writeFileSync(path.join(root,'gateway.txt'),'https://default.example');
   async function run(environment='',explicit=''){
     return await new Promise((resolve,reject)=>{
-      const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-InstallRoot',installed,...(explicit?['-Gateway',explicit]:[])],{windowsHide:true,env:{...process.env,QCODE_GATEWAY:environment,QCODE_SETUP_NO_PATH:'1'}});
+      const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-InstallRoot',installed,...(explicit?['-Gateway',explicit]:[])],{windowsHide:true,env:{...process.env,QCODE_GATEWAY:environment,QCODE_SETUP_NO_PATH:'1',TEMP:temp,TMP:temp}});
       let output='';child.stdout.on('data',x=>output+=x);child.stderr.on('data',x=>output+=x);child.once('error',reject);child.once('exit',code=>resolve({code,output}));
     });
   }
   async function check(expected,environment='',explicit=''){
     const result=await run(environment,explicit);assert.equal(result.code,0,result.output);
     assert.equal(fs.readFileSync(path.join(installed,'selected.txt'),'utf8'),expected);
+    assert.deepEqual(fs.readdirSync(temp),[],'successful extraction must clean its temporary directory');
   }
   await check('https://default.example');
   fs.writeFileSync(path.join(installed,'settings.json'),JSON.stringify({gateway:'https://custom.example'}));

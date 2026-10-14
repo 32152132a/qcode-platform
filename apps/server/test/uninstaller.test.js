@@ -24,6 +24,7 @@ function fixture(root){
   fs.writeFileSync(path.join(root,'.qcode-install.json'),JSON.stringify({product:'QCode',scope:'CurrentUser'}));
   fs.writeFileSync(path.join(root,'settings.json'),'{}');
   fs.writeFileSync(path.join(root,'0123456789abcdef01234567','session.json'),'encrypted-token');
+  fs.writeFileSync(path.join(root,'0123456789abcdef01234567','web-launch.json'),'encrypted-local-link');
   fs.copyFileSync(uninstaller,path.join(root,'uninstall.ps1'));
   fs.writeFileSync(path.join(root,'uninstall.cmd'),'rem entry');
 }
@@ -37,11 +38,14 @@ test('default and custom QCode directories uninstall safely and repeatedly',{ski
       const parent=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-uninstall-'));
       const root=path.join(parent,name);const project=path.join(parent,'user-project');
       fixture(root);fs.mkdirSync(project);fs.writeFileSync(path.join(project,'keep.txt'),'keep');
+      fs.writeFileSync(path.join(root,'0123456789abcdef01234567','history.json'),'history');
       const first=await run(root);assert.equal(first.code,0,first.output);
       assert.equal(fs.existsSync(path.join(root,'versions')),false);
       assert.equal(fs.existsSync(path.join(root,'runtime')),false);
       assert.equal(fs.readFileSync(path.join(root,'settings.json'),'utf8'),'{}');
-      assert.equal(fs.readFileSync(path.join(root,'0123456789abcdef01234567','session.json'),'utf8'),'encrypted-token');
+      assert.equal(fs.existsSync(path.join(root,'0123456789abcdef01234567','session.json')),false);
+      assert.equal(fs.existsSync(path.join(root,'0123456789abcdef01234567','web-launch.json')),false);
+      assert.equal(fs.readFileSync(path.join(root,'0123456789abcdef01234567','history.json'),'utf8'),'history');
       assert.equal(fs.readFileSync(path.join(project,'keep.txt'),'utf8'),'keep');
       const repeated=await run(root);assert.equal(repeated.code,0,repeated.output);
       fs.rmSync(parent,{recursive:true,force:true});

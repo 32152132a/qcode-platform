@@ -1,6 +1,6 @@
 import { fail, quotaNames, now, period } from './domain.js';
 export const rolePermissions = {
-  admin: ['users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
+  admin: ['knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
   operator: ['users:read','users:write','models:read','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','system:read'],
   auditor: ['users:read','departments:read','usage:read','requests:read','audits:read','system:read'],
   user: [],

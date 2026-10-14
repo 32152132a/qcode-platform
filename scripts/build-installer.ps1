@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([string]$CertificateThumbprint='', [string]$ReleaseDirectory='', [string]$InnoCompiler='', [ValidatePattern('^QCodeTest-[a-f0-9]{32}$')][string]$TestAppId='', [ValidateRange(60,3600)][int]$BuildTimeoutSeconds=600)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
@@ -34,6 +34,7 @@ New-Item -ItemType Directory -Path $compilerOutput -Force|Out-Null
 $arguments=@('/Qp',"/DClientVersion=$version",('/DBuildDirectory="'+$build+'"'),('/DOutputDirectory="'+$compilerOutput+'"'),('/DProjectRoot="'+$root+'"'),('"'+(Join-Path $PSScriptRoot 'qcode-setup.iss')+'"'))
 if($TestAppId){$arguments+=('/DTestAppId="'+$TestAppId+'"')}
 $compilerLog=Join-Path $build 'compiler.log';$compilerErrors=Join-Path $build 'compiler-errors.log'
+try{
 $process=Start-Process -FilePath $InnoCompiler -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $compilerLog -RedirectStandardError $compilerErrors
 $null=$process.Handle
 $elapsed=[Diagnostics.Stopwatch]::StartNew()
@@ -46,8 +47,17 @@ $compiled=Join-Path $compilerOutput "QCodeSetup-$version.exe"
 $target=Join-Path $release "QCodeSetup-$version.exe"
 if($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $compiled)){throw "Inno Setup compilation failed (exit $($process.ExitCode)); see $compilerLog and $compilerErrors"}
 Copy-Item -LiteralPath $compiled -Destination $target -Force
-Remove-Item -LiteralPath $compiled
-try{[IO.Directory]::Delete($compilerOutput)}catch{Write-Warning "Compiler temporary folder retained: $compilerOutput"}
+}finally{
+    # A timed-out compiler may still own files; leave that folder for inspection.
+    if(-not $process -or $process.HasExited){
+        try{
+            $tempParent=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Temp')).TrimEnd([IO.Path]::DirectorySeparatorChar)
+            $resolvedOutput=[IO.Path]::GetFullPath($compilerOutput)
+            if([IO.Path]::GetDirectoryName($resolvedOutput) -ne $tempParent -or [IO.Path]::GetFileName($resolvedOutput) -notmatch '^qcode-inno-[a-f0-9]{32}$'){throw 'Unexpected compiler directory'}
+            Remove-Item -LiteralPath $resolvedOutput -Recurse -Force
+        }catch{Write-Warning "Compiler temporary folder retained: $compilerOutput"}
+    }
+}
 if($CertificateThumbprint){$certificate=Get-Item -LiteralPath "Cert:/CurrentUser/My/$CertificateThumbprint";$signature=Set-AuthenticodeSignature -FilePath $target -Certificate $certificate -TimestampServer 'http://timestamp.digicert.com';if($signature.Status -ne 'Valid'){throw 'Installer signature validation failed'}}
 $manifestPath=Join-Path $release 'manifest.json'
 $manifest=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json

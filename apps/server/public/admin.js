@@ -1,14 +1,18 @@
 'use strict';
+import { renderKnowledge } from './knowledge-ui.js';
 import { openModelEditor, modelCards } from './model-ui.js';
 import { renderEnterprise } from './enterprise-ui.js';
 import { importUsersCsv, downloadText } from './csv.js';
+import { renderUsage } from './usage-ui.js';
+const usageStyles=document.createElement('link');usageStyles.rel='stylesheet';usageStyles.href='/usage.css';document.head.append(usageStyles);
 const $ = id => document.getElementById(id);
 let token = '', refreshToken = '', refreshing, section = 'overview', currentUser;
-const labels = { overview: '工作台概览', users: '用户管理', departments: '部门管理', keys: 'Key 管理', models: '模型配置', skills: '共享 Skill', usage: '用量统计', requests: '请求日志', audits: '操作审计', settings: '系统设置', system: '系统状态' };
+const labels = { overview: '工作台概览', users: '用户管理', departments: '部门管理', keys: 'Key 管理', models: '模型配置', skills: '共享 Skill', usage: '用量统计', requests: '请求日志', audits: '操作审计', settings: '系统设置', system: '系统状态', knowledge: '知识库' };
 const symbols = ['◈','◇','▦','⌘','◉','▤','▥','≡','✓','⚙','⊙'];
 const can = permission => currentUser?.permissions?.includes(permission) || false;
 const quotaLabels = { totalTokens: '总 Token 额度', totalRequests: '总请求额度', dailyTokens: '每日 Token', dailyRequests: '每日请求', monthlyTokens: '每月 Token', monthlyRequests: '每月请求' };
 const logFilters={requests:{offset:0},audits:{offset:0}};
+const usageFilters={};
 const showLogin = () => { $('login-error').textContent = ''; if (!$('login-panel').open) $('login-panel').showModal(); };
 $('admin-login-trigger').onclick = showLogin;
 $('close-login').onclick = () => $('login-panel').close();
@@ -83,7 +87,7 @@ function showWorkspace() {
   $('tabs').replaceChildren();
   for(const [index,[key,label]] of Object.entries(labels).entries()){
     if(!can(`${key==='overview'?'usage':key}:read`))continue;
-    const tab=button(label,async()=>{section=key;await load();});tab.className='';tab.dataset.section=key;tab.replaceChildren();const icon=document.createElement('span');icon.className='nav-symbol';icon.textContent=symbols[index];icon.setAttribute('aria-hidden','true');tab.append(icon,document.createTextNode(label));$('tabs').append(tab);
+    const tab=button(label,async()=>{section=key;await load();});tab.className='';tab.dataset.section=key;tab.replaceChildren();const icon=document.createElement('span');icon.className='nav-symbol';icon.textContent=symbols[index]||'▤';icon.setAttribute('aria-hidden','true');tab.append(icon,document.createTextNode(label));$('tabs').append(tab);
   }
 }
 $('toggle-password').onclick = () => {
@@ -143,10 +147,15 @@ async function load() {
   $('section-title').textContent = labels[active]; $('section-note').textContent = ''; $('actions').replaceChildren(button('刷新', load)); $('content').textContent = '加载中…';
   [...$('tabs').children].forEach(node => node.setAttribute('aria-current', node.dataset.section === active ? 'page' : 'false'));
   $('toolbar').replaceChildren();
-  const query=logFilters[active]?`?${new URLSearchParams({...logFilters[active],limit:25})}`:'';
+  const query=logFilters[active]?`?${new URLSearchParams({...logFilters[active],limit:25})}`:['usage','overview'].includes(active)?`?${new URLSearchParams(usageFilters)}`:'';
   const data = await api(`/admin/${active==='overview'?'usage':active}${query}`);
   if (section !== active || !token) return;
+  if(active==='knowledge'){ $('section-note').textContent='手动上传团队资料，通过共享 Skill 提供给员工 AI，关键词检索无需向量服务。';renderKnowledge({data,api,load,can,notice});return; }
   $('content').replaceChildren();
+  if(['usage','overview'].includes(active)){
+    $('section-note').textContent=`统计时区：${data.timezone}`;
+    renderUsage(data,{content:$('content'),toolbar:$('toolbar'),filters:usageFilters,load,notice,table});return;
+  }
   if(renderEnterprise(active,data,{content:$('content'),toolbar:$('actions'),actions,api,button,table,edit,load,can,quotaLabels}))return;
   if(['users','keys','models'].includes(active)){const search=document.createElement('input');search.placeholder='搜索当前列表';search.setAttribute('aria-label','搜索当前列表');search.oninput=()=>{for(const row of $('content').querySelectorAll('tbody tr,.model-card'))row.hidden=!row.textContent.toLowerCase().includes(search.value.toLowerCase());};$('toolbar').append(search);}
   if (active === 'users') {
@@ -174,17 +183,6 @@ async function load() {
     $('section-note').textContent = '添加服务 → 选择 Key 和上游模型 → 验证流式与工具调用 → 分配用户或部门。员工无需重新安装。';
     const keys=can('keys:read')?await api('/admin/keys'):[];
     $('content').append(modelCards(data,keys,{edit:modelEditor,test:testModel,writable:can('models:write')}));
-  } else if (active === 'usage' || active === 'overview') {
-    $('section-note').textContent = `时区：${data.timezone}。实际 Token 与保守计费分开显示；未知用量仍占用预留额度。`;
-    const metrics = document.createElement('div'); metrics.className = 'metrics';
-    for (const [name, value] of [['请求', data.totals.requests], ['成功', data.totals.success], ['失败', data.totals.failed], ['实际 Token', data.totals.tokens], ['计费 Token', data.totals.chargedTokens], ['未知用量', data.totals.unknownUsage]]) {
-      const item = document.createElement('div'); item.className = 'metric'; item.textContent = name; const number = document.createElement('strong'); number.textContent = value; item.append(number); metrics.append(item);
-    }
-    $('content').append(metrics);
-    const costs=document.createElement('p');costs.textContent='模型估算费用：'+(Object.entries(data.totals.costs).map(([currency,amount])=>`${currency} ${amount.toFixed(6)}`).join(' · ')||'暂无可计算的记录');$('content').append(costs);
-    const chart=document.createElement('div');chart.className='chart';const days=data.days.slice(0,7).reverse(),max=Math.max(1,...days.map(d=>d.chargedTokens));
-    for(const day of days){const row=document.createElement('div');row.className='chart-row';const label=document.createElement('span');label.textContent=day.date;const bar=document.createElement('meter');bar.min=0;bar.max=max;bar.value=day.chargedTokens;bar.setAttribute('aria-label',`${day.date} 用量`);const number=document.createElement('span');number.textContent=day.chargedTokens.toLocaleString();row.append(label,bar,number);chart.append(row);}$('content').append(chart);
-    $('content').append(table(['用户排行', '请求数', '实际 Token', '计费 Token'], data.users.map(u => [u.username, u.requests, u.tokens, u.chargedTokens])),table(['部门排行','请求数','实际 Token','计费 Token'],data.departments.map(d=>[d.name,d.requests,d.tokens,d.chargedTokens])), table(['日期', '请求数', '实际 Token', '计费 Token'], data.days.map(d => [d.date, d.requests, d.tokens, d.chargedTokens])));
   } else if (active === 'requests' || active === 'audits') {
     const filter=logFilters[active];$('section-note').textContent = `共 ${data.total} 条，当前第 ${Math.floor(filter.offset/25)+1} 页。记录不包含提示词、代码内容或真实 Key。`;
     for(const [key,title] of [['from','开始日期'],['to','结束日期'],['search','关键词']]){const label=document.createElement('label');label.textContent=title;const input=document.createElement('input');input.type=key==='search'?'search':'date';input.value=filter[key]||'';input.onchange=()=>{filter[key]=input.value;filter.offset=0;load().catch(notice);};label.append(input);$('toolbar').append(label);}

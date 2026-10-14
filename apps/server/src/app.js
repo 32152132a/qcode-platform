@@ -1,3 +1,4 @@
+import { registerKnowledge } from './knowledge.js';
 import { protocols } from './providers.js';
 import { registerModelChecks } from './model-checks.js';
 import express from 'express';
@@ -85,6 +86,7 @@ export function createApp(config, database) {
   const auth = registerAuth(app, { db, config, cancelRequests });
   app.use('/admin', auth, adminPermission(db, config));
   registerEnterpriseRoutes(app, { db, config, auth, cancelRequests });
+  registerKnowledge(app, { db, auth });
   registerReports(app, {db, config});
   const getUser = (state, userId) => {
     const user = state.users.find(u => u.id === Number(userId));

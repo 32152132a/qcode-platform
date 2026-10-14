@@ -18,7 +18,6 @@ if(-not $address.IsAbsoluteUri -or $address.Scheme -notin @('http','https') -or 
 $Gateway=$Gateway.TrimEnd('/')
 if($address.Scheme -eq 'http' -and -not $address.IsLoopback){Write-Warning 'The configured gateway uses an unencrypted HTTP connection.'}
 if($OpenCodeEntry -and $releaseRuntime -ne 'opencode' -and $Command -in @('update','rollback')){throw 'OpenCode preview updates are not published yet; update/rollback would install Harness.'}
-if($Command -eq 'update'){& (Join-Path $PSScriptRoot 'install.ps1') -Gateway $Gateway -Update;exit $LASTEXITCODE}
 if($Command -eq 'rollback'){& (Join-Path $PSScriptRoot 'install.ps1') -Rollback;exit $LASTEXITCODE}
 $sha=[Security.Cryptography.SHA256]::Create()
 try{$serverId=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Gateway)))).Replace('-','').Substring(0,24)}finally{$sha.Dispose()}
@@ -41,6 +40,7 @@ if(-not $nodeExecutable -or [version](& $nodeExecutable -p 'process.versions.nod
     $existingRuntime=Join-Path $env:USERPROFILE '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe'
     if(-not $env:QCODE_NODE -and (Test-Path -LiteralPath $existingRuntime)){$nodeExecutable=$existingRuntime}else{throw 'Node.js 24 LTS is required; run the QCode installer or set QCODE_NODE.'}
 }
+if($Command -eq 'update'){& $nodeExecutable (Join-Path $PSScriptRoot 'update.mjs') $Gateway $clientRoot (Join-Path $PSScriptRoot 'install.ps1') $clientVersion $releaseRuntime;exit $LASTEXITCODE}
 if(-not $HarnessEntry -and -not $OpenCodeEntry -and $Command -in @('tui','web','doctor')){
     $customHarness=Join-Path $PSScriptRoot 'harness-custom/lib/bin.js'
     $versionedHarness=Join-Path $PSScriptRoot 'harness/node_modules/@deepseek-ai/dsh/lib/bin.js'

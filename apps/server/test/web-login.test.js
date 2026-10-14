@@ -4,7 +4,7 @@ import http from 'node:http';
 import {once} from 'node:events';
 import {startWebLogin} from '../../client/web-login.mjs';
 
-async function fixture(t,{saved=false,failStart=false}={}){
+async function fixture(t,{saved=false,failStart=false,progress=''}={}){
  let session=saved?{token:'saved-token',refreshToken:'refresh',expiresAt:new Date(Date.now()+120000).toISOString(),user:{id:1}}:null,starts=0,stops=0,received;
  const server=http.createServer(async(req,res)=>{
   let body='';for await(const chunk of req)body+=chunk;
@@ -15,7 +15,7 @@ async function fixture(t,{saved=false,failStart=false}={}){
   res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({token:'gateway-access-secret',refreshToken:'gateway-refresh-secret',expiresAt:new Date(Date.now()+120000).toISOString(),user:{id:1,username:received.username}}));
  });
  server.listen(0,'127.0.0.1');await once(server,'listening');
- const local=await startWebLogin({gateway:`http://127.0.0.1:${server.address().port}`,store:{read:()=>session,write:value=>{session=value;}},hasSavedSession:saved,startClient:()=>{starts++;return {ready:failStart?Promise.reject(Error('secret startup detail')):Promise.resolve('http://127.0.0.1:39999/_qcode/start#local-bootstrap'),closed:new Promise(()=>{}),stop:async()=>{stops++;}};}});
+ const local=await startWebLogin({gateway:`http://127.0.0.1:${server.address().port}`,store:{read:()=>session,write:value=>{session=value;}},hasSavedSession:saved,startClient:onProgress=>{starts++;if(progress)onProgress(progress);return {ready:failStart?Promise.reject(Error('secret startup detail')):Promise.resolve('http://127.0.0.1:39999/_qcode/start#local-bootstrap'),closed:new Promise(()=>{}),stop:async()=>{stops++;}};}});
  t.after(async()=>{await local.close();server.closeAllConnections();server.close();});
  const token=new URL(local.url).hash.slice(1),headers={'X-QCode-Launch':token,Origin:local.origin,'Content-Type':'application/json'};
  async function state(){return (await fetch(local.origin+'/status',{headers})).json();}
@@ -41,4 +41,8 @@ test('Web login rejects host rebinding, wrong bootstrap token and oversized cred
  assert.equal((await fetch(f.local.origin+'/status',{headers:{'X-QCode-Launch':'wrong'}})).status,401);
  assert.equal((await fetch(f.local.origin+'/login',{method:'POST',headers:f.headers,body:'x'.repeat(9000)})).status,413);
  assert.equal(f.starts(),0);
+});
+test('update failures remain visible with a log location before opening the current version',async t=>{
+ const f=await fixture(t,{saved:true,progress:'更新未完成，将继续使用当前版本。日志：C:/QCode/logs/update.log'});
+ const ready=await f.wait('ready');assert.equal(ready.notice,true);assert.match(ready.message,/更新未完成/);assert.match(ready.message,/update.log/);assert.match(ready.url,/127.0.0.1/);
 });

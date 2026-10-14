@@ -56,6 +56,7 @@ test('Windows EXE runs its packaged install command and installs the client runt
   const setupLog=fs.readFileSync(path.join(installed,'logs',setupLogs.at(-1)),'utf8');
   assert.match(setupLog,/QCode setup is starting/);
   assert.match(setupLog,/QCode installation succeeded/);
+  for(const stage of ['payload','extract','verify','runtime','node','activate','complete'])assert.match(setupLog,new RegExp(`QCODE_PROGRESS\\|\\d+\\|${stage}`));
   if(child.exitCode===null)await once(child,'exit');
   assert.equal(child.exitCode,0);
   assert.ok(fs.existsSync(path.join(installed,'.setup','unins000.exe')));
@@ -101,7 +102,8 @@ test('Windows EXE runs its packaged install command and installs the client runt
   fs.unlinkSync(path.join(installed,'unsafe-link'));
   assert.equal(await execute(native,['/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART']),0);
   assert.equal(registeredLocation(),'');assert.equal(fs.existsSync(path.join(installed,'runtime')),false);
-  assert.equal(fs.readFileSync(path.join(gatewayData,'session.json'),'utf8'),'encrypted-test-token');
+  assert.equal(fs.existsSync(path.join(gatewayData,'session.json')),false);
+  assert.equal(fs.readFileSync(path.join(user,'opencode','config','auth.json'),'utf8'),'private-config');
   assert.equal(await execute(path.join(release,`QCodeSetup-${manifest.version}.exe`),['/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',`/DIR=${installed}`]),0);
   assert.equal(JSON.parse(fs.readFileSync(path.join(installed,'settings.json'))).gateway,customGateway);
   assert.equal(await execute('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(installed,'uninstall.ps1'),'-InstallRoot',installed,'-NonInteractive','-RemoveAllData','-ConfirmAllData','删除全部 QCode 本地数据']),0);
@@ -109,4 +111,5 @@ test('Windows EXE runs its packaged install command and installs the client runt
   assert.equal(fs.existsSync(path.join(user,'opencode')),false);assert.equal(fs.readFileSync(path.join(user,'workspace','project.txt'),'utf8'),'project');
   assert.equal(fs.readFileSync(path.join(outside,'keep.txt'),'utf8'),'keep');
   console.log('Offline EXE installation artifacts: '+root);
+  t.after(()=>{assert.equal(path.dirname(root),path.resolve(os.tmpdir()));fs.rmSync(root,{recursive:true,force:true,maxRetries:3});});
 });

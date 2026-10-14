@@ -10,9 +10,9 @@ import { secureStore, gatewayAddress, lockSession } from './session-store.mjs';
 const page = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QCode · 登录</title><style nonce="NONCE">*{box-sizing:border-box}body{margin:0;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif;color:#203c37;background:#f5f7f4;min-height:100vh;display:grid;place-items:center;padding:28px}main{width:min(100%,420px);padding:36px;background:#fff;border:1px solid #e0e8e2;border-radius:18px;box-shadow:0 20px 60px #203c370c}img{width:48px;height:48px}h1{font-size:26px;margin:20px 0 8px}p{color:#71827c;margin:0 0 24px}form,label{display:grid;gap:10px}form{gap:20px}input,button{font:inherit;padding:12px;border:1px solid #d7e2da;border-radius:8px;min-width:0}input{width:100%}button{cursor:pointer;background:#176b54;color:white}button:disabled{opacity:.6;cursor:wait}.password{display:grid;grid-template-columns:1fr auto;gap:8px}.password button{background:#f0f4f0;color:#446153;width:48px}#status{font-size:13px;overflow-wrap:anywhere;margin:24px 0 0}#status[data-error=true]{color:#a74535}#stop{display:none;background:#f0f4f0;color:#446153;margin-top:16px;width:100%}:focus-visible{outline:3px solid #d69b44;outline-offset:2px}</style></head><body><main><img src="/icon.png" alt=""><h1>登录 QCode</h1><p>使用团队账号，登录后进入编程工作台。</p><form id="login"><label>用户名<input name="username" autocomplete="username" maxlength="80" required autofocus></label><label>密码<span class="password"><input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required><button type="button" id="eye" aria-label="显示密码" aria-pressed="false">◉</button></span></label><button id="submit" type="submit">登录并打开工作台</button></form><p id="status" role="status" aria-live="polite">正在检查登录状态…</p><button type="button" id="stop">关闭 QCode</button></main><script nonce="NONCE">
 const launchToken=location.hash.slice(1);history.replaceState(null,'',location.pathname);
 const form=document.getElementById('login'),status=document.getElementById('status'),submit=document.getElementById('submit'),password=document.getElementById('password');
-let timer,stopped=false;
+let timer,stopped=false,redirecting=false;
 async function request(route,body){const response=await fetch(route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-QCode-Launch':launchToken},body:body?JSON.stringify(body):undefined});const data=await response.json();if(!response.ok)throw Error(data.message||'访问链接已失效，请重新打开 QCode');return data;}
-function show(data){status.textContent=data.message;status.dataset.error=String(data.state==='error');form.hidden=['starting','ready'].includes(data.state);submit.disabled=data.state==='starting';document.getElementById('stop').style.display='block';if(data.state==='ready')location.assign(data.url);}
+function show(data){status.textContent=data.message;status.dataset.error=String(data.state==='error'||!!data.notice);form.hidden=['starting','ready'].includes(data.state);submit.disabled=data.state==='starting';document.getElementById('stop').style.display='block';if(data.state==='ready'&&!redirecting){redirecting=true;setTimeout(()=>{if(!stopped)location.assign(data.url);},data.notice?5000:0);}}
 async function poll(){if(stopped)return;try{show(await request('/status'));timer=setTimeout(poll,1000);}catch(e){status.textContent='本地服务已关闭，请重新打开 QCode。';status.dataset.error='true';submit.disabled=true;}}
 document.getElementById('eye').onclick=()=>{const visible=password.type==='password';password.type=visible?'text':'password';const eye=document.getElementById('eye');eye.setAttribute('aria-label',visible?'隐藏密码':'显示密码');eye.setAttribute('aria-pressed',String(visible));};
 form.onsubmit=async event=>{event.preventDefault();clearTimeout(timer);submit.disabled=true;status.dataset.error='false';status.textContent='正在登录…';try{const username=form.elements.username.value;const secret=password.value;password.value='';show(await request('/login',{username,password:secret}));}catch(e){status.textContent=e.message;status.dataset.error='true';submit.disabled=false;}timer=setTimeout(poll,1000);};
@@ -29,12 +29,13 @@ export async function startWebLogin({ gateway, store, hasSavedSession = false, s
   async function start(){
     if(closed)return;
     state={state:'starting',message:'登录成功，正在启动编程工作台…'};
+    let updateNotice='';
     try{
-      client=startClient();
+      client=startClient(message=>{if(!closed&&state.state==='starting'){if(message.includes('更新未完成'))updateNotice=message;state={state:'starting',message};}});
       client.closed.then(code=>{if(!closed){if(state.state==='ready'){void close();return;}state={state:'error',message:code?'启动或运行失败，请重新登录重试，或运行 qcode doctor 检查。':'工作台已关闭，可以重新登录启动。'};client=null;}}).catch(()=>{});
       const url=await client.ready;const parsed=new URL(url);
       if(parsed.protocol!=='http:'||parsed.hostname!=='127.0.0.1'||parsed.username||parsed.password||parsed.pathname!=='/_qcode/start')throw Error('Invalid Web launch address');
-      state={state:'ready',message:'工作台已就绪，正在打开…',url};
+      state={state:'ready',message:updateNotice?`${updateNotice}。当前版本已就绪，5 秒后进入工作台。`:'工作台已就绪，正在打开…',url,...(updateNotice?{notice:true}:{})};
     }catch{await client?.stop();client=null;state={state:'error',message:'工作台启动失败，请重试，或运行 qcode doctor 检查。'};}
   }
   const server=http.createServer(async(req,res)=>{
@@ -81,13 +82,16 @@ export async function startWebLogin({ gateway, store, hasSavedSession = false, s
   return { origin,url:origin+'/#'+token,close };
 }
 
-function clientProcess(args){
+function clientProcess(args,onProgress){
   const child=spawn(process.execPath,[fileURLToPath(new URL('./launcher.mjs',import.meta.url)),...args,'--no-open','true'],{stdio:['ignore','pipe','pipe'],windowsHide:true,env:{...process.env,QCODE_WEB_LOGIN_CHILD:'1'}});
+  child.stdout.setEncoding('utf8');
   let readyDone=false,buffer='';
   let resolveReady,rejectReady;const ready=new Promise((resolve,reject)=>{resolveReady=resolve;rejectReady=reject;});
-  const timer=setTimeout(()=>{if(!readyDone){readyDone=true;rejectReady(Error('Startup timeout'));}},90000);
+  let timer;
+  function waitForStartup(milliseconds){clearTimeout(timer);timer=setTimeout(()=>{if(!readyDone){readyDone=true;rejectReady(Error('Startup timeout'));}},milliseconds);}
+  waitForStartup(90000);
   const closed=new Promise(resolve=>{child.once('error',()=>{clearTimeout(timer);if(!readyDone){readyDone=true;rejectReady(Error('Launcher failed'));}resolve(1);});child.once('exit',code=>{clearTimeout(timer);if(!readyDone){readyDone=true;rejectReady(Error('Launcher stopped'));}resolve(code||0);});});
-  child.stdout.on('data',bytes=>{buffer+=bytes.toString();let end;while((end=buffer.indexOf('\n'))!==-1){const line=buffer.slice(0,end).trim();buffer=buffer.slice(end+1);if(line.startsWith('QCode Web: ')&&!readyDone){readyDone=true;clearTimeout(timer);resolveReady(line.slice(11));}}if(buffer.length>65536)buffer=buffer.slice(-4096);});child.stderr.resume();
+  child.stdout.on('data',bytes=>{buffer+=bytes.toString();let end;while((end=buffer.indexOf('\n'))!==-1){const line=buffer.slice(0,end).trim();buffer=buffer.slice(end+1);if(line.startsWith('QCode 更新：')){if(!readyDone&&/下载|校验|安装|切换/.test(line))waitForStartup(600000);onProgress?.(line.slice(9));}if(line.startsWith('QCode Web: ')&&!readyDone){readyDone=true;clearTimeout(timer);resolveReady(line.slice(11));}}if(buffer.length>65536)buffer=buffer.slice(-4096);});child.stderr.resume();
   return {ready,closed,stop:async()=>{if(child.exitCode!==null)return;if(process.platform==='win32'){const killer=spawn('taskkill.exe',['/PID',String(child.pid),'/T','/F'],{stdio:'ignore',windowsHide:true});await new Promise(resolve=>{killer.once('exit',resolve);killer.once('error',resolve);});}else child.kill();}};
 }
 async function main(){
@@ -103,7 +107,7 @@ async function main(){
   let release=lockSession(path.join(path.dirname(args.session),'running.lock'));
   const launchArgs=['--gateway',args.gateway,'--session',args.session,'--entry',args.entry,'--mode','web',...(args.runtime?['--runtime',args.runtime]:[]),...(args.workdir?['--workdir',args.workdir]:[])];
   try{
-    login=await startWebLogin({gateway:args.gateway,store:secureStore(args.session),hasSavedSession:fs.existsSync(args.session),iconPath:fileURLToPath(new URL('./branding/qcode-96.png',import.meta.url)),startClient:()=>{release?.();release=null;return clientProcess(launchArgs);},onClose:()=>{if(release){const unlock=release;release=null;unlock();}try{if(localStore.read().user.id===process.pid)fs.unlinkSync(launchFile);}catch{}}});
+    login=await startWebLogin({gateway:args.gateway,store:secureStore(args.session),hasSavedSession:fs.existsSync(args.session),iconPath:fileURLToPath(new URL('./branding/qcode-96.png',import.meta.url)),startClient:onProgress=>{release?.();release=null;return clientProcess(launchArgs,onProgress);},onClose:()=>{if(release){const unlock=release;release=null;unlock();}try{if(localStore.read().user.id===process.pid)fs.unlinkSync(launchFile);}catch{}}});
     localStore.write({token:login.url,user:{id:process.pid,username:'local-launch'}});
     console.log('QCode 登录页面: '+login.url);
     if(args['no-open']!=='true')openBrowser(login.url);

@@ -47,7 +47,11 @@
 
 Windows EXE 使用 Inno Setup 6，安装到当前用户目录，统一使用 `apps/client/branding/qcode.ico` 作为安装器、快捷方式和系统卸载入口图标。构建机需要 `ISCC.exe`，`scripts/build-installer.ps1 -InnoCompiler 路径` 可指定编译器；构建日志保存在产物的 `exe-build/compiler*.log`。无需重新注入 EXE 资源。
 
-系统“已安装的应用”、开始菜单“卸载 QCode”和安装目录 `uninstall.cmd` 使用同一安全卸载链路。默认保留配置与加密会话；完整清理须输入“删除全部 QCode 本地数据”，包括登录 Token，但始终保留 workspace 与未知文件。默认卸载后保留小型清理入口供稍后删除个人数据。静默卸载默认保留数据。失败日志位于 `%LOCALAPPDATA%\QCode-uninstall-logs`，清理失败时保留系统卸载注册项。
+系统“已安装的应用”、开始菜单“卸载 QCode”和安装目录 `uninstall.cmd` 使用同一安全卸载链路，不显示终端。默认删除各网关的登录 Token 与本地登录链接，下次使用需重新登录；保留配置、历史会话、workspace 和未知文件。完整清理仍须提供“删除全部 QCode 本地数据”确认短语。默认卸载后保留小型清理入口供稍后删除个人数据。静默卸载同样删除登录 Token。失败日志位于 `%LOCALAPPDATA%\QCode-uninstall-logs`，清理失败时保留系统卸载注册项。
+
+向导固定为简体中文，离线安装展示读取内置包、解压、校验、运行环境安装和版本切换阶段。更新下载与安装的详细输出写入 `logs/update-*.log`；终端和网页登录页仅展示中文阶段提示。自动更新失败会显示日志位置并继续使用当前版本。进度是整体安装阶段进度，不代表单文件下载字节百分比。
+
+本地测试使用 `build-installer.ps1 -TestAppId QCodeTest-<32位十六进制>`：独立系统注册项、独立默认目录，强制禁用快捷方式和 PATH 修改。测试产物不可通过正式发布脚本发布。
 
 旧版升级选择原安装目录（自定义旧目录可用 `/DIR="原目录"`），继续沿用 `current.json`、版本目录、内置 Node 和原网关设置；Inno 注册项不依赖客户端版本指针，因此 ZIP 更新与回滚不会移除系统卸载入口。安装包默认路径是 `%LOCALAPPDATA%\QCode`，后续 Inno 安装沿用已登记路径。
 

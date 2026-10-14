@@ -1,7 +1,8 @@
 ﻿[CmdletBinding()]
-param([string]$Gateway='', [switch]$Update, [switch]$Rollback, [switch]$Uninstall, [switch]$SkipRuntime, [switch]$SkipHarness, [switch]$NoPath, [switch]$NoShortcuts, [string]$InstallRoot='')
+param([string]$Gateway='', [switch]$Update, [switch]$Rollback, [switch]$Uninstall, [switch]$SkipRuntime, [switch]$SkipHarness, [switch]$NoPath, [switch]$NoShortcuts, [string]$InstallRoot='', [switch]$ProgressEvents)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
+[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)
 # A Node/PowerShell 7 parent can pass a module search path incompatible with Windows PowerShell.
 $env:PSModulePath=(Join-Path $PSHOME 'Modules')+[IO.Path]::PathSeparator+$env:PSModulePath
 $version=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw|ConvertFrom-Json).version
@@ -11,6 +12,7 @@ $utf8=New-Object Text.UTF8Encoding($false)
 $pointerFile=Join-Path $InstallRoot 'current.json'
 $bin=Join-Path $InstallRoot 'bin'
 $shortcutFile=Join-Path ([Environment]::GetFolderPath('Desktop')) 'QCode.lnk'
+function Write-InstallProgress([int]$Percent,[string]$Stage){if($ProgressEvents){Write-Host "QCODE_PROGRESS|$Percent|$Stage"}}
 function Write-JsonFile($Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),$utf8)}
 function Assert-Child($Path){$resolved=[IO.Path]::GetFullPath($Path);if(-not $resolved.StartsWith($InstallRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Installer path escaped the QCode directory'};return $resolved}
 function Expand-CheckedArchive($Archive,$Destination){
@@ -82,6 +84,7 @@ if($Uninstall){
     exit $LASTEXITCODE
 }
 New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
+$cache=''
 $lockPath=Join-Path $InstallRoot 'install.lock'
 try{$installLock=[IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}catch{throw 'Another QCode installer is running'}
 try{
@@ -101,6 +104,7 @@ try{
     if($Update){Invoke-RestMethod "$Gateway/health" -TimeoutSec 15|Out-Null}
     $source=$PSScriptRoot
     if($Update){
+        Write-InstallProgress 5 'check'
         $manifest=Invoke-RestMethod "$Gateway/downloads/manifest.json" -TimeoutSec 15
         $installerRuntime=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw|ConvertFrom-Json).runtime
         if($installerRuntime -eq 'opencode' -and $manifest.runtime -ne 'opencode'){throw 'Update contains an incompatible runtime'}
@@ -110,13 +114,16 @@ try{
         $cache=Assert-Child (Join-Path $InstallRoot ('downloads/'+[guid]::NewGuid().ToString('N')))
         New-Item -ItemType Directory -Force -Path $cache|Out-Null
         $archive=Join-Path $cache 'client.zip'
+        Write-InstallProgress 10 'download'
         Invoke-WebRequest "$Gateway$($manifest.downloadUrl)" -OutFile $archive -UseBasicParsing -TimeoutSec 180
+        Write-InstallProgress 30 'verify'
         if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.sha256){throw 'Client archive checksum mismatch'}
         $source=Join-Path $cache 'source';Expand-CheckedArchive $archive $source
         $releaseInfo=Get-Content -LiteralPath (Join-Path $source 'release.json') -Raw|ConvertFrom-Json
         if($releaseInfo.version -ne $version){throw 'Downloaded client version does not match the manifest'}
         if(($manifest.runtime -eq 'opencode') -ne ($releaseInfo.runtime -eq 'opencode')){throw 'Downloaded client runtime does not match the manifest'}
     }
+    Write-InstallProgress 35 'verify'
     $isOpenCode=(Get-Content -LiteralPath (Join-Path $source 'release.json') -Raw|ConvertFrom-Json).runtime -eq 'opencode'
     $target=Assert-Child (Join-Path $InstallRoot "versions/$version")
     if(Test-Path -LiteralPath $target){
@@ -143,7 +150,8 @@ try{
     }else{
         $stage=Assert-Child (Join-Path $InstallRoot ('versions/stage-'+[guid]::NewGuid().ToString('N')))
         New-Item -ItemType Directory -Force -Path $stage|Out-Null
-        foreach($file in Get-ChildItem -LiteralPath $source -File){if($file.Extension -in @('.ps1','.cmd','.mjs','.json','.md')){Copy-Item -LiteralPath $file.FullName -Destination $stage}}
+        foreach($file in Get-ChildItem -LiteralPath $source -File){if($file.Extension -in @('.ps1','.cmd','.vbs','.mjs','.json','.md')){Copy-Item -LiteralPath $file.FullName -Destination $stage}}
+        Write-InstallProgress 45 'runtime'
         if($isOpenCode){Install-OpenCodeRuntime $source $stage}else{
         $harnessSource=Join-Path $source 'harness';$harnessStage=Join-Path $stage 'harness';New-Item -ItemType Directory -Force -Path $harnessStage|Out-Null
         foreach($file in @('package.json','package-lock.json')){Copy-Item -LiteralPath (Join-Path $harnessSource $file) -Destination $harnessStage}
@@ -153,6 +161,7 @@ try{
         Write-JsonFile (Join-Path $stage '.qcode-release.json') @{version=$version;installedAt=[DateTime]::UtcNow.ToString('o')}
         Move-Item -LiteralPath $stage -Destination $target
     }
+    Write-InstallProgress 65 'node'
     $architecture=if($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64'){'arm64'}else{'x64'}
     $nodeDirectory=Assert-Child (Join-Path $InstallRoot "runtime/node-v24.19.0-win-$architecture")
     $node=Join-Path $nodeDirectory 'node.exe'
@@ -210,6 +219,7 @@ try{
     & $node (Join-Path $target 'harness-tui/node_modules/@deepseek-ai/dsh/lib/bin.js') --help | Out-Null
     if($LASTEXITCODE -ne 0){throw 'TUI core startup verification failed; current release was not changed'}
     }
+    Write-InstallProgress 90 'activate'
     New-Item -ItemType Directory -Force -Path $bin|Out-Null
     Copy-Item -LiteralPath (Join-Path $target 'bootstrap.ps1') -Destination $bin -Force
     if(Test-Path -LiteralPath (Join-Path $target 'desktop.ps1')){Copy-Item -LiteralPath (Join-Path $target 'desktop.ps1') -Destination $bin -Force}
@@ -224,8 +234,9 @@ try{
         if((Test-Path -LiteralPath (Join-Path $candidate 'uninstall.ps1')) -and (Test-Path -LiteralPath (Join-Path $candidate 'uninstall.cmd'))){$uninstallSource=$candidate;break}
     }
     if($uninstallSource){
-        foreach($name in @('uninstall.ps1','uninstall.cmd')){
+        foreach($name in @('uninstall.ps1','uninstall.cmd','uninstall.vbs')){
             $uninstallFile=Join-Path $uninstallSource $name;$destination=Join-Path $InstallRoot $name
+            if(-not (Test-Path -LiteralPath $uninstallFile)){continue}
             if([IO.Path]::GetFullPath($uninstallFile) -ne [IO.Path]::GetFullPath($destination)){Copy-Item -LiteralPath $uninstallFile -Destination $destination -Force}
         }
     }
@@ -247,4 +258,14 @@ try{
         }
     }
     Write-Host "QCode $version installed. Open a new terminal and run qcode (TUI) or qcode web."
-}finally{$installLock.Dispose();if(Test-Path -LiteralPath $lockPath){Remove-Item -LiteralPath $lockPath}}
+    Write-InstallProgress 100 'complete'
+}finally{
+    if($cache -and (Test-Path -LiteralPath $cache)){
+        try{
+            $ownedCache=Assert-Child $cache
+            if([IO.Path]::GetDirectoryName($ownedCache) -ne (Join-Path $InstallRoot 'downloads') -or [IO.Path]::GetFileName($ownedCache) -notmatch '^[a-f0-9]{32}$'){throw 'Unexpected update cache directory'}
+            Remove-Item -LiteralPath $ownedCache -Recurse -Force
+        }catch{Write-Warning "Could not clean this update's temporary files: $cache"}
+    }
+    $installLock.Dispose();if(Test-Path -LiteralPath $lockPath){Remove-Item -LiteralPath $lockPath}
+}
