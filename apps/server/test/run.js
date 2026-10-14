@@ -15,3 +15,5 @@ import './opencode-web.test.js';
 
 import './installer-bootstrap.test.js';
 import './uninstaller.test.js';
+
+import './providers.test.js';

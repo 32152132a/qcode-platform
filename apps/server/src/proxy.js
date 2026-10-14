@@ -3,6 +3,7 @@ import { pipeline } from 'node:stream/promises';
 import { now, id, fail, resolveModel, consumption, period, integer } from './domain.js';
 import { effectiveKey, effectiveQuotas, departmentFor, departmentConsumption, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
+import { providerRequest, chatResponse, responseStream } from './providers.js';
 
 function parseUsage(value) {
   if (!value || !Number.isSafeInteger(value.total_tokens) || value.total_tokens < 0) return null;
@@ -26,6 +27,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   if (!outputLimit) fail(400, 'INVALID_FIELD', 'Output token limit must be positive');
   // UTF-8 bytes plus message/tool overhead is a conservative estimate, not a provider tokenizer.
   const reserved = Buffer.byteLength(JSON.stringify(body), 'utf8') + body.messages.length * 32 + outputLimit;
+  const outbound = providerRequest(body, model, vault.decrypt(key.secret), outputLimit);
   const requestId = id(), startedAt = now(), started = Date.now();
   db.transaction(next => {
     const user = next.users.find(u => u.id === req.user.id), used = consumption(next, user, config.timezone, startedAt);
@@ -43,14 +45,9 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, config.timeoutMs);
   const onClose = () => { if (!res.writableFinished) { disconnected = true; controller.abort(); } };
   res.on('close', onClose);
-  const forward = { ...body, model: model.upstream_model, n: 1 };
-  delete forward.max_tokens; delete forward.max_completion_tokens;
-  forward[model.max_tokens_field || 'max_tokens'] = outputLimit;
-  if (body.stream && model.stream_usage) forward.stream_options = { ...(body.stream_options || {}), include_usage: true };
   try {
-    const response = await fetch(`${model.base_url}/chat/completions`, { method: 'POST', redirect: 'error',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${vault.decrypt(key.secret)}` },
-      body: JSON.stringify(forward), signal: controller.signal });
+    const response = await fetch(outbound.url, { method: 'POST', redirect: 'error',
+      headers: outbound.headers, body: JSON.stringify(outbound.payload), signal: controller.signal });
     upstreamStatus = response.status;
     if (!response.ok) {
       await response.body?.cancel();
@@ -93,7 +90,8 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
         },
       });
       res.set({ 'Content-Type': 'text/event-stream; charset=utf-8', 'X-Accel-Buffering': 'no' });
-      await pipeline(Readable.fromWeb(response.body), observer, res);
+      const source = model.protocol === 'responses' ? Readable.from(responseStream(response.body, model)) : Readable.fromWeb(response.body);
+      await pipeline(source, observer, res);
     } else {
       const chunks = []; let length = 0;
       for await (const chunk of response.body) {
@@ -103,6 +101,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
       }
       let result;
       try { result = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { fail(502, 'INVALID_UPSTREAM_RESPONSE', 'Invalid model JSON response'); }
+      result = chatResponse(result, model);
       if (!Array.isArray(result.choices) || result.error) fail(502, 'INVALID_UPSTREAM_RESPONSE', 'Model response is missing choices');
       usage = parseUsage(result.usage);
       result.model = model.public_name;

@@ -1,4 +1,5 @@
 'use strict';
+import { openModelEditor, modelCards } from './model-ui.js';
 import { renderEnterprise } from './enterprise-ui.js';
 import { importUsersCsv, downloadText } from './csv.js';
 const $ = id => document.getElementById(id);
@@ -110,7 +111,7 @@ async function userEditor(user) {
     { name: 'sessionLimit', label: '并发登录数（修改后撤销所有登录）', type: 'number', min: 1, value: user?.session_limit || 1 },
     { name: 'maxConcurrentRequests', label:'同时请求数量',type:'number',min:1,value:user?.max_concurrent_requests||1 },
     { name:'quotaMode',label:'配额来源',options:[['custom','使用个人配额'],['department','继承部门成员配额']],value:user?.quota_mode||'custom' });
-  if(can('keys:read'))fields.push({ name: 'keyId', label: '分配 Key', options: [['', '继承部门 / 回收个人 Key'], ...keys.map(k => [k.id, `${k.name} · ${k.suffix}${k.active ? '' : '（已禁用）'}`])], value: user?.key_id });
+  if(can('keys:read'))fields.push({ name: 'keyId', label: '分配 Key', options: [['', '继承部门或模型默认 Key / 回收个人 Key'], ...keys.map(k => [k.id, `${k.name} · ${k.suffix}${k.active ? '' : '（已禁用）'}`])], value: user?.key_id });
   if(currentUser.role==='admin')fields.push({name:'role',label:'账号角色',options:[['user','员工'],['operator','运营管理员'],['auditor','只读审计员'],['admin','系统管理员']],value:user?.role||'user'});
   for (const [name, label] of Object.entries(quotaLabels)) fields.push({ name, label: label + '（0 为不限）', type: 'number', value: user?.quotas[name] || 0 });
   edit(user ? `编辑 ${user.username}` : '创建用户', fields, async data => {
@@ -123,21 +124,18 @@ async function userEditor(user) {
     await api(user ? `/admin/users/${user.id}` : '/admin/users', user ? 'PATCH' : 'POST', body);
   });
 }
-function modelEditor(model) {
-  edit(model ? '编辑模型' : '添加模型', [
-    { name: 'name', label: '显示名称', value: model?.name }, { name: 'publicName', label: '公开模型名（客户端可见）', value: model?.public_name || 'qcode-model' },
-    { name: 'baseUrl', label: '服务地址（包含 /v1）', value: model?.base_url || 'http://127.0.0.1:3200/v1' },
-    { name: 'upstreamModel', label: '上游真实模型名', value: model?.upstream_model || 'mock-model' },
-    { name: 'maxOutputTokens', label: '单请求最大输出 Token', type: 'number', value: model?.max_output_tokens || 8192 },
-    { name:'contextWindow',label:'模型上下文长度',type:'number',value:model?.context_window||131072 },
-    { name:'maxTokensField',label:'输出上限字段',options:[['max_tokens','max_tokens（常见兼容接口）'],['max_completion_tokens','max_completion_tokens']],value:model?.max_tokens_field||'max_tokens' },
-    { name:'inputPrice',label:'每百万输入 Token 单价',type:'number',step:'0.000001',value:model?.input_price||0 },
-    { name:'outputPrice',label:'每百万输出 Token 单价',type:'number',step:'0.000001',value:model?.output_price||0 },
-    { name:'currency',label:'计价币种',options:[['CNY','人民币 CNY'],['USD','美元 USD']],value:model?.currency||'CNY' },
-    { name: 'streamUsage', label: '流式用量支持', options: [['true', '请求上游返回用量'], ['false', '不支持（保守计费）']], value: String(model?.stream_usage ?? true) },
-    { name: 'isDefault', label: '设为默认模型', options: [['true', '是'], ['false', '否']], value: String(model?.is_default ?? true) },
-    { name: 'active', label: '状态', options: [['true', '启用'], ['false', '禁用']], value: String(model?.active ?? true) },
-  ], async data => { for (const k of ['streamUsage', 'isDefault', 'active']) data[k] = data[k] === 'true';for(const k of ['maxOutputTokens','contextWindow','inputPrice','outputPrice'])data[k]=Number(data[k]); await api(model ? `/admin/models/${model.id}` : '/admin/models', model ? 'PUT' : 'POST', data); });
+async function modelEditor(model) {
+  const keys = await api('/admin/keys');
+  openModelEditor({ model, keys, api, onSaved: async () => { $('message').dataset.error='false';$('message').textContent='配置已保存，请验证后分配给用户或部门';await load(); } });
+}
+async function testModel(model) {
+  try {
+    if (!model.key_id) throw Error('请先在模型配置中选择默认 Key，再测试模型');
+    if (!confirm('将测试流式工具调用及工具结果回传，产生少量真实用量。继续？')) return;
+    const result=await api(`/admin/models/${model.id}/check`,'POST',{});
+    await load();$('message').dataset.error=String(result.status!=='verified');
+    $('message').textContent=result.status==='verified'?'流式输出、工具调用和结果回传验证通过。还需用员工客户端测试真实项目。':result.message||'模型验证未通过';
+  } catch(error) { notice(error); }
 }
 async function load() {
   if (!token) return;
@@ -150,7 +148,7 @@ async function load() {
   if (section !== active || !token) return;
   $('content').replaceChildren();
   if(renderEnterprise(active,data,{content:$('content'),toolbar:$('actions'),actions,api,button,table,edit,load,can,quotaLabels}))return;
-  if(['users','keys','models'].includes(active)){const search=document.createElement('input');search.placeholder='搜索当前列表';search.setAttribute('aria-label','搜索当前列表');search.oninput=()=>{for(const row of $('content').querySelectorAll('tbody tr'))row.hidden=!row.textContent.toLowerCase().includes(search.value.toLowerCase());};$('toolbar').append(search);}
+  if(['users','keys','models'].includes(active)){const search=document.createElement('input');search.placeholder='搜索当前列表';search.setAttribute('aria-label','搜索当前列表');search.oninput=()=>{for(const row of $('content').querySelectorAll('tbody tr,.model-card'))row.hidden=!row.textContent.toLowerCase().includes(search.value.toLowerCase());};$('toolbar').append(search);}
   if (active === 'users') {
     $('section-note').textContent = '禁用、重置密码和撤销登录会立即阻止旧 Token 的后续请求。额度为 0 表示不限。';
     if(can('users:write'))$('actions').append(button('创建用户', () => userEditor(), false),button('导入 CSV',async()=>{await importUsersCsv(api);await load();}),button('下载模板',()=>downloadText('员工导入模板.csv','\uFEFF用户名,初始密码,部门\r\n')));
@@ -173,8 +171,9 @@ async function load() {
         button('删除', async () => { if (confirm('删除未分配的 Key？')) { await api(`/admin/keys/${k.id}`, 'DELETE'); await load(); } }))])));
   } else if (active === 'models') {
     if(can('models:write'))$('actions').append(button('添加模型', () => modelEditor(), false));
-    $('section-note').textContent = '支持 /v1/chat/completions 协议。保持公开模型名不变，可在后台替换上游地址。';
-    $('content').append(table(['名称', '公开模型', '上游模型', '服务地址', '默认', '状态', '操作'], data.map(m => [m.name, m.public_name, m.upstream_model, m.base_url, m.is_default ? '是' : '否', m.active ? '启用' : '禁用', can('models:write')?button('编辑', () => modelEditor(m)):'只读'])));
+    $('section-note').textContent = '添加服务 → 选择 Key 和上游模型 → 验证流式与工具调用 → 分配用户或部门。员工无需重新安装。';
+    const keys=can('keys:read')?await api('/admin/keys'):[];
+    $('content').append(modelCards(data,keys,{edit:modelEditor,test:testModel,writable:can('models:write')}));
   } else if (active === 'usage' || active === 'overview') {
     $('section-note').textContent = `时区：${data.timezone}。实际 Token 与保守计费分开显示；未知用量仍占用预留额度。`;
     const metrics = document.createElement('div'); metrics.className = 'metrics';

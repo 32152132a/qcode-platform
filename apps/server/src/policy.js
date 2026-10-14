@@ -11,7 +11,10 @@ export function effectiveQuotas(state, user) {
   return user.quota_mode === 'department' ? departmentFor(state, user)?.user_quotas || user.quotas : user.quotas;
 }
 export function effectiveKey(state, user) {
-  const keyId = user.key_id || departmentFor(state, user)?.key_id;
+  const department = departmentFor(state, user);
+  const modelId = user.model_id || department?.model_id;
+  const model = state.models.find(m => modelId ? m.id === modelId : m.is_default);
+  const keyId = user.key_id || department?.key_id || model?.key_id;
   return state.keys.find(k => k.id === keyId);
 }
 export function departmentConsumption(state, department, timezone, timestamp = now()) {

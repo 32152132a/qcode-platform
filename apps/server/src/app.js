@@ -1,3 +1,5 @@
+import { protocols } from './providers.js';
+import { registerModelChecks } from './model-checks.js';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
@@ -215,13 +217,14 @@ export function createApp(config, database) {
         if (state.keys.some(k => k.id !== key.id && vault.decrypt(k.secret) === secret)) fail(409, 'KEY_EXISTS', 'This key already exists');
         key.secret = vault.encrypt(secret); key.suffix = secret.slice(-4); key.health = 'unknown';
       }
+      if ('apiKey' in req.body || 'active' in req.body) for (const model of state.models) if (model.key_id === key.id || model.verification?.key_id === key.id) model.verification = null;
       audit(state, req.user, 'key.update', key.id); return publicKey(state, key);
     }));
   });
   app.delete('/admin/keys/:id', (req, res) => {
     db.transaction(state => {
       if (!state.keys.some(k => k.id === req.params.id)) fail(404, 'KEY_NOT_FOUND', 'Key not found');
-      if (state.users.some(u => u.key_id === req.params.id) || state.departments.some(d => d.key_id === req.params.id) || state.requests.some(r => r.key_id === req.params.id && r.status === 'pending')) fail(409, 'KEY_IN_USE', '请先回收用户和部门的 Key，并等待进行中的请求完成');
+      if (state.users.some(u => u.key_id === req.params.id) || state.departments.some(d => d.key_id === req.params.id) || state.models.some(m => m.key_id === req.params.id) || state.requests.some(r => r.key_id === req.params.id && r.status === 'pending')) fail(409, 'KEY_IN_USE', '请先回收用户和部门的 Key，并等待进行中的请求完成');
       state.keys = state.keys.filter(k => k.id !== req.params.id); audit(state, req.user, 'key.delete', req.params.id);
     }); res.json({ ok: true });
   });
@@ -241,12 +244,18 @@ export function createApp(config, database) {
       audit(next, req.user, 'key.check', key.id);
     }); res.json({ health, note: 'Checks /models only; generation and billing permissions require a real request.' });
   });
+  registerModelChecks(app, { db, vault, config, activeRequests });
   app.get('/admin/models', (_req, res) => res.json(db.read().models));
   function saveModel(state, body, existing) {
     for (const price of [body.inputPrice ?? 0, body.outputPrice ?? 0]) if (typeof price !== 'number' || !Number.isFinite(price) || price < 0 || price > 100000) fail(400, 'INVALID_PRICE', '单价必须在 0 到 100000 之间');
     if (!['CNY','USD'].includes(body.currency || 'CNY')) fail(400, 'INVALID_CURRENCY', '币种只支持 CNY 或 USD');
     if (!['max_tokens','max_completion_tokens'].includes(body.maxTokensField || 'max_tokens')) fail(400, 'INVALID_FIELD', '无效的输出上限字段');
-    const model = { ...existing, id: existing?.id || id(), name: text(body.name, 'name'), public_name: text(body.publicName, 'publicName', 80),
+    const protocol = body.protocol ?? existing?.protocol ?? 'chat-completions';
+    if (!protocols.includes(protocol)) fail(400, 'INVALID_PROTOCOL', 'Choose Chat Completions or Responses');
+    const keyId = body.keyId === undefined ? existing?.key_id || null : body.keyId || null;
+    if (keyId && !state.keys.some(k => k.id === keyId && k.active)) fail(400, 'INVALID_KEY', 'Choose an enabled model key');
+    const provider = text(body.provider ?? existing?.provider ?? 'custom', 'provider', 40);
+    const model = { ...existing, protocol, provider, key_id: keyId, id: existing?.id || id(), name: text(body.name, 'name'), public_name: text(body.publicName, 'publicName', 80),
       upstream_model: text(body.upstreamModel, 'upstreamModel'), base_url: baseUrl(body.baseUrl),
       max_output_tokens: integer(body.maxOutputTokens ?? 8192, 'maxOutputTokens', 131072),
       context_window: integer(body.contextWindow ?? 131072, 'contextWindow', 2000000), input_price: body.inputPrice ?? 0, output_price: body.outputPrice ?? 0, currency: body.currency || 'CNY', max_tokens_field: body.maxTokensField || 'max_tokens',
@@ -254,6 +263,7 @@ export function createApp(config, database) {
     if (!/^[a-zA-Z0-9_.-]+$/.test(model.public_name) || !model.max_output_tokens || model.context_window < model.max_output_tokens) fail(400, 'INVALID_MODEL', '公开模型名称或上下文/输出上限配置无效');
     if (state.models.some(m => m.id !== model.id && m.public_name === model.public_name)) fail(409, 'MODEL_EXISTS', 'Public model name already exists');
     if (model.is_default) for (const m of state.models) m.is_default = false;
+    if (existing && ['base_url','upstream_model','protocol','key_id','max_tokens_field','stream_usage','max_output_tokens'].some(field => existing[field] !== model[field])) model.verification = null;
     if (existing) Object.assign(existing, model); else state.models.push(model);
     return model;
   }
