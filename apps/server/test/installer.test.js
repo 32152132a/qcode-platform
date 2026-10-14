@@ -69,6 +69,8 @@ function Invoke-WebRequest {
   assert.deepEqual(fs.readdirSync(path.join(root,'downloads')),[],'successful update cleans its downloaded payload');
   assert.ok(fs.existsSync(path.join(root,`runtime/node-v24.19.0-win-${manifest.arch}/node.exe`)));
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'current.json'))).version,manifest.version);
+  assert.ok(fs.existsSync(path.join(root,`versions/${manifest.version}/web-login.html`)),'installed login HTML is required');
+  assert.ok(fs.existsSync(path.join(root,`versions/${manifest.version}/branding/qcode-96.png`)),'installed login icon is required');
   assert.ok(fs.existsSync(path.join(root,`versions/${manifest.version}/${manifest.runtime==='opencode'?'opencode/bin/qcode-engine.exe':'harness-custom/lib/bin.js'}`)));
   assert.equal(fs.readFileSync(path.join(root,'saved-session-test'),'utf8'),'preserve me');
   assert.ok(fs.existsSync(path.join(root,'uninstall.ps1')));

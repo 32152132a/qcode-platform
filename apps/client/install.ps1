@@ -15,6 +15,16 @@ $shortcutFile=Join-Path ([Environment]::GetFolderPath('Desktop')) 'QCode.lnk'
 function Write-InstallProgress([int]$Percent,[string]$Stage){if($ProgressEvents){Write-Host "QCODE_PROGRESS|$Percent|$Stage"}}
 function Write-JsonFile($Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),$utf8)}
 function Assert-Child($Path){$resolved=[IO.Path]::GetFullPath($Path);if(-not $resolved.StartsWith($InstallRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Installer path escaped the QCode directory'};return $resolved}
+function Copy-LoginAssets([string]$Source,[string]$Destination){
+    $page=Join-Path $Source 'web-login.html'
+    if(Test-Path -LiteralPath $page){Copy-Item -LiteralPath $page -Destination $Destination -Force}
+    $branding=Join-Path $Source 'branding'
+    if(Test-Path -LiteralPath $branding){
+        $installedBranding=Join-Path $Destination 'branding'
+        New-Item -ItemType Directory -Path $installedBranding -Force|Out-Null
+        foreach($file in Get-ChildItem -LiteralPath $branding -File){if($file.Extension -in @('.png','.ico')){Copy-Item -LiteralPath $file.FullName -Destination $installedBranding -Force}}
+    }
+}
 function Expand-CheckedArchive($Archive,$Destination){
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $target=[IO.Path]::GetFullPath($Destination)
@@ -129,6 +139,7 @@ try{
     if(Test-Path -LiteralPath $target){
         $installed=Join-Path $target '.qcode-release.json'
         if(-not (Test-Path -LiteralPath $installed)){throw 'Release directory already exists without an ownership marker; refusing to overwrite'}
+        Copy-LoginAssets $source $target
         if($isOpenCode){
             $desired=Get-Content -LiteralPath (Join-Path $source 'opencode-bundle.json') -Raw|ConvertFrom-Json
             $saved=Get-Content -LiteralPath (Join-Path $target 'opencode-bundle.json') -Raw|ConvertFrom-Json
@@ -151,6 +162,7 @@ try{
         $stage=Assert-Child (Join-Path $InstallRoot ('versions/stage-'+[guid]::NewGuid().ToString('N')))
         New-Item -ItemType Directory -Force -Path $stage|Out-Null
         foreach($file in Get-ChildItem -LiteralPath $source -File){if($file.Extension -in @('.ps1','.cmd','.vbs','.mjs','.json','.md')){Copy-Item -LiteralPath $file.FullName -Destination $stage}}
+        Copy-LoginAssets $source $stage
         Write-InstallProgress 45 'runtime'
         if($isOpenCode){Install-OpenCodeRuntime $source $stage}else{
         $harnessSource=Join-Path $source 'harness';$harnessStage=Join-Path $stage 'harness';New-Item -ItemType Directory -Force -Path $harnessStage|Out-Null
