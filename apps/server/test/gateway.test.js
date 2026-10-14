@@ -53,9 +53,12 @@ export async function fixture(t, extra = {}) {
 }
 
 test('user lifecycle, safe projections, permissions, uniqueness and revocation', async t => {
-  const f = await fixture(t), user = await f.create(), token = await f.login();
+  const f = await fixture(t), user = await f.create(); let token = await f.login();
   assert.equal((await f.request('/admin/users', 'GET', undefined, token)).status, 403);
-  assert.equal((await f.request('/auth/login', 'POST', { username: 'alice', password: 'user-password' })).status, 409);
+  const replacement = await f.request('/auth/login', 'POST', { username: 'alice', password: 'user-password' });
+  assert.equal(replacement.status, 200);
+  assert.equal((await f.request('/auth/me', 'GET', undefined, token)).status, 401);
+  token = replacement.body.token;
   const users = await f.request('/admin/users', 'GET', undefined, f.admin);
   assert.ok(users.body.find(u => u.id === user.id).last_login_at);
   assert.doesNotMatch(JSON.stringify(users.body), /secret-provider-key|password_hash|token_hash/);

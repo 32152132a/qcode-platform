@@ -27,3 +27,5 @@ import './knowledge.test.js';
 import './session-store.test.js';
 
 import './ollama.test.js';
+
+import './session-replacement.test.js';

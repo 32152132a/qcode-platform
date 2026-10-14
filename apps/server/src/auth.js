@@ -33,13 +33,20 @@ export function registerAuth(app, { db, config, cancelRequests }) {
       fail(401, 'LOGIN_FAILED', '用户名或密码错误');
     }
     if (!user.is_active) fail(403, 'USER_DISABLED', '账号已被禁用');
-    const result = db.transaction(next => {
+    if (user.session_limit < 1) fail(409, 'SESSION_LIMIT', '账号登录名额为 0，请联系管理员');
+    const { result, replaced } = db.transaction(next => {
       next.tokens = next.tokens.filter(sessionAlive);
-      if (next.tokens.filter(t => t.user_id === user.id).length >= user.session_limit) fail(409, 'SESSION_LIMIT', '登录设备数量已达上限，请退出其他设备或联系管理员撤销登录');
+      const sessions = next.tokens.filter(t => t.user_id === user.id).sort((a,b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+      const replaced = sessions.slice(0, Math.max(0, sessions.length - user.session_limit + 1));
+      const removed = new Set(replaced.map(session => session.token_hash));
+      next.tokens = next.tokens.filter(session => !removed.has(session.token_hash));
       const saved = next.users.find(u => u.id === user.id); saved.last_login_at = now();
       audit(next, saved, 'login', saved.id);
-      return issue(next, saved, { device: typeof device === 'string' ? device.slice(0,100) : '' });
+      for (const session of replaced) audit(next, saved, 'session.replaced', session.id || session.token_hash.slice(0,12));
+      return { result: issue(next, saved, { device: typeof device === 'string' ? device.slice(0,100) : '' }), replaced };
     });
+    // Cancel only after the new session and revocations have committed together.
+    for (const session of replaced) cancelRequests(user.id, 'SESSION_REPLACED', session.id);
     res.json(result);
   });
   app.post('/auth/refresh', (req, res) => {

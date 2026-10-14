@@ -46,3 +46,5 @@ Docker 从仓库根目录 `docker compose up -d --build`。HTTPS 组合文件为
 TRUST_PROXY_CIDRS 仅填写受控反向代理来源；ADMIN_ALLOWED_IPS 限制后台来源。未配置代理信任时忽略客户端伪造的转发 IP。
 
 `npm test` 执行隔离测试；`npm run check` 做语法检查。`node scripts/ui-smoke.js` 需要 Playwright，Windows 使用 Edge，其他系统使用 Playwright Chromium。详细统一验收与尚待环境验证内容见仓库 `docs/product-handoff.md`。
+
+登录设备名额满时，正确密码的新登录自动替换最旧会话，旧访问 Token 和刷新 Token 立即失效，旧会话请求被中止，并记录 session.replaced 审计。名额为 1 时为后登录顶掉前登录；多设备账号保留其余名额，名额为 0 仍拒绝新登录。
