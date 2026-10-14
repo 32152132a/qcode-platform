@@ -45,9 +45,15 @@
 
 ## 员工安装、更新和回滚
 
+Windows EXE 使用 Inno Setup 6，安装到当前用户目录，统一使用 `apps/client/branding/qcode.ico` 作为安装器、快捷方式和系统卸载入口图标。构建机需要 `ISCC.exe`，`scripts/build-installer.ps1 -InnoCompiler 路径` 可指定编译器；构建日志保存在产物的 `exe-build/compiler*.log`。无需重新注入 EXE 资源。
+
+系统“已安装的应用”、开始菜单“卸载 QCode”和安装目录 `uninstall.cmd` 使用同一安全卸载链路。默认保留配置与加密会话；完整清理须输入“删除全部 QCode 本地数据”，包括登录 Token，但始终保留 workspace 与未知文件。默认卸载后保留小型清理入口供稍后删除个人数据。静默卸载默认保留数据。失败日志位于 `%LOCALAPPDATA%\QCode-uninstall-logs`，清理失败时保留系统卸载注册项。
+
+旧版升级选择原安装目录（自定义旧目录可用 `/DIR="原目录"`），继续沿用 `current.json`、版本目录、内置 Node 和原网关设置；Inno 注册项不依赖客户端版本指针，因此 ZIP 更新与回滚不会移除系统卸载入口。安装包默认路径是 `%LOCALAPPDATA%\QCode`，后续 Inno 安装沿用已登记路径。
+
 员工打开 `http://code.quyongqing.cn`，点击“下载 Windows 客户端”，或访问 `http://code.quyongqing.cn/downloads/installer`。只需下载一个 EXE；ZIP 留在服务器供自动更新，无需员工克隆 Gitee 仓库。
 
-安装器检查运行包散列、版本、架构和启动入口后切换版本；完整安装包内置对应架构的 Node 24.19.0，安装时校验后解压到 QCode 私有目录，不再访问 nodejs.org，不改变全局 Node。安装仍需连接网关完成健康检查；登录、AI 使用与升级也需要网关。也可解压完整 ZIP 执行 `install.ps1 -Gateway http://code.quyongqing.cn`。许可证和第三方声明随包保留。
+安装器检查运行包散列、版本、架构和启动入口后切换版本；完整安装包内置对应架构的 Node 24.19.0，安装时校验后解压到 QCode 私有目录，不访问 nodejs.org，不改变全局 Node。安装可离线完成；登录、AI 使用与升级需要网关。也可解压完整 ZIP 执行 `install.ps1 -Gateway http://code.quyongqing.cn`。许可证和第三方声明随包保留。
 
 **从 0.3.0 首次升级使用新的完整 EXE/ZIP**，旧更新器不认识定制运行包。0.4.0 及之后使用 `qcode update` 获取发行清单和更新，`qcode rollback` 回到上一个客户端版本。登录信息、会话和工作目录独立保存；跨 Harness 版本的会话格式兼容仍需验收。
 

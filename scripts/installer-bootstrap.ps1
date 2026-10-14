@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Gateway='',[string]$InstallRoot='',[switch]$NoPath)
+param([string]$Gateway='',[string]$InstallRoot='',[switch]$NoPath,[switch]$ManagedSetup)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 $env:PSModulePath=(Join-Path $PSHOME 'Modules')+';'+$env:PSModulePath
@@ -30,7 +30,11 @@ try{
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     Write-Host 'Extracting the bundled client...'
     [IO.Compression.ZipFile]::ExtractToDirectory($source,$destination)
-    & (Join-Path $destination 'install.ps1') -Gateway $Gateway -InstallRoot $InstallRoot -NoPath:$NoPath
+    if($ManagedSetup){
+        & (Join-Path $destination 'install.ps1') -Gateway $Gateway -InstallRoot $InstallRoot -NoPath:$NoPath -NoShortcuts
+    }else{
+        & (Join-Path $destination 'install.ps1') -Gateway $Gateway -InstallRoot $InstallRoot -NoPath:$NoPath
+    }
     if($LASTEXITCODE -ne 0){throw "Bundled installer failed with exit code $LASTEXITCODE."}
     Write-Host 'QCode installation succeeded.' -ForegroundColor Green
     Write-Host 'Open the QCode desktop shortcut, or open a NEW terminal and run qcode or qcodeweb.'

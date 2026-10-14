@@ -31,7 +31,7 @@ node --env-file=.env scripts/maintenance.js archive-audits --days 180
 
 ## 员工安装与更新
 
-后台下载 ZIP 后解压运行 `install.ps1 -Gateway https://你的网关`，或运行构建的 EXE。安装器写入当前用户目录、配置用户 PATH 和桌面快捷方式，下载校验后的 Node 24.19.0，并通过锁文件安装 Harness 0.2.0-rc.2，需要访问 Node 和 npm 下载源。
+后台下载 ZIP 后解压运行 `install.ps1 -Gateway https://你的网关`，或运行 Inno Setup EXE。完整发行包包含私有 Node 24.19.0 和定制运行时，可离线安装；安装器写入当前用户目录、配置用户 PATH 和快捷方式，并注册 Windows 系统卸载入口，统一使用 QCode 图标。登录、模型请求与更新需要连接网关。旧版升级时选择原安装目录，保留网关设置、数据及版本回滚机制。
 
 首次执行 `qcode web` 输入员工账号密码；`qcode tui -WorkDir D:\projects\demo` 指定项目。`qcode logout` 登出，`qcode switch` 换账号。`qcode doctor` 检查网关和运行环境，`qcode update` 更新，`qcode rollback` 切回上一客户端版本。自动更新由后台开关控制，强制最低版本独立生效。
 

@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([string]$InstallRoot='', [switch]$RemoveAllData, [string]$ConfirmAllData='', [switch]$NonInteractive)
+param([string]$InstallRoot='', [switch]$RemoveAllData, [string]$ConfirmAllData='', [switch]$NonInteractive, [switch]$SystemUninstall)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 $env:PSModulePath=(Join-Path $PSHOME 'Modules')+[IO.Path]::PathSeparator+$env:PSModulePath
@@ -57,6 +57,16 @@ try{
     Start-Transcript -LiteralPath $logFile -Force|Out-Null;$transcriptStarted=$true
     Write-Host "QCode 卸载日志：$logFile"
     Assert-SafeInstallRoot
+    $systemUninstaller=Join-Path $InstallRoot '.setup/unins000.exe'
+    if(-not $SystemUninstall -and (Test-Path -LiteralPath $systemUninstaller)){
+        if($RemoveAllData -and $ConfirmAllData -cne '删除全部 QCode 本地数据'){throw '完整数据删除必须提供正确的确认短语，或通过系统卸载交互确认'}
+        $arguments=if($NonInteractive){@('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')}else{@('/NORESTART')}
+        if($RemoveAllData){$arguments+=@('/QCODEPURGE=1','/QCODECONFIRM="删除全部 QCode 本地数据"')}
+        $native=Start-Process -FilePath $systemUninstaller -ArgumentList $arguments -PassThru
+        $null=$native.Handle
+        $native.WaitForExit()
+        exit $native.ExitCode
+    }
     if(-not (Test-Path -LiteralPath $InstallRoot)){Write-Host 'QCode 已卸载，无需再次清理。' -ForegroundColor Green;exit 0}
     $lockPath=Join-Path $InstallRoot 'install.lock'
     try{$installLock=[IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}catch{throw '另一个 QCode 安装或卸载正在运行，请稍后重试'}
