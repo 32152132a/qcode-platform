@@ -32,6 +32,10 @@ test('employee downloads a complete EXE while updates still receive the ZIP',asy
   assert.equal(fs.readFileSync(lock,'utf8'),'another publisher');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'manifest.json'))),manifest);
   fs.unlinkSync(lock);
+  fs.writeFileSync(path.join(source,'manifest.json'),JSON.stringify({...manifest,installerTestAppId:'QCodeTest-'+'a'.repeat(32)}));
+  assert.throws(()=>publishClient(source,directory),/Test installers cannot be published/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'manifest.json'))),manifest);
+  fs.writeFileSync(path.join(source,'manifest.json'),JSON.stringify(manifest));
   fs.writeFileSync(path.join(source,'QCodeSetup-0.4.0.exe'),'damaged');
   assert.throws(()=>publishClient(source,directory),/checksum/);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'manifest.json'))),manifest);

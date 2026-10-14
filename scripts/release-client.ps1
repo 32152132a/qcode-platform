@@ -18,6 +18,7 @@ function Invoke-Checked([string]$Program,[string[]]$Arguments){
 }
 function Read-Release([string]$Directory){
     $manifest=Get-Content -LiteralPath (Join-Path $Directory 'manifest.json') -Raw|ConvertFrom-Json
+    if($manifest.installerTestAppId){throw 'Test installers cannot be published'}
     if($manifest.version -notmatch '^\d+\.\d+\.\d+$' -or $manifest.harnessBrand -ne 'QCode'){throw 'Expected a versioned QCode custom release'}
     foreach($item in @(@("qcode-client-$($manifest.version).zip",$manifest.sha256,$manifest.downloadUrl),@("QCodeSetup-$($manifest.version).exe",$manifest.installerSha256,$manifest.installerUrl))){
         if($item[1] -cnotmatch '^[a-f0-9]{64}$' -or $item[2] -cne "/downloads/$($item[0])"){throw 'Invalid release manifest'}
@@ -81,9 +82,16 @@ if(-not $PublishDirectory){
     Invoke-Checked 'node' @((Join-Path $PSScriptRoot 'next-client-version.mjs'),(Join-Path $root 'apps/client/release.json'),$publishedVersion)
     Invoke-Checked 'node' @((Join-Path $root 'apps/server/scripts/package-client.js'),'--opencode-bundle',(Resolve-Path -LiteralPath $OpenCodeBundle).Path,'--output',$release,'--node-archive',$nodeArchive)
     & (Join-Path $PSScriptRoot 'build-installer.ps1') -ReleaseDirectory $release -CertificateThumbprint $CertificateThumbprint
+    $testRelease=$release
+    if(Test-Path -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{A868EA29-3EDC-4FD4-98C0-5C9731645612}_is1'){
+        $testRelease=Join-Path $release 'installer-test';New-Item -ItemType Directory -Path $testRelease -Force|Out-Null
+        $clientManifest=Get-Content -LiteralPath (Join-Path $release 'manifest.json') -Raw|ConvertFrom-Json
+        Copy-Item -LiteralPath (Join-Path $release 'manifest.json'),(Join-Path $release "qcode-client-$($clientManifest.version).zip") -Destination $testRelease
+        & (Join-Path $PSScriptRoot 'build-installer.ps1') -ReleaseDirectory $testRelease -TestAppId ('QCodeTest-'+[guid]::NewGuid().ToString('N'))
+    }
     $previousRelease=$env:QCODE_TEST_RELEASE_DIRECTORY
     try{
-        $env:QCODE_TEST_RELEASE_DIRECTORY=$release
+        $env:QCODE_TEST_RELEASE_DIRECTORY=$testRelease
         Invoke-Checked 'node' @('--test',(Join-Path $root 'apps/server/test/installer.test.js'),(Join-Path $root 'apps/server/test/installer-offline.test.js'))
     }finally{$env:QCODE_TEST_RELEASE_DIRECTORY=$previousRelease}
     $manifest=Read-Release $release

@@ -17,6 +17,7 @@ export function publishClient(source,destination){
 }
 function publishLocked(source,destination){
   const manifest=JSON.parse(fs.readFileSync(path.join(source,'manifest.json'),'utf8').replace(/^\uFEFF/,''));
+  if(manifest.installerTestAppId)throw new Error('Test installers cannot be published');
   if(!/^\d+\.\d+\.\d+$/.test(manifest.version)||manifest.harnessBrand!=='QCode'||(manifest.platform&&manifest.platform!=='win32'))throw new Error('Expected a versioned QCode custom release');
   const files=[{name:`qcode-client-${manifest.version}.zip`,hash:manifest.sha256,url:manifest.downloadUrl},{name:`QCodeSetup-${manifest.version}.exe`,hash:manifest.installerSha256,url:manifest.installerUrl}];
   for(const file of files){

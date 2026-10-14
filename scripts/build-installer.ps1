@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$CertificateThumbprint='', [string]$ReleaseDirectory='', [string]$InnoCompiler='', [ValidateRange(60,3600)][int]$BuildTimeoutSeconds=600)
+param([string]$CertificateThumbprint='', [string]$ReleaseDirectory='', [string]$InnoCompiler='', [ValidatePattern('^QCodeTest-[a-f0-9]{32}$')][string]$TestAppId='', [ValidateRange(60,3600)][int]$BuildTimeoutSeconds=600)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 $clientEnvironment=Join-Path $root 'config/client.env'
@@ -32,6 +32,7 @@ if(-not $InnoCompiler -or -not (Test-Path -LiteralPath $InnoCompiler)){throw 'In
 $compilerOutput=Join-Path (Join-Path $env:LOCALAPPDATA 'Temp') ('qcode-inno-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $compilerOutput -Force|Out-Null
 $arguments=@('/Qp',"/DClientVersion=$version",('/DBuildDirectory="'+$build+'"'),('/DOutputDirectory="'+$compilerOutput+'"'),('/DProjectRoot="'+$root+'"'),('"'+(Join-Path $PSScriptRoot 'qcode-setup.iss')+'"'))
+if($TestAppId){$arguments+=('/DTestAppId="'+$TestAppId+'"')}
 $compilerLog=Join-Path $build 'compiler.log';$compilerErrors=Join-Path $build 'compiler-errors.log'
 $process=Start-Process -FilePath $InnoCompiler -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $compilerLog -RedirectStandardError $compilerErrors
 $null=$process.Handle
@@ -52,6 +53,7 @@ $manifestPath=Join-Path $release 'manifest.json'
 $manifest=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json
 $manifest|Add-Member -NotePropertyName installerUrl -NotePropertyValue "/downloads/QCodeSetup-$version.exe" -Force
 $manifest|Add-Member -NotePropertyName installerSha256 -NotePropertyValue (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -Force
+if($TestAppId){$manifest|Add-Member -NotePropertyName installerTestAppId -NotePropertyValue $TestAppId -Force}
 $manifest|Add-Member -NotePropertyName installerType -NotePropertyValue 'inno-setup' -Force
 [IO.File]::WriteAllText($manifestPath,($manifest|ConvertTo-Json),(New-Object Text.UTF8Encoding($false)))
 Write-Output "Built installer: $target"

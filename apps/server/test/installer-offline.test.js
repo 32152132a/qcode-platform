@@ -14,7 +14,9 @@ test('Windows EXE runs its packaged install command and installs the client runt
   const manifest=JSON.parse(fs.readFileSync(path.join(release,'manifest.json'),'utf8'));
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-offline-'));
   const installed=path.join(root,'employee install');
-  const registry='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{A868EA29-3EDC-4FD4-98C0-5C9731645612}_is1';
+  const appId=manifest.installerTestAppId||'{A868EA29-3EDC-4FD4-98C0-5C9731645612}';
+  assert.match(appId,/^(?:QCodeTest-[a-f0-9]{32}|\{A868EA29-3EDC-4FD4-98C0-5C9731645612\})$/);
+  const registry='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\'+appId+'_is1';
   function registeredLocation(){
     return execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',`[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); (Get-ItemProperty -LiteralPath '${registry}' -ErrorAction SilentlyContinue).InstallLocation`],{windowsHide:true,encoding:'utf8'}).trim();
   }

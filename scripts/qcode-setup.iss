@@ -2,8 +2,12 @@
   #error Build via scripts/build-installer.ps1
 #endif
 
+#ifndef TestAppId
+  #define TestAppId "{{A868EA29-3EDC-4FD4-98C0-5C9731645612}"
+#endif
+
 [Setup]
-AppId={{A868EA29-3EDC-4FD4-98C0-5C9731645612}
+AppId={#TestAppId}
 AppName=QCode
 AppVersion={#ClientVersion}
 AppPublisher=QCode
