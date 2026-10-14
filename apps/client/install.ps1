@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Gateway='', [switch]$Update, [switch]$Rollback, [switch]$Uninstall, [switch]$SkipRuntime, [switch]$SkipHarness, [switch]$NoPath, [string]$InstallRoot='')
+param([string]$Gateway='', [switch]$Update, [switch]$Rollback, [switch]$Uninstall, [switch]$SkipRuntime, [switch]$SkipHarness, [switch]$NoPath, [switch]$NoShortcuts, [string]$InstallRoot='')
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 # A Node/PowerShell 7 parent can pass a module search path incompatible with Windows PowerShell.
@@ -235,11 +235,14 @@ try{
     }
     if(-not $NoPath){
         $entries=@([Environment]::GetEnvironmentVariable('Path','User') -split ';'|Where-Object{$_ -and $_ -ne $bin});[Environment]::SetEnvironmentVariable('Path',(($entries+$bin) -join ';'),'User')
+    }
+    if(-not $NoPath -and -not $NoShortcuts){
         $shell=New-Object -ComObject WScript.Shell;$shortcut=$shell.CreateShortcut($shortcutFile);$shortcut.TargetPath=Join-Path $bin 'qcode.cmd';$shortcut.Arguments='web';if(Test-Path -LiteralPath $icon){$shortcut.IconLocation="$icon,0"};$shortcut.Save()
         $startMenuDirectory=Join-Path ([Environment]::GetFolderPath('Programs')) 'QCode';New-Item -ItemType Directory -Force -Path $startMenuDirectory|Out-Null
         $startShortcut=$shell.CreateShortcut((Join-Path $startMenuDirectory 'QCode.lnk'));$startShortcut.TargetPath=Join-Path $bin 'qcode.cmd';$startShortcut.Arguments='web';if(Test-Path -LiteralPath $icon){$startShortcut.IconLocation="$icon,0"};$startShortcut.Save()
         if((Test-Path -LiteralPath (Join-Path $InstallRoot 'uninstall.ps1')) -and (Test-Path -LiteralPath (Join-Path $InstallRoot 'uninstall.cmd'))){
-            $uninstallShortcut=$shell.CreateShortcut((Join-Path $startMenuDirectory '卸载 QCode.lnk'));$uninstallShortcut.TargetPath=Join-Path $InstallRoot 'uninstall.cmd';$uninstallShortcut.WorkingDirectory=$InstallRoot;if(Test-Path -LiteralPath $icon){$uninstallShortcut.IconLocation="$icon,0"};$uninstallShortcut.Save()
+            $systemUninstaller=Join-Path $InstallRoot '.setup/unins000.exe'
+            $uninstallShortcut=$shell.CreateShortcut((Join-Path $startMenuDirectory '卸载 QCode.lnk'));$uninstallShortcut.TargetPath=if(Test-Path -LiteralPath $systemUninstaller){$systemUninstaller}else{Join-Path $InstallRoot 'uninstall.cmd'};$uninstallShortcut.WorkingDirectory=$InstallRoot;if(Test-Path -LiteralPath $icon){$uninstallShortcut.IconLocation="$icon,0"};$uninstallShortcut.Save()
         }
     }
     Write-Host "QCode $version installed. Open a new terminal and run qcode (TUI) or qcode web."
