@@ -61,7 +61,7 @@ export function openModelEditor({model,keys,api,onSaved}) {
   field(advancedFields,'currency','计价币种',model?.currency||'CNY',{options:[['CNY','CNY'],['USD','USD']]});
   field(advancedFields,'isDefault','设为默认模型',String(model?.is_default??false),{options:[['false','否'],['true','是']]});
   fields.append(basics,note,advanced);
-  function localFields(){const local=values.get('provider').value==='ollama';values.get('keyId').disabled=local;if(local){values.get('keyId').value='';values.get('protocol').value='chat-completions';}}
+  function localFields(){const local=values.get('provider').value==='ollama';values.get('keyId').disabled=local;values.get('keyId').options[0].textContent=local?'本地 Ollama 无需 API Key':'使用用户或部门 Key';if(local){values.get('keyId').value='';values.get('protocol').value='chat-completions';}}
   localFields();
   connection.onchange=async()=>{const preset=connections[connection.value];values.get('baseUrl').value=preset.url;values.get('protocol').value=preset.protocol;if(connection.value==='ollama'){values.get('provider').value='ollama';localFields();try{const local=await api('/admin/models/ollama-preset');values.get('baseUrl').value=local.baseUrl;values.get('upstreamModel').value=local.upstreamModel;values.get('maxOutputTokens').value=local.maxOutputTokens;values.get('contextWindow').value=local.contextWindow;values.get('name').value='通义千问 Qwen 0.5B（本地测试）';values.get('publicName').value='qcode-qwen-local';}catch(e){error.textContent=e.message;}}};
   values.get('provider').onchange=()=>{localFields();if(!model){const family=values.get('provider').value;values.get('name').value=families.find(([id])=>id===family)[1];values.get('publicName').value=`qcode-${family}`;}};
