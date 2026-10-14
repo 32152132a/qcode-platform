@@ -14,10 +14,10 @@ function parseUsage(value) {
 
 export async function complete(req, res, { db, vault, config, activeRequests = new Map() }) {
   const body = req.body;
-  const state = db.read(), model = resolveModel(state, req.user), key = effectiveKey(state, req.user), department = departmentFor(state, req.user);
+  const state = db.read(), model = resolveModel(state, req.user), key = model?.provider === 'ollama' ? null : effectiveKey(state, req.user), department = departmentFor(state, req.user);
   if (department && !department.active) fail(403, 'DEPARTMENT_DISABLED', '所在部门已被停用');
   if (!model?.active) fail(503, 'MODEL_UNAVAILABLE', 'No enabled model assigned');
-  if (!key?.active) fail(503, 'KEY_UNAVAILABLE', 'No enabled key assigned');
+  if (model.provider !== 'ollama' && !key?.active) fail(503, 'KEY_UNAVAILABLE', 'No enabled key assigned');
   if (body?.model !== model.public_name) fail(400, 'INVALID_MODEL', 'Select your assigned model from /v1/models');
   if (!Array.isArray(body.messages) || !body.messages.length || body.messages.some(m => !m || typeof m !== 'object')) fail(400, 'INVALID_MESSAGES', 'messages must be a non-empty array');
   if (body.stream !== undefined && typeof body.stream !== 'boolean') fail(400, 'INVALID_STREAM', 'stream must be boolean');
@@ -27,7 +27,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   if (!outputLimit) fail(400, 'INVALID_FIELD', 'Output token limit must be positive');
   // UTF-8 bytes plus message/tool overhead is a conservative estimate, not a provider tokenizer.
   const reserved = Buffer.byteLength(JSON.stringify(body), 'utf8') + body.messages.length * 32 + outputLimit;
-  const outbound = providerRequest(body, model, vault.decrypt(key.secret), outputLimit);
+  const outbound = providerRequest(body, model, key ? vault.decrypt(key.secret) : undefined, outputLimit);
   const requestId = id(), startedAt = now(), started = Date.now();
   db.transaction(next => {
     const user = next.users.find(u => u.id === req.user.id), used = consumption(next, user, config.timezone, startedAt);
@@ -36,7 +36,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
     checkQuota(effectiveQuotas(next, user), used, reserved, '用户 ');
     if (department) checkQuota(department.quotas, departmentConsumption(next, department, config.timezone, startedAt), reserved, '部门 ');
     next.requests.push({ id: requestId, user_id: user.id, username: user.username, model: model.public_name, model_id: model.id,
-      department_id: department?.id || null, department_name: department?.name || '', key_id: key.id, started_at: startedAt, status: 'pending', reserved_tokens: reserved, input_tokens: null, output_tokens: null, total_tokens: null });
+      department_id: department?.id || null, department_name: department?.name || '', key_id: key?.id || null, started_at: startedAt, status: 'pending', reserved_tokens: reserved, input_tokens: null, output_tokens: null, total_tokens: null });
   });
   const controller = new AbortController();
   const active = { userId: req.user.id, sessionId: req.session.id, controller, reason: null };
@@ -127,7 +127,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
       record.cost_micros = Number.isSafeInteger(cost) ? cost : null;
       record.currency = model.currency || 'CNY';
       record.input_price = model.input_price || 0; record.output_price = model.output_price || 0;
-      const saved = next.keys.find(k => k.id === key.id);
+      const saved = key && next.keys.find(k => k.id === key.id);
       if (saved && saved.secret === key.secret) {
         if ([401, 403].includes(upstreamStatus)) saved.health = 'rejected';
         else if (status === 'success') saved.health = 'working';

@@ -13,7 +13,7 @@ async function boundedJson(response) {
 }
 async function collectStream(stream) {
   const decoder = new TextDecoder(); let buffer = '', done = false, usage, size = 0;
-  const calls = new Map();
+  const calls = new Map(); let content = '';
   for await (const chunk of stream) {
     const part = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
     size += Buffer.byteLength(part); if (size > 2*1024*1024) fail(502, 'INVALID_UPSTREAM_RESPONSE', 'Test response too large');
@@ -25,6 +25,7 @@ async function collectStream(stream) {
       let value; try { value = JSON.parse(data); } catch { fail(502,'INVALID_UPSTREAM_RESPONSE','Invalid stream JSON'); }
       if (value.error) fail(502,'UPSTREAM_STREAM_ERROR','Provider stream failed');
       usage = value.usage || usage;
+      content += value.choices?.[0]?.delta?.content || '';
       for (const call of value.choices?.[0]?.delta?.tool_calls || []) {
         const saved = calls.get(call.index) || { id: '', type: 'function', function: { name: '', arguments: '' } };
         if (call.id) saved.id = call.id;
@@ -35,23 +36,23 @@ async function collectStream(stream) {
     }
   }
   if (!done) fail(502,'INCOMPLETE_STREAM','Test stream ended before completion');
-  return { usage, choices: [{ message: { role: 'assistant', content: null, tool_calls: [...calls.values()] } }] };
+  return { usage, choices: [{ message: { role: 'assistant', content: content || null, tool_calls: [...calls.values()] } }] };
 }
 export function registerModelChecks(app, { db, vault, config, activeRequests }) {
   function select(req) {
     const state = db.read(), model = state.models.find(m=>m.id===req.params.id);
     if (!model) fail(404,'MODEL_NOT_FOUND','模型不存在');
-    const key = state.keys.find(k=>k.id===(req.body?.keyId || model.key_id));
-    if (!key?.active) fail(400,'INVALID_KEY','请先选择启用的 Key');
-    return { model: structuredClone(model), key: structuredClone(key) };
+    const key = model.provider === 'ollama' ? null : state.keys.find(k=>k.id===(req.body?.keyId || model.key_id));
+    if (model.provider !== 'ollama' && !key?.active) fail(400,'INVALID_KEY','请先选择启用的 Key');
+    return { model: structuredClone(model), key: key ? structuredClone(key) : null };
   }
   async function catalog(req,res) {
     const state=db.read();
-    const selected=req.params.id?select(req):{model:{base_url:baseUrl(req.body?.baseUrl)},key:state.keys.find(k=>k.id===req.body?.keyId&&k.active)};
+    const selected=req.params.id?select(req):{model:{base_url:baseUrl(req.body?.baseUrl),provider:req.body?.provider},key:req.body?.provider==='ollama'?null:state.keys.find(k=>k.id===req.body?.keyId&&k.active)};
     const {model,key}=selected;
-    if(!key)fail(400,'INVALID_KEY','请选择启用的 Key');
+    if(model.provider!=='ollama'&&!key)fail(400,'INVALID_KEY','请选择启用的 Key');
     try {
-      const response = await fetch(`${model.base_url}/models`, { redirect:'error',headers:{Authorization:`Bearer ${vault.decrypt(key.secret)}`},signal:AbortSignal.timeout(Math.min(config.timeoutMs,15000)) });
+      const response = await fetch(`${model.base_url}/models`, { redirect:'error',headers:model.provider==='ollama'?{}:{Authorization:`Bearer ${vault.decrypt(key.secret)}`} ,signal:AbortSignal.timeout(Math.min(config.timeoutMs,15000)) });
       if (!response.ok) { await response.body?.cancel(); fail(502,'UPSTREAM_ERROR',`模型列表读取失败：HTTP ${response.status}`); }
       const result = await boundedJson(response);
       if (!Array.isArray(result.data)) fail(502,'INVALID_CATALOG','上游未返回兼容模型列表，请手动填写模型名');
@@ -63,10 +64,10 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
   app.post('/admin/models/catalog',catalog);
   app.post('/admin/models/:id/catalog',catalog);
   app.post('/admin/models/:id/check', async (req,res) => {
-    const { model,key } = select(req); const outputLimit = Math.min(model.max_output_tokens,256);
+    const { model,key } = select(req); const outputLimit = Math.min(model.max_output_tokens,model.provider==='ollama'?32:256);
     async function perform(body) {
-      const current=db.read(),currentKey=current.keys.find(k=>k.id===key.id),currentModel=current.models.find(m=>m.id===model.id);
-      if(!currentKey?.active||currentKey.secret!==key.secret||JSON.stringify(currentModel)!==JSON.stringify(model))fail(409,'MODEL_CHECK_STALE','模型或 Key 已变化，测试已停止');
+      const current=db.read(),currentKey=key&&current.keys.find(k=>k.id===key.id),currentModel=current.models.find(m=>m.id===model.id);
+      if((key&&(!currentKey?.active||currentKey.secret!==key.secret))||JSON.stringify(currentModel)!==JSON.stringify(model))fail(409,'MODEL_CHECK_STALE','模型或 Key 已变化，测试已停止');
       const requestId = id(), start = now(), started = Date.now(), reserved = Buffer.byteLength(JSON.stringify(body))+outputLimit;
       const controller = new AbortController(); let usage, result, status='failed', upstreamStatus, errorCode;
       db.transaction(state=>{
@@ -74,13 +75,13 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         const user=state.users.find(u=>u.id===req.user.id);
         if (state.requests.filter(r=>r.status==='pending'&&r.user_id===user.id).length>=(user.max_concurrent_requests||1)) fail(429,'REQUEST_IN_PROGRESS','已有请求正在进行');
         checkQuota(effectiveQuotas(state,user),consumption(state,user,config.timezone,start),reserved);
-        state.requests.push({id:requestId,user_id:user.id,username:user.username,model:model.public_name,model_id:model.id,key_id:key.id,started_at:start,status:'pending',reserved_tokens:reserved,input_tokens:null,output_tokens:null,total_tokens:null,purpose:'model_check'});
+        state.requests.push({id:requestId,user_id:user.id,username:user.username,model:model.public_name,model_id:model.id,key_id:key?.id||null,started_at:start,status:'pending',reserved_tokens:reserved,input_tokens:null,output_tokens:null,total_tokens:null,purpose:'model_check'});
       });
       activeRequests.set(requestId,{userId:req.user.id,sessionId:req.session.id,controller,reason:null});
       const timer=setTimeout(()=>controller.abort(),Math.min(config.timeoutMs,30000));
       const cancel=()=>{if(!res.writableFinished)controller.abort();};res.on('close',cancel);
       try {
-        const outbound=providerRequest(body,model,vault.decrypt(key.secret),outputLimit);
+        const outbound=providerRequest(body,model,key?vault.decrypt(key.secret):undefined,outputLimit);
         const response=await fetch(outbound.url,{method:'POST',redirect:'error',headers:outbound.headers,body:JSON.stringify(outbound.payload),signal:controller.signal});
         upstreamStatus=response.status;
         if(!response.ok){await response.body?.cancel();fail(502,'UPSTREAM_ERROR',`模型测试失败：HTTP ${response.status}`);}
@@ -101,8 +102,13 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         });
       }
     }
-    let verification={status:'failed',checked_at:now(),key_id:key.id,stream:false,tools:false,tool_result:false};
+    let verification={status:'failed',checked_at:now(),key_id:key?.id||null,stream:false,tools:false,tool_result:false};
     try {
+      if(model.provider==='ollama'){
+        const result=await perform({messages:[{role:'user',content:'Reply briefly with OK.'}],stream:true});
+        if(!result.choices[0]?.message?.content?.trim())fail(502,'EMPTY_MODEL_RESPONSE','模型未返回文本');
+        verification.stream=true;verification.status='connected';verification.message='本地模型聊天连通，工具调用未验证。';
+      }else{
       const body={messages:[{role:'user',content:'Call qcode_connection_check with ok=true. Do not call any other tool.'}],tools:[{type:'function',function:{name:'qcode_connection_check',description:'Checks model tool calling without running code.',parameters:{type:'object',properties:{ok:{type:'boolean'}},required:['ok'],additionalProperties:false}}}],tool_choice:{type:'function',function:{name:'qcode_connection_check'}},stream:true};
       const result=await perform(body);verification.stream=true;
       const call=result.choices[0]?.message?.tool_calls?.[0];
@@ -113,11 +119,12 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
       const follow=await perform({messages:[...body.messages,result.choices[0].message,{role:'tool',tool_call_id:call.id,content:'{"ok":true}'},{role:'user',content:'The tool succeeded. Reply with OK, do not call tools.'}],stream:false});
       if(!follow.choices[0]?.message?.content)fail(502,'TOOL_RESULT_UNSUPPORTED','工具结果回传后未获得文本回复');
       verification.tool_result=true;verification.status='verified';
+      }
     }catch(error){verification.error_code=error.code||'UPSTREAM_UNAVAILABLE';verification.message=error.status?error.message:'模型验证失败';}
     let stale=false;
     db.transaction(state=>{
-      const saved=state.models.find(m=>m.id===model.id),savedKey=state.keys.find(k=>k.id===key.id);
-      if(saved&&savedKey?.active&&savedKey.secret===key.secret&&saved.key_id===key.id&&JSON.stringify(saved)===JSON.stringify(model))saved.verification=verification;
+      const saved=state.models.find(m=>m.id===model.id),savedKey=key&&state.keys.find(k=>k.id===key.id);
+      if(saved&&(!key||(savedKey?.active&&savedKey.secret===key.secret&&saved.key_id===key.id))&&JSON.stringify(saved)===JSON.stringify(model))saved.verification=verification;
       else stale=true;
       audit(state,req.user,'model.check',model.id);
     });

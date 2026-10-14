@@ -134,10 +134,10 @@ async function modelEditor(model) {
 }
 async function testModel(model) {
   try {
-    if (!model.key_id) throw Error('请先在模型配置中选择默认 Key，再测试模型');
-    if (!confirm('将测试流式工具调用及工具结果回传，产生少量真实用量。继续？')) return;
+    if (model.provider!=='ollama'&&!model.key_id) throw Error('请先在模型配置中选择默认 Key，再测试模型');
+    if (!confirm(model.provider==='ollama'?'将发送一次简短文本请求，验证本地模型聊天连通性；不验证工具调用。继续？':'将测试流式工具调用及工具结果回传，产生少量真实用量。继续？')) return;
     const result=await api(`/admin/models/${model.id}/check`,'POST',{});
-    await load();$('message').dataset.error=String(result.status!=='verified');
+    await load();$('message').dataset.error=String(!['verified','connected'].includes(result.status));
     $('message').textContent=result.status==='verified'?'流式输出、工具调用和结果回传验证通过。还需用员工客户端测试真实项目。':result.message||'模型验证未通过';
   } catch(error) { notice(error); }
 }

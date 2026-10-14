@@ -31,6 +31,7 @@ export function readConfig(env) {
     loginFailureLimit: number('LOGIN_FAILURE_LIMIT', 10, 1, 100), trustedProxies,
     dbPath: env.DB_PATH || './data/qcode.sqlite', encryptionSecret: env.KEY_ENCRYPTION_SECRET,
     adminUsername: env.ADMIN_USERNAME, adminPassword: env.ADMIN_PASSWORD,
+    ollamaBaseUrl: env.OLLAMA_BASE_URL ? baseUrl(env.OLLAMA_BASE_URL) : null,
     baseUrl: env.UPSTREAM_BASE_URL ? baseUrl(env.UPSTREAM_BASE_URL) : null,
     upstreamModel: env.UPSTREAM_MODEL, publicModel: env.PUBLIC_MODEL || 'qcode-model', upstreamKey: env.UPSTREAM_API_KEY,
     adminAddresses: (env.ADMIN_ALLOWED_IPS || '').split(',').map(s => s.trim()).filter(Boolean) };
@@ -58,6 +59,13 @@ export function createApp(config, database) {
       const keyId = id();
       state.keys.push({ id: keyId, name: 'Initial provider key', secret: vault.encrypt(config.upstreamKey), suffix: config.upstreamKey.slice(-4), active: true, health: 'unknown', created_at: now() });
       for (const user of state.users.filter(u => u.role === 'admin')) user.key_id = keyId;
+    }
+    if (config.ollamaBaseUrl && !state.settings.ollamaModelProvisioned) {
+      if (!state.models.some(model => model.public_name === 'qcode-qwen-local')) {
+        const model = saveModel(state, {name:'通义千问 Qwen 0.5B（本地测试）',provider:'ollama',protocol:'chat-completions',publicName:'qcode-qwen-local',upstreamModel:'qwen:0.5b',baseUrl:config.ollamaBaseUrl,maxOutputTokens:256,contextWindow:32768,active:true,isDefault:false});
+        audit(state,{id:null,username:'system'},'model.provision',model.id);
+      }
+      state.settings.ollamaModelProvisioned = true;
     }
   });
   const app = express();
@@ -247,6 +255,7 @@ export function createApp(config, database) {
     }); res.json({ health, note: 'Checks /models only; generation and billing permissions require a real request.' });
   });
   registerModelChecks(app, { db, vault, config, activeRequests });
+  app.get('/admin/models/ollama-preset', (_req,res) => res.json({baseUrl:config.ollamaBaseUrl || 'http://localhost:11434/v1',upstreamModel:'qwen:0.5b',maxOutputTokens:256,contextWindow:32768}));
   app.get('/admin/models', (_req, res) => res.json(db.read().models));
   function saveModel(state, body, existing) {
     for (const price of [body.inputPrice ?? 0, body.outputPrice ?? 0]) if (typeof price !== 'number' || !Number.isFinite(price) || price < 0 || price > 100000) fail(400, 'INVALID_PRICE', '单价必须在 0 到 100000 之间');
@@ -257,6 +266,7 @@ export function createApp(config, database) {
     const keyId = body.keyId === undefined ? existing?.key_id || null : body.keyId || null;
     if (keyId && !state.keys.some(k => k.id === keyId && k.active)) fail(400, 'INVALID_KEY', 'Choose an enabled model key');
     const provider = text(body.provider ?? existing?.provider ?? 'custom', 'provider', 40);
+    if (provider === 'ollama' && (protocol !== 'chat-completions' || keyId)) fail(400, 'INVALID_MODEL', 'Ollama 使用 Chat Completions，且无需绑定 Key');
     const model = { ...existing, protocol, provider, key_id: keyId, id: existing?.id || id(), name: text(body.name, 'name'), public_name: text(body.publicName, 'publicName', 80),
       upstream_model: text(body.upstreamModel, 'upstreamModel'), base_url: baseUrl(body.baseUrl),
       max_output_tokens: integer(body.maxOutputTokens ?? 8192, 'maxOutputTokens', 131072),
@@ -265,7 +275,7 @@ export function createApp(config, database) {
     if (!/^[a-zA-Z0-9_.-]+$/.test(model.public_name) || !model.max_output_tokens || model.context_window < model.max_output_tokens) fail(400, 'INVALID_MODEL', '公开模型名称或上下文/输出上限配置无效');
     if (state.models.some(m => m.id !== model.id && m.public_name === model.public_name)) fail(409, 'MODEL_EXISTS', 'Public model name already exists');
     if (model.is_default) for (const m of state.models) m.is_default = false;
-    if (existing && ['base_url','upstream_model','protocol','key_id','max_tokens_field','stream_usage','max_output_tokens'].some(field => existing[field] !== model[field])) model.verification = null;
+    if (existing && ['provider','base_url','upstream_model','protocol','key_id','max_tokens_field','stream_usage','max_output_tokens'].some(field => existing[field] !== model[field])) model.verification = null;
     if (existing) Object.assign(existing, model); else state.models.push(model);
     return model;
   }

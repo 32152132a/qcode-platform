@@ -4,7 +4,7 @@ export const protocols = ['chat-completions', 'responses'];
 export function providerRequest(body, model, secret, outputLimit) {
   const protocol = model.protocol || 'chat-completions';
   if (!protocols.includes(protocol)) fail(400, 'INVALID_PROTOCOL', 'Unsupported model protocol');
-  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` };
+  const headers = { 'Content-Type': 'application/json', ...(model.provider === 'ollama' ? {} : { Authorization: `Bearer ${secret}` }) };
   if (protocol === 'chat-completions') {
     const payload = { ...body, model: model.upstream_model, n: 1 };
     delete payload.max_tokens; delete payload.max_completion_tokens;
