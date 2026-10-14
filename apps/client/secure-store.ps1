@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][ValidateSet('read','write')][string]$Action,[Parameter(Mandatory=$true)][string]$Path)
+﻿param([Parameter(Mandatory=$true)][ValidateSet('read','write')][string]$Action,[Parameter(Mandatory=$true)][string]$Path)
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 $utf8 = New-Object Text.UTF8Encoding($false)
@@ -26,6 +26,6 @@ if ($Action -eq 'read') {
     $temporary = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
     try {
         [IO.File]::WriteAllText($temporary, (@{protectedSession=$protected;userId=$session.user.id;username=$session.user.username;expiresAt=$session.expiresAt} | ConvertTo-Json), $utf8)
-        if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($temporary, $Path, $null) } else { [IO.File]::Move($temporary, $Path) }
+        if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($temporary, $Path, [NullString]::Value) } else { [IO.File]::Move($temporary, $Path) }
     } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary }; $plain=$null }
 }
