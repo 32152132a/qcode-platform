@@ -35,14 +35,18 @@ export function openModelEditor({model,keys,api,onSaved}) {
   function field(parent,name,label,value,{options,type='text',required=true}={}){
     const wrapper=document.createElement('label');wrapper.textContent=label;
     const input=document.createElement(options?'select':'input');input.name=name;input.classList.add('model-control');input.setAttribute('aria-label',label);
-    if(options)for(const [value,text]of options){const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option);}else input.type=type;
+    if(options){
+      input.dataset.placeholder=name==='keyId'?'请选择 Key':'请选择'+label;
+      if(!options.some(([value])=>value==='')){const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent=input.dataset.placeholder;placeholder.disabled=true;placeholder.hidden=true;placeholder.defaultSelected=!value;input.append(placeholder);}
+      for(const [value,text]of options){const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option);}
+    }else input.type=type;
     input.value=value??'';input.required=required;
     if(type==='number'){input.min='0';input.step=['inputPrice','outputPrice'].includes(name)?'0.000001':'1';}
     wrapper.append(input);parent.append(wrapper);values.set(name,input);return input;
   }
   const basics=document.createElement('div');basics.className='model-editor-section';
-  field(basics,'provider','模型品牌',model?.provider||'custom',{options:families});
-  const connection=field(basics,'connection','服务来源','custom',{options:Object.entries(connections).map(([id,p])=>[id,p.name]),required:false});
+  field(basics,'provider','模型品牌',model?.provider||'',{options:families});
+  const connection=field(basics,'connection','服务来源',model?'custom':'',{options:Object.entries(connections).map(([id,p])=>[id,p.name]),required:false});
   field(basics,'baseUrl','服务地址',model?.base_url||'').placeholder='接口基础地址，例如 https://api.deepseek.com/v1';
   field(basics,'keyId','默认 Key（来自 Key 管理）',model?.key_id||'',{options:[['','使用用户或部门 Key'],...keys.filter(k=>k.active).map(k=>[k.id,`${k.name} · …${k.suffix}`])],required:false});
   field(basics,'upstreamModel','上游真实模型名',model?.upstream_model||'');
@@ -61,7 +65,7 @@ export function openModelEditor({model,keys,api,onSaved}) {
   field(advancedFields,'currency','计价币种',model?.currency||'CNY',{options:[['CNY','CNY'],['USD','USD']]});
   field(advancedFields,'isDefault','设为默认模型',String(model?.is_default??false),{options:[['false','否'],['true','是']]});
   fields.append(basics,note,advanced);
-  function localFields(){const local=values.get('provider').value==='ollama';values.get('keyId').disabled=local;values.get('keyId').options[0].textContent=local?'本地 Ollama 无需 API Key':'使用用户或部门 Key';if(local){values.get('keyId').value='';values.get('protocol').value='chat-completions';}}
+  function localFields(){const local=values.get('provider').value==='ollama';values.get('keyId').disabled=local;values.get('keyId').dataset.placeholder=local?'本地 Ollama 无需 API Key':'请选择 Key';values.get('keyId').options[0].textContent=local?'本地 Ollama 无需 API Key':'使用用户或部门 Key';if(local){values.get('keyId').value='';values.get('protocol').value='chat-completions';}}
   localFields();
   connection.onchange=async()=>{const preset=connections[connection.value];values.get('baseUrl').value=preset.url;values.get('protocol').value=preset.protocol;if(connection.value==='ollama'){values.get('provider').value='ollama';localFields();try{const local=await api('/admin/models/ollama-preset');values.get('baseUrl').value=local.baseUrl;values.get('upstreamModel').value=local.upstreamModel;values.get('maxOutputTokens').value=local.maxOutputTokens;values.get('contextWindow').value=local.contextWindow;values.get('name').value='通义千问 Qwen 0.5B（本地测试）';values.get('publicName').value='qcode-qwen-local';}catch(e){error.textContent=e.message;}}};
   values.get('provider').onchange=()=>{localFields();if(!model){const family=values.get('provider').value;values.get('name').value=families.find(([id])=>id===family)[1];values.get('publicName').value=`qcode-${family}`;}};

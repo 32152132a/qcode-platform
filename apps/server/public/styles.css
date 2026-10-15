@@ -41,3 +41,5 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);
 .ui-select-option[aria-selected=true]{color:var(--accent);background:#eaf4ee}
 
 .toolbar > .ui-select{max-width:240px}
+
+.ui-select-trigger.is-placeholder{color:#98a69f}

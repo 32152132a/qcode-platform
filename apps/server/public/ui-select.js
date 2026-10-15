@@ -13,7 +13,10 @@ export function initializeSelects(root = document.body) {
     trigger.append(text, arrow); select.before(wrapper); wrapper.append(select, trigger, menu);
     select.classList.add('ui-select-native'); select.tabIndex = -1; select.setAttribute('aria-hidden', 'true');
     function sync() {
-      text.textContent = select.selectedOptions[0]?.textContent || '请选择'; trigger.disabled = select.disabled;
+      const selected = select.selectedOptions[0];
+      const empty = !selected || selected.value === '';
+      text.textContent = empty ? select.dataset.placeholder || selected?.textContent || '请选择' : selected.textContent;
+      trigger.classList.toggle('is-placeholder', empty && !select.disabled); trigger.disabled = select.disabled;
       const label = select.getAttribute('aria-label') || select.closest('label')?.firstChild?.textContent?.trim() || '选择';
       trigger.setAttribute('aria-label', `${label}：${text.textContent}`);
       if (select.disabled && menu.matches(':popover-open')) menu.hidePopover();
@@ -21,9 +24,10 @@ export function initializeSelects(root = document.body) {
     function render() {
       menu.replaceChildren();
       for (const option of select.options) {
+        if (option.hidden) continue;
         const item = document.createElement('button'); item.type = 'button'; item.className = 'ui-select-option'; item.setAttribute('role', 'option');
         item.textContent = option.textContent; item.disabled = option.disabled || option.parentElement.disabled; item.hidden = option.hidden;
-        item.setAttribute('aria-selected', String(option.selected));
+        item.setAttribute('aria-selected', String(option.selected && option.value !== ''));
         item.onclick = () => { select.value = option.value; select.dispatchEvent(new Event('input', {bubbles:true})); select.dispatchEvent(new Event('change', {bubbles:true})); menu.hidePopover(); trigger.focus(); };
         menu.append(item);
       }
@@ -62,6 +66,6 @@ export function initializeSelects(root = document.body) {
         if (node.matches('select')) enhance(node); node.querySelectorAll('select').forEach(enhance);
       }
     }
-  }).observe(root, {subtree:true,childList:true,attributes:true,attributeFilter:['disabled','selected','label']});
+  }).observe(root, {subtree:true,childList:true,attributes:true,attributeFilter:['disabled','selected','label','data-placeholder']});
   root.addEventListener('reset', () => setTimeout(() => root.querySelectorAll('select').forEach(select => controls.get(select)?.()), 0));
 }

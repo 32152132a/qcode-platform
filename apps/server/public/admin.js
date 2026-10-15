@@ -68,6 +68,7 @@ function edit(title, fields, save) {
     const input = document.createElement(field.options ? 'select' : field.type === 'textarea' ? 'textarea' : 'input');
     input.name = field.name;
     input.setAttribute('aria-label',field.label);
+    if(field.options)input.dataset.placeholder=field.placeholder||'请选择'+field.label;
     if (field.options) for (const [value, name] of field.options) { const option = document.createElement('option'); option.value = value; option.textContent = name; input.append(option); }
     else if (input.tagName === 'INPUT') { input.type = field.type || 'text'; if (field.type === 'number') { input.min = field.min ?? '0'; input.step = field.step || '1'; } }
     if(field.multiple){input.multiple=true;for(const option of input.options)option.selected=field.value.includes(option.value);}else input.value = field.value ?? '';
