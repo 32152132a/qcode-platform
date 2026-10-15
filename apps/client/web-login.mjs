@@ -20,12 +20,19 @@ export async function startWebLogin({ gateway, store, hasSavedSession = false, s
     state={state:'starting',message:'登录成功，正在启动编程工作台…'};
     let updateNotice='';
     try{
+      const saved=new GatewaySession(gateway,store.read(),value=>store.write(value));
+      await saved.json('/client/config');
+      if(closed)return;
       client=startClient(message=>{if(!closed&&state.state==='starting'){if(message.includes('更新未完成'))updateNotice=message;state={state:'starting',message};}});
       client.closed.then(code=>{if(!closed){if(state.state==='ready'){void close();return;}state={state:'error',message:code?'启动或运行失败，请重新登录重试，或运行 qcode doctor 检查。':'工作台已关闭，可以重新登录启动。'};client=null;}}).catch(()=>{});
       const url=await client.ready;const parsed=new URL(url);
       if(parsed.protocol!=='http:'||parsed.hostname!=='127.0.0.1'||parsed.username||parsed.password||parsed.pathname!=='/_qcode/start')throw Error('Invalid Web launch address');
       state={state:'ready',message:updateNotice?`${updateNotice}。当前版本已就绪，5 秒后进入工作台。`:'工作台已就绪，正在打开…',url,...(updateNotice?{notice:true}:{})};
-    }catch{await client?.stop();client=null;state={state:'error',message:'工作台启动失败，请重试，或运行 qcode doctor 检查。'};}
+    }catch(error){
+      await client?.stop();client=null;
+      const messages={MODEL_UNAVAILABLE:'登录成功，但账号尚未分配启用的模型。请联系管理员在用户管理中分配模型，然后点击“重新尝试启动”。',USER_DISABLED:'账号已被禁用，请联系管理员。',CLIENT_VERSION_REQUIRED:'客户端版本过旧，请更新 QCode 后重试。'};
+      state={state:'error',message:messages[error.code]||'工作台启动失败，请重试，或运行 qcode doctor 检查。',retryable:true,...(messages[error.code]?{code:error.code}:{})};
+    }
   }
   const server=http.createServer(async(req,res)=>{
     const json=(status,value)=>res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'}).end(JSON.stringify(value));
@@ -43,8 +50,12 @@ export async function startWebLogin({ gateway, store, hasSavedSession = false, s
     if(req.method==='GET'&&req.url==='/status')return json(200,state);
     if(req.method==='POST'&&req.headers.origin!==origin)return json(403,{message:'不允许此来源访问'});
     if(req.method==='POST'&&req.url==='/stop'){json(200,{ok:true});setImmediate(()=>void close());return;}
+    if(req.method==='POST'&&req.url==='/retry'){
+      if(state.state!=='error'||busy||client)return json(409,{message:'请先登录，或等待当前启动完成。'});
+      void start();return json(200,state);
+    }
     if(req.method!=='POST'||req.url!=='/login')return json(404,{message:'页面不存在'});
-    if(busy||client)return json(409,{message:'正在启动或已有工作台运行，请稍候。'});
+    if(busy||client||state.state==='starting')return json(409,{message:'正在启动或已有工作台运行，请稍候。'});
     if(!req.headers['content-type']?.startsWith('application/json'))return json(415,{message:'无效的登录格式'});
     busy=true;
     try{
@@ -91,7 +102,7 @@ async function main(){
   const launchFile=path.join(path.dirname(args.session),'web-launch.json'),localStore=secureStore(launchFile);
   function openBrowser(url){const browser=spawn('rundll32.exe',['url.dll,FileProtocolHandler',url],{stdio:'ignore',windowsHide:true});browser.once('error',()=>void login?.close().then(()=>{process.exitCode=1;}));browser.once('exit',code=>{if(code)void login?.close().then(()=>{process.exitCode=1;});});}
   try{
-    if(fs.existsSync(launchFile)){const saved=localStore.read(),url=new URL(saved.token);if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||url.pathname!=='/'||url.username||url.password||!url.hash)throw Error('Invalid local link');const response=await fetch(url.origin+'/status',{headers:{'X-QCode-Launch':url.hash.slice(1)},signal:AbortSignal.timeout(2000)});if(response.ok){console.log('QCode 登录页面: '+url.href);if(args['no-open']!=='true')openBrowser(url.href);return;}}
+    if(fs.existsSync(launchFile)){const saved=localStore.read(),url=new URL(saved.token);if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||url.pathname!=='/'||url.username||url.password||!url.hash)throw Error('Invalid local link');const response=await fetch(url.origin+'/status',{headers:{'X-QCode-Launch':url.hash.slice(1)},signal:AbortSignal.timeout(2000)});if(response.ok){const state=await response.json();if(state.state==='error')await fetch(url.origin+'/retry',{method:'POST',headers:{'X-QCode-Launch':url.hash.slice(1),Origin:url.origin},signal:AbortSignal.timeout(2000)});console.log('QCode 登录页面: '+url.href);if(args['no-open']!=='true')openBrowser(url.href);return;}}
   }catch{ /* Stale encrypted local links do not replace gateway credentials. */ }
   let release=lockSession(path.join(path.dirname(args.session),'running.lock'));
   const launchArgs=['--gateway',args.gateway,'--session',args.session,'--entry',args.entry,'--mode','web',...(args.runtime?['--runtime',args.runtime]:[]),...(args.workdir?['--workdir',args.workdir]:[])];

@@ -4,10 +4,11 @@ import http from 'node:http';
 import {once} from 'node:events';
 import {startWebLogin} from '../../client/web-login.mjs';
 
-async function fixture(t,{saved=false,failStart=false,progress=''}={}){
+async function fixture(t,{saved=false,failStart=false,progress='',modelAvailable=true}={}){
  let session=saved?{token:'saved-token',refreshToken:'refresh',expiresAt:new Date(Date.now()+120000).toISOString(),user:{id:1}}:null,starts=0,stops=0,received;
  const server=http.createServer(async(req,res)=>{
   let body='';for await(const chunk of req)body+=chunk;
+  if(req.url==='/client/config')return res.writeHead(modelAvailable?200:503,{'Content-Type':'application/json'}).end(modelAvailable?'{}':JSON.stringify({error:{code:'MODEL_UNAVAILABLE',message:'private upstream configuration'}}));
   if(req.url==='/auth/me')return res.writeHead(200,{'Content-Type':'application/json'}).end('{"id":1}');
   if(req.url==='/auth/logout')return res.writeHead(200,{'Content-Type':'application/json'}).end('{"ok":true}');
   received=JSON.parse(body);
@@ -20,7 +21,7 @@ async function fixture(t,{saved=false,failStart=false,progress=''}={}){
  const token=new URL(local.url).hash.slice(1),headers={'X-QCode-Launch':token,Origin:local.origin,'Content-Type':'application/json'};
  async function state(){return (await fetch(local.origin+'/status',{headers})).json();}
  async function wait(expected){for(let i=0;i<100;i++){const value=await state();if(value.state===expected)return value;await new Promise(r=>setTimeout(r,10));}throw Error('State timeout');}
- return {local,headers,state,wait,session:()=>session,starts:()=>starts,stops:()=>stops,received:()=>received};
+ return {local,headers,state,wait,session:()=>session,starts:()=>starts,stops:()=>stops,received:()=>received,enableModel:()=>{modelAvailable=true;}};
 }
 test('Web login forwards credentials only to gateway and returns no gateway credentials to the browser',async t=>{
  const f=await fixture(t);const html=await (await fetch(f.local.origin+'/')).text();assert.match(html,/用户名/);assert.match(html,/显示密码/);assert.doesNotMatch(html,/gateway-access-secret|关闭 QCode|id="stop"/);
@@ -46,4 +47,12 @@ test('Web login rejects host rebinding, wrong bootstrap token and oversized cred
 test('update failures remain visible with a log location before opening the current version',async t=>{
  const f=await fixture(t,{saved:true,progress:'更新未完成，将继续使用当前版本。日志：C:/QCode/logs/update.log'});
  const ready=await f.wait('ready');assert.equal(ready.notice,true);assert.match(ready.message,/更新未完成/);assert.match(ready.message,/update.log/);assert.match(ready.url,/127.0.0.1/);
+});
+
+test('missing model is explained and retry starts after administrator assigns a model',async t=>{
+ const f=await fixture(t,{saved:true,modelAvailable:false});
+ const failed=await f.wait('error');assert.equal(failed.code,'MODEL_UNAVAILABLE');assert.match(failed.message,/分配启用的模型/);assert.equal(failed.retryable,true);assert.doesNotMatch(failed.message,/private upstream/);assert.equal(f.starts(),0);
+ assert.equal((await fetch(f.local.origin+'/retry',{method:'POST'})).status,401);
+ assert.equal((await fetch(f.local.origin+'/retry',{method:'POST',headers:{...f.headers,Origin:'https://evil.example'}})).status,403);
+ f.enableModel();const response=await fetch(f.local.origin+'/retry',{method:'POST',headers:f.headers,body:'{}'});assert.equal(response.status,200);await f.wait('ready');assert.equal(f.starts(),1);
 });
