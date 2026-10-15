@@ -1,3 +1,4 @@
+import {migrateModelSources,registerModelSources,sourcesFor,backupBeforeModelSources} from './model-sources.js';
 import { registerKnowledge } from './knowledge.js';
 import { protocols } from './providers.js';
 import { registerModelChecks } from './model-checks.js';
@@ -40,6 +41,7 @@ export function readConfig(env) {
 export function createApp(config, database) {
   const vault = createVault(config.encryptionSecret);
   const db = database || createDatabase(config.dbPath, { vault });
+  backupBeforeModelSources(db,vault,config);
   const timezone = config.timezone || 'Asia/Shanghai';
   config = { timeoutMs: 180000, tokenTtlDays: 7, accessTokenMinutes: 30, refreshTokenDays: 30, loginFailureLimit: 10, adminAddresses: [], ...config, timezone };
   db.transaction(state => {
@@ -67,6 +69,7 @@ export function createApp(config, database) {
       }
       state.settings.ollamaModelProvisioned = true;
     }
+    migrateModelSources(state);
   });
   const app = express();
   if(config.trustedProxies?.length)app.set('trust proxy',config.trustedProxies);
@@ -84,6 +87,7 @@ export function createApp(config, database) {
   });
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
   registerDistribution(app);
+  app.use('/console',express.static(fileURLToPath(new URL('../public/console', import.meta.url))));
   app.use(express.static(fileURLToPath(new URL('../public', import.meta.url))));
   const activeRequests = new Map();
   const cancelRequests = (userId, reason, sessionId) => {
@@ -234,7 +238,7 @@ export function createApp(config, database) {
   app.delete('/admin/keys/:id', (req, res) => {
     db.transaction(state => {
       if (!state.keys.some(k => k.id === req.params.id)) fail(404, 'KEY_NOT_FOUND', 'Key not found');
-      if (state.users.some(u => u.key_id === req.params.id) || state.departments.some(d => d.key_id === req.params.id) || state.models.some(m => m.key_id === req.params.id) || state.requests.some(r => r.key_id === req.params.id && r.status === 'pending')) fail(409, 'KEY_IN_USE', '请先回收用户和部门的 Key，并等待进行中的请求完成');
+      if (sourcesFor(state).some(source=>source.key_id===req.params.id) || state.users.some(u => u.key_id === req.params.id) || state.departments.some(d => d.key_id === req.params.id) || state.models.some(m => m.key_id === req.params.id) || state.requests.some(r => r.key_id === req.params.id && r.status === 'pending')) fail(409, 'KEY_IN_USE', '请先回收用户和部门的 Key，并等待进行中的请求完成');
       state.keys = state.keys.filter(k => k.id !== req.params.id); audit(state, req.user, 'key.delete', req.params.id);
     }); res.json({ ok: true });
   });
@@ -254,6 +258,7 @@ export function createApp(config, database) {
       audit(next, req.user, 'key.check', key.id);
     }); res.json({ health, note: 'Checks /models only; generation and billing permissions require a real request.' });
   });
+  app.locals.modelSources=registerModelSources(app,{db,vault,config,saveModel});
   registerModelChecks(app, { db, vault, config, activeRequests });
   app.get('/admin/models/ollama-preset', (_req,res) => res.json({baseUrl:config.ollamaBaseUrl || 'http://localhost:11434/v1',upstreamModel:'qwen:0.5b',maxOutputTokens:256,contextWindow:32768}));
   app.get('/admin/models', (_req, res) => res.json(db.read().models));
@@ -261,13 +266,14 @@ export function createApp(config, database) {
     for (const price of [body.inputPrice ?? 0, body.outputPrice ?? 0]) if (typeof price !== 'number' || !Number.isFinite(price) || price < 0 || price > 100000) fail(400, 'INVALID_PRICE', '单价必须在 0 到 100000 之间');
     if (!['CNY','USD'].includes(body.currency || 'CNY')) fail(400, 'INVALID_CURRENCY', '币种只支持 CNY 或 USD');
     if (!['max_tokens','max_completion_tokens'].includes(body.maxTokensField || 'max_tokens')) fail(400, 'INVALID_FIELD', '无效的输出上限字段');
+    if(body.pricingKnown!==undefined&&typeof body.pricingKnown!=='boolean')fail(400,'INVALID_FIELD','pricingKnown 必须为布尔值');
     const protocol = body.protocol ?? existing?.protocol ?? 'chat-completions';
     if (!protocols.includes(protocol)) fail(400, 'INVALID_PROTOCOL', 'Choose Chat Completions or Responses');
     const keyId = body.keyId === undefined ? existing?.key_id || null : body.keyId || null;
     if (keyId && !state.keys.some(k => k.id === keyId && k.active)) fail(400, 'INVALID_KEY', 'Choose an enabled model key');
     const provider = text(body.provider ?? existing?.provider ?? 'custom', 'provider', 40);
     if (provider === 'ollama' && (protocol !== 'chat-completions' || keyId)) fail(400, 'INVALID_MODEL', 'Ollama 使用 Chat Completions，且无需绑定 Key');
-    const model = { ...existing, protocol, provider, key_id: keyId, id: existing?.id || id(), name: text(body.name, 'name'), public_name: text(body.publicName, 'publicName', 80),
+    const model = { ...existing, pricing_known:body.pricingKnown??existing?.pricing_known??true, protocol, provider, key_id: keyId, id: existing?.id || id(), name: text(body.name, 'name'), public_name: text(body.publicName, 'publicName', 80),
       upstream_model: text(body.upstreamModel, 'upstreamModel'), base_url: baseUrl(body.baseUrl),
       max_output_tokens: integer(body.maxOutputTokens ?? 8192, 'maxOutputTokens', 131072),
       context_window: integer(body.contextWindow ?? 131072, 'contextWindow', 2000000), input_price: body.inputPrice ?? 0, output_price: body.outputPrice ?? 0, currency: body.currency || 'CNY', max_tokens_field: body.maxTokensField || 'max_tokens',

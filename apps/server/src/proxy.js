@@ -124,7 +124,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
       Object.assign(record, { ...usage, status, error_code: errorCode, upstream_status: upstreamStatus,
         duration_ms: Date.now() - started, finished_at: now(), usage_source: usage ? 'provider' : 'reservation',
         charged_tokens: usage?.total_tokens ?? reserved });
-      const cost = usage?.input_tokens != null && usage?.output_tokens != null ? Math.round(usage.input_tokens * (model.input_price || 0) + usage.output_tokens * (model.output_price || 0)) : null;
+      const cost = model.pricing_known !== false && usage?.input_tokens != null && usage?.output_tokens != null ? Math.round(usage.input_tokens * (model.input_price || 0) + usage.output_tokens * (model.output_price || 0)) : null;
       record.cost_micros = Number.isSafeInteger(cost) ? cost : null;
       record.currency = model.currency || 'CNY';
       record.input_price = model.input_price || 0; record.output_price = model.output_price || 0;

@@ -4,7 +4,9 @@ let db;
 try {
   const config = readConfig(process.env);
   db = createDatabase(config.dbPath, { vault: createVault(config.encryptionSecret) });
-  const server = createApp(config, db).listen(config.port, config.host, () => console.log(`QCode Gateway: http://${config.host}:${config.port}`));
+  const app=createApp(config,db);
+  const server = app.listen(config.port, config.host, () => console.log(`QCode Gateway: http://${config.host}:${config.port}`));
+  void app.locals.modelSources.refreshAll();
   server.on('error', error => { console.error(`Gateway failed to listen (${error.code || 'UNKNOWN'})`); db.close(); process.exitCode = 1; });
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
     server.close(() => { db.close(); process.exit(0); });

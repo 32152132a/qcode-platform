@@ -1,9 +1,18 @@
+FROM node:24.19.0-bookworm-slim AS admin-build
+WORKDIR /admin
+COPY apps/admin/package.json apps/admin/package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY apps/admin/index.html apps/admin/tsconfig.json apps/admin/vite.config.ts ./
+COPY apps/admin/src ./src
+RUN npm run build
+
 FROM node:24.19.0-bookworm-slim
 WORKDIR /app/apps/server
 COPY apps/server/package.json apps/server/package-lock.json ./
 RUN npm ci --omit=dev
 COPY apps/server/src ./src
 COPY apps/server/public ./public
+COPY --from=admin-build /admin/dist ./public/console
 COPY apps/server/scripts ./scripts
 RUN mkdir -p data backups releases && chown -R node:node /app
 USER node

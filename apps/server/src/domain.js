@@ -60,7 +60,7 @@ export function publicUser(state, user, timezone) {
 export function audit(state, actor, action, target) {
   state.audits.push({ id: id(), actor_id: actor.id, actor: actor.username, action, target: String(target), time: now() });
 }
-export const availableModels = state => state.models.filter(model => model.active);
+export const availableModels = state => state.models.filter(model => model.active && model.catalog_available !== false && (!model.source_id || (state.settings.modelSources || []).some(source => source.id === model.source_id && source.active)));
 export function resolveModel(state, user) {
   const models = availableModels(state);
   const department = state.departments.find(d => d.id === user.department_id);
