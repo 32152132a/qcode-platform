@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { now, id, text, integer, quotas, fail, audit, resolveModel, publicUser } from './domain.js';
+import { now, id, text, integer, quotas, fail, audit, resolveModel, availableModels, publicUser } from './domain.js';
 import { departmentConsumption, permissions } from './policy.js';
 export const clientVersion = '0.3.0';
 const defaults = { organizationName: 'QCode', supportMessage: '遇到问题请联系管理员', minimumClientVersion: '0.3.0', autoUpdate: false, maxActiveRequests: 64, auditRetentionDays: 180 };
@@ -12,9 +12,10 @@ function validateDepartmentReferences(state, body) {
 export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests }) {
   app.get('/client/config', auth, (req, res) => {
     const state = db.read(), model = resolveModel(state, req.user), settings = settingsFor(state);
-    if (!model?.active) fail(503, 'MODEL_UNAVAILABLE', '尚未分配启用的模型');
-    res.json({ model: model.public_name, contextWindow: model.context_window || 131072, maxOutputTokens: model.max_output_tokens,
-      maxTokensField: model.max_tokens_field || 'max_tokens', minimumClientVersion: settings.minimumClientVersion,
+    res.json({ model: model?.public_name || null,
+      models: availableModels(state).map(item => ({ id: item.public_name, name: item.name, contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
+      contextWindow: model?.context_window || 131072, maxOutputTokens: model?.max_output_tokens || 8192,
+      maxTokensField: model?.max_tokens_field || 'max_tokens', minimumClientVersion: settings.minimumClientVersion,
       organizationName: settings.organizationName, supportMessage: settings.supportMessage, autoUpdate: settings.autoUpdate,
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state, req.user).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
   });

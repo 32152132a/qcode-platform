@@ -60,7 +60,9 @@ export function publicUser(state, user, timezone) {
 export function audit(state, actor, action, target) {
   state.audits.push({ id: id(), actor_id: actor.id, actor: actor.username, action, target: String(target), time: now() });
 }
+export const availableModels = state => state.models.filter(model => model.active);
 export function resolveModel(state, user) {
-  const modelId = user.model_id || state.departments.find(d => d.id === user.department_id)?.model_id;
-  return state.models.find(m => modelId ? m.id === modelId : m.is_default);
+  const models = availableModels(state);
+  const department = state.departments.find(d => d.id === user.department_id);
+  return models.find(model => model.id === user.model_id) || models.find(model => model.id === department?.model_id) || models.find(model => model.is_default) || models[0];
 }

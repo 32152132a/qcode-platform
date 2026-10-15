@@ -20,7 +20,7 @@ test('client bridge protects loopback, renews expired sessions and forwards SSE'
   assert.equal((await fetch(bridge.baseUrl+'/models')).status,401);
   assert.equal((await fetch(bridge.baseUrl+'/models',{headers:{Authorization:`Bearer ${bridge.token}`,Origin:'https://evil.example'}})).status,403);
   f.db.transaction(s=>{s.tokens.find(t=>t.user_id===user.id).expires_at='2000-01-01';});
-  const response=await fetch(bridge.baseUrl+'/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${bridge.token}`,'Content-Type':'application/json'},body:JSON.stringify({model:'local-alias',messages:[{role:'user',content:'hello'}],max_tokens:10,stream:true})});
+  const response=await fetch(bridge.baseUrl+'/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${bridge.token}`,'Content-Type':'application/json'},body:JSON.stringify({model:'qcode-model',messages:[{role:'user',content:'hello'}],max_tokens:10,stream:true})});
   assert.equal(response.status,200);assert.match(await response.text(),/你好/);assert.equal(saves,1);
   assert.notEqual(session.session.token,login.token);assert.equal(f.calls(),1);
 });

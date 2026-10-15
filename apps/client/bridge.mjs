@@ -1,3 +1,4 @@
+import { clientModels } from './model-catalog.mjs';
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
@@ -50,14 +51,18 @@ export async function startBridge(session,{onConfig=async()=>{}}={}) {
     const timeout=setTimeout(()=>controller.abort(),190000);
     const closed=()=>{if(!res.writableFinished)controller.abort();};res.on('close',closed);
     try {
-      if(req.method==='GET' && req.url==='/v1/models') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({object:'list',data:[{id:'qcode-model',object:'model',owned_by:'qcode'}]}));return;}
+      if(req.method==='GET' && req.url==='/v1/models') {const config=await refreshConfig(true);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({object:'list',data:clientModels(config).map(model=>({id:model.id,object:'model',owned_by:'qcode'}))}));return;}
       if(req.method!=='POST' || req.url!=='/v1/chat/completions') {res.writeHead(404).end();return;}
       let length=0;const chunks=[];
       for await(const chunk of req){length+=chunk.length;if(length>4*1024*1024)throw Object.assign(new Error('请求超过 4 MB'),{status:413});chunks.push(chunk);}
       let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw Object.assign(new Error('Invalid JSON'),{status:400});}
       const config=await refreshConfig();
-      for(const key of ['max_tokens','max_completion_tokens']) if(Number.isInteger(body[key]) && body[key]>config.maxOutputTokens)body[key]=config.maxOutputTokens;
-      const response=await session.fetch('/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,model:config.model}),signal:controller.signal});
+      const models=clientModels(config);
+      if(!models.length)throw Object.assign(new Error('后台尚未启用模型，请联系管理员'),{status:503,code:'MODEL_UNAVAILABLE'});
+      const selected=models.find(model=>model.id===body.model)||(body.model==='qcode-model'?models.find(model=>model.id===config.model)||models[0]:null);
+      if(!selected)throw Object.assign(new Error('所选模型不可用，请刷新模型列表或重新打开工作台'),{status:400,code:'INVALID_MODEL'});
+      for(const key of ['max_tokens','max_completion_tokens']) if(Number.isInteger(body[key]) && body[key]>selected.maxOutputTokens)body[key]=selected.maxOutputTokens;
+      const response=await session.fetch('/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,model:selected.upstreamId||selected.id}),signal:controller.signal});
       res.statusCode=response.status;res.setHeader('Content-Type',response.headers.get('content-type') || 'application/json');
       if(!response.body){res.end();return;}
       await pipeline(Readable.fromWeb(response.body),res);

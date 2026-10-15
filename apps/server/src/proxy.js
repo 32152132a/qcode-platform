@@ -1,6 +1,6 @@
 import { Transform, Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { now, id, fail, resolveModel, consumption, period, integer } from './domain.js';
+import { now, id, fail, availableModels, consumption, period, integer } from './domain.js';
 import { effectiveKey, effectiveQuotas, departmentFor, departmentConsumption, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
 import { providerRequest, chatResponse, responseStream } from './providers.js';
@@ -14,11 +14,12 @@ function parseUsage(value) {
 
 export async function complete(req, res, { db, vault, config, activeRequests = new Map() }) {
   const body = req.body;
-  const state = db.read(), model = resolveModel(state, req.user), key = model?.provider === 'ollama' ? null : effectiveKey(state, req.user), department = departmentFor(state, req.user);
+  const state = db.read(), models = availableModels(state), model = models.find(item => item.public_name === body?.model), department = departmentFor(state, req.user);
+  const key = model?.provider === 'ollama' ? null : effectiveKey(state, req.user, model);
   if (department && !department.active) fail(403, 'DEPARTMENT_DISABLED', '所在部门已被停用');
-  if (!model?.active) fail(503, 'MODEL_UNAVAILABLE', 'No enabled model assigned');
+  if (!models.length) fail(503, 'MODEL_UNAVAILABLE', '后台尚未启用模型，请联系管理员');
+  if (!model) fail(400, 'INVALID_MODEL', '请选择 /v1/models 中已启用的模型');
   if (model.provider !== 'ollama' && !key?.active) fail(503, 'KEY_UNAVAILABLE', 'No enabled key assigned');
-  if (body?.model !== model.public_name) fail(400, 'INVALID_MODEL', 'Select your assigned model from /v1/models');
   if (!Array.isArray(body.messages) || !body.messages.length || body.messages.some(m => !m || typeof m !== 'object')) fail(400, 'INVALID_MESSAGES', 'messages must be a non-empty array');
   if (body.stream !== undefined && typeof body.stream !== 'boolean') fail(400, 'INVALID_STREAM', 'stream must be boolean');
   if (body.n !== undefined && body.n !== 1) fail(400, 'INVALID_N', 'Only one completion per request is supported');

@@ -1,4 +1,4 @@
-import { fail, quotaNames, now, period } from './domain.js';
+import { fail, quotaNames, now, period, resolveModel } from './domain.js';
 export const rolePermissions = {
   admin: ['knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
   operator: ['users:read','users:write','models:read','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','system:read'],
@@ -10,12 +10,11 @@ export const departmentFor = (state, user) => state.departments.find(d => d.id =
 export function effectiveQuotas(state, user) {
   return user.quota_mode === 'department' ? departmentFor(state, user)?.user_quotas || user.quotas : user.quotas;
 }
-export function effectiveKey(state, user) {
+export function effectiveKey(state, user, model = resolveModel(state, user)) {
   const department = departmentFor(state, user);
-  const modelId = user.model_id || department?.model_id;
-  const model = state.models.find(m => modelId ? m.id === modelId : m.is_default);
-  const keyId = user.key_id || department?.key_id || model?.key_id;
-  return state.keys.find(k => k.id === keyId);
+  // A model-bound credential must not be replaced with another provider's user key.
+  const keyId = model?.key_id || user.key_id || department?.key_id;
+  return state.keys.find(key => key.id === keyId);
 }
 export function departmentConsumption(state, department, timezone, timestamp = now()) {
   const day = period(timestamp, timezone), used = Object.fromEntries(quotaNames.map(name => [name, 0]));

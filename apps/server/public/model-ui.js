@@ -24,7 +24,7 @@ export function modelCards(models, keys, { edit, test, writable }) {
     if(model.is_default){const defaultLabel=document.createElement('span');defaultLabel.className='badge';defaultLabel.textContent='默认模型';actions.append(defaultLabel);}
     card.append(heading,description,badge);if(model.verification?.message){const detail=document.createElement('p');detail.className='model-verification-note';detail.textContent=model.verification.message;card.append(detail);}card.append(info,actions);grid.append(card);
   }
-  if(!models.length){grid.className='empty';grid.textContent='添加模型服务，验证后分配给用户或部门。';}
+  if(!models.length){grid.className='empty';grid.textContent='添加模型服务，启用后所有用户均可选择。';}
   return grid;
 }
 export function openModelEditor({model,keys,api,onSaved}) {
@@ -48,8 +48,8 @@ export function openModelEditor({model,keys,api,onSaved}) {
   field(basics,'upstreamModel','上游真实模型名',model?.upstream_model||'');
   field(basics,'name','显示名称',model?.name||'');
   field(basics,'publicName','员工可见模型名',model?.public_name||'');
-  field(basics,'active','是否启用',String(model?.active??false),{options:[['false','暂不启用'],['true','启用，允许已分配用户使用']]});
-  const note=document.createElement('p');note.className='model-editor-note';note.textContent='Ollama 本地服务免 Key；Qwen 0.5B 用于文本连通性测试，工具调用未验证。Key 优先级：用户专用 → 部门专用 → 模型默认。支持 Chat Completions 和 Responses；原生 Gemini / Anthropic 地址请使用兼容中转入口。地址填写接口基础地址，不包含 /chat/completions。模型名按服务商实际支持的名称填写，不能用聊天项目中的 vectorengine- 前缀。保存不会自动验证；测试会产生少量实际请求和用量。';
+  field(basics,'active','是否启用',String(model?.active??false),{options:[['false','暂不启用'],['true','启用，所有用户均可选择']]});
+  const note=document.createElement('p');note.className='model-editor-note';note.textContent='Ollama 本地服务免 Key；Qwen 0.5B 用于文本连通性测试，工具调用未验证。Key 优先级：模型绑定 → 用户专用 → 部门专用。支持 Chat Completions 和 Responses；原生 Gemini / Anthropic 地址请使用兼容中转入口。地址填写接口基础地址，不包含 /chat/completions。模型名按服务商实际支持的名称填写，不能用聊天项目中的 vectorengine- 前缀。保存不会自动验证；测试会产生少量实际请求和用量。';
   const advanced=document.createElement('details');advanced.className='model-advanced';const summary=document.createElement('summary');summary.textContent='高级配置';advanced.append(summary);const advancedFields=document.createElement('div');advancedFields.className='model-editor-section';advanced.append(advancedFields);
   field(advancedFields,'protocol','接口协议',model?.protocol||'chat-completions',{options:[['chat-completions','Chat Completions（兼容中转、Gemini、Claude 等）'],['responses','Responses（GPT / 部分中转站）']]});
   field(advancedFields,'maxOutputTokens','每次最大输出 Token',model?.max_output_tokens||8192,{type:'number'});

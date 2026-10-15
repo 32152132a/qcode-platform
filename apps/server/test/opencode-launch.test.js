@@ -37,3 +37,10 @@ test('OpenCode isolates accounts and overrides inherited provider configuration 
   assert.throws(() => prepareOpenCodeLaunch({ ...options, mode: 'invalid' }), /Unsupported/);
   assert.throws(() => prepareOpenCodeLaunch({ ...options, entry: path.join(root, 'missing.exe') }), /missing/);
 });
+
+test('OpenCode exposes every shared model and leaves an empty catalog empty',t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-model-catalog-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const options={entry:process.execPath,home:root,baseUrl:'http://127.0.0.1:12345/v1',token:'test-token',config:{model:'second',models:[{id:'first',name:'First',contextWindow:32768,maxOutputTokens:1024,toolCall:false},{id:'second',name:'Second',contextWindow:131072,maxOutputTokens:4096,toolCall:true}]}};
+ const config=JSON.parse(prepareOpenCodeLaunch(options).env.OPENCODE_CONFIG_CONTENT);assert.equal(config.model,'qcode/second');assert.deepEqual(Object.keys(config.provider.qcode.models),['first','second']);assert.equal(config.provider.qcode.models.first.tool_call,false);
+ const empty=JSON.parse(prepareOpenCodeLaunch({...options,config:{model:null,models:[]}}).env.OPENCODE_CONFIG_CONTENT);assert.deepEqual(empty.provider.qcode.models,{});assert.equal(empty.model,undefined);assert.equal(empty.small_model,undefined);
+});

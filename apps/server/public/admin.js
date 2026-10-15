@@ -113,7 +113,7 @@ async function userEditor(user) {
   const fields = [{ name: 'username', label: '用户名', value: user?.username }];
   if (!user) fields.push({ name: 'password', label: '初始密码（至少 10 位）', type: 'password' });
   fields.push({ name: 'departmentId', label: '部门', options:[['','未分组'],...departments.map(d=>[d.id,d.name])], value:user?.department_id },
-    { name: 'modelId', label: '模型', options: [['', '使用默认模型'], ...models.map(m => [m.id, m.name])], value: user?.model_id },
+    { name: 'modelId', label: '默认模型（不限制其他模型）', options: [['', '使用默认模型'], ...models.map(m => [m.id, m.name])], value: user?.model_id },
     { name: 'sessionLimit', label: '并发登录数（修改后撤销所有登录）', type: 'number', min: 1, value: user?.session_limit || 1 },
     { name: 'maxConcurrentRequests', label:'同时请求数量',type:'number',min:1,value:user?.max_concurrent_requests||1 },
     { name:'quotaMode',label:'配额来源',options:[['custom','使用个人配额'],['department','继承部门成员配额']],value:user?.quota_mode||'custom' });
@@ -182,7 +182,7 @@ async function load() {
         button('删除', async () => { if (confirm('删除未分配的 Key？')) { await api(`/admin/keys/${k.id}`, 'DELETE'); await load(); } }))])));
   } else if (active === 'models') {
     if(can('models:write'))$('actions').append(button('添加模型', () => modelEditor(), false));
-    $('section-note').textContent = '添加服务 → 选择 Key 和上游模型 → 验证流式与工具调用 → 分配用户或部门。员工无需重新安装。';
+    $('section-note').textContent = '添加服务 → 选择 Key 和上游模型 → 验证并启用。所有用户均可选择；用户和部门默认模型仅决定初始选择。员工重启客户端即可获取新增模型，无需重新安装。';
     const keys=can('keys:read')?await api('/admin/keys'):[];
     $('content').append(modelCards(data,keys,{edit:modelEditor,test:testModel,writable:can('models:write')}));
   } else if (active === 'requests' || active === 'audits') {

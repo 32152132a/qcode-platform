@@ -1,3 +1,4 @@
+import { clientModels } from './model-catalog.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -19,16 +20,18 @@ export function prepareOpenCodeLaunch({ entry, mode = 'tui', home, config, baseU
     env[key] = path.join(home, folder);
     fs.mkdirSync(env[key], { recursive: true });
   }
+  const models=clientModels(config);
+  const preferred=models.find(model=>model.id===config.model)||models[0];
   const managed = {
-    enabled_providers: ['qcode'], model: 'qcode/qcode-model', small_model: 'qcode/qcode-model',
+    enabled_providers: ['qcode'], ...(preferred?{model:'qcode/'+preferred.id,small_model:'qcode/'+preferred.id}:{}),
     autoupdate: false, share: 'disabled', skills: { paths: [path.join(home, 'skills')] },
     provider: { qcode: {
       name: 'QCode', npm: '@ai-sdk/openai-compatible', env: [],
       options: { baseURL: baseUrl, apiKey: token },
-      models: { 'qcode-model': {
-        name: config.model, tool_call: true, attachment: false, reasoning: false,
-        limit: { context: config.contextWindow, output: config.maxOutputTokens },
-      } },
+      models: Object.fromEntries(models.map(model=>[model.id,{
+        name: model.name||model.id, tool_call: model.toolCall!==false, attachment: false, reasoning: false,
+        limit: { context: model.contextWindow||131072, output: model.maxOutputTokens||8192 },
+      }])),
     } },
   };
   Object.assign(env, {

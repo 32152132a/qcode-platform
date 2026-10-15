@@ -5,7 +5,7 @@ import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
 import { createDatabase, createVault, hashPassword } from './database.js';
-import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, audit, resolveModel } from './domain.js';
+import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, audit, availableModels, resolveModel } from './domain.js';
 import { complete, statistics } from './proxy.js';
 import { registerAuth } from './auth.js';
 import { adminPermission, rolePermissions, protectAdministrator } from './policy.js';
@@ -299,8 +299,7 @@ export function createApp(config, database) {
     pendingRequests: db.read().requests.filter(r => r.status === 'pending').length }));
   app.use('/v1', auth);
   app.get('/v1/models', (req, res) => {
-    const model = resolveModel(db.read(), req.user);
-    res.json({ object: 'list', data: model?.active ? [{ id: model.public_name, object: 'model', created: 0, owned_by: 'qcode' }] : [] });
+    res.json({ object: 'list', data: availableModels(db.read()).map(model => ({ id: model.public_name, object: 'model', created: 0, owned_by: 'qcode' })) });
   });
   app.post('/v1/chat/completions', (req, res) => complete(req, res, { db, vault, config, activeRequests }));
   app.use((_req, _res) => fail(404, 'NOT_FOUND', 'Endpoint not found'));
