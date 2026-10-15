@@ -43,7 +43,7 @@ export function renderEnterprise(section,data,ui){
     const names={organizationName:'组织名称',supportMessage:'员工支持提示',minimumClientVersion:'最低客户端版本',autoUpdate:'启动时自动升级',maxActiveRequests:'网关最大同时请求数',auditRetentionDays:'审计保留天数'};
     content.append(table(['配置项','当前值'],Object.entries(data).map(([key,value])=>[names[key]||key,typeof value==='boolean'?(value?'已开启':'已关闭'):value])));
     const info=document.createElement('p');info.className='subheading';info.textContent='员工端安装：下载 Windows 安装程序，双击运行；无需克隆代码或手动解压。';content.append(info);
-    toolbar.append(button('下载员工客户端',async()=>{const response=await fetch('/downloads/manifest.json');const manifest=await response.json();if(!response.ok)throw new Error(manifest.error?.message||'安装包尚未生成');const link=document.createElement('a');if(!manifest.installerUrl)throw new Error('Windows 安装包尚未发布，请联系管理员');link.href='/downloads/installer';link.download='';link.click();}));
+    toolbar.append(button('下载员工客户端',async()=>{const desktop=await fetch('/downloads/desktop/manifest.json');const response=desktop.ok?desktop:await fetch('/downloads/manifest.json');const manifest=await response.json();if(!response.ok)throw new Error(manifest.error?.message||'安装包尚未生成');const link=document.createElement('a');if(!manifest.installerUrl&&!manifest.installer)throw new Error('Windows 安装包尚未发布，请联系管理员');link.href='/downloads/installer';link.download='';link.click();}));
     return true;
   }
   return false;
