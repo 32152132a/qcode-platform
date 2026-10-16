@@ -108,6 +108,10 @@
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
+    :deep(.el-date-editor) {
+      max-width: 100%;
+      min-width: 0;
+    }
     .el-input,
     .el-select {
       width: 220px;

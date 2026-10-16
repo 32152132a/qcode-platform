@@ -88,7 +88,7 @@ test('source discovery scopes credentials and preserves edits, disables retired 
   const token = await f.login()
   assert.equal((await f.request('/admin/models/sources', 'POST', {}, token)).status, 403)
 })
-test('recommended models exclude non-text endpoints and prefer stable numeric versions', () => {
+test('synced models exclude non-text and test variants while preserving upstream order', () => {
   const rows = [
     'gpt-5-preview',
     'gpt-4.9',
@@ -100,7 +100,7 @@ test('recommended models exclude non-text endpoints and prefer stable numeric ve
   ].map((id) => ({ id }))
   assert.deepEqual(
     selectSourceModels(rows, 'relay').map((m) => m.id),
-    ['gpt-5.1', 'gemini-3-pro']
+    ['gpt-4.9', 'gpt-5.1', 'gemini-3-pro', 'qwen:0.5b']
   )
   assert.deepEqual(
     selectSourceModels(rows, 'local').map((m) => m.id),
@@ -132,4 +132,92 @@ test('source migration snapshot is encrypted and compatible with the existing re
   const restored = restoreDatabase(backup, path.join(root, 'restored.sqlite'), 'a'.repeat(64))
   assert.equal(restored.users, 1)
   assert.equal(restored.requests, 0)
+})
+
+test('relay sync selects the first 30 distinct eligible models and keeps official Pro and Flash', () => {
+  const standard = [
+    'claude-opus-4-5',
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    ...Array.from({ length: 40 }, (_, i) => 'model-' + i),
+  ]
+  const rejected = [
+    'gpt-image-1',
+    'text-embedding-3',
+    'claude-opus-4-5-channel',
+    'claude-opus-4-5-2x',
+    'gpt-test',
+    'gemini-3-pro-preview',
+    'model-渠道',
+    'model-2.5x',
+    'model-beta',
+    'model-aws',
+  ]
+  const rows = [...rejected, standard[0], ...standard].map((id) => ({ id }))
+  rows.unshift({ id: 'non-chat', supported_endpoint_types: ['image'] })
+  const ids = selectSourceModels(rows, 'relay').map((model) => model.id)
+  assert.deepEqual(ids, standard.slice(0, 30))
+  assert.equal(ids.length, 30)
+  assert.deepEqual(
+    selectSourceModels([{ id: 'claude-opus-4-5-20251101' }], 'relay').map((model) => model.id),
+    ['claude-opus-4-5-20251101']
+  )
+})
+
+test('resync refreshes recommendation flags without removing configured models or resetting user choices', async (t) => {
+  const f = await fixture(t)
+  let ids = ['claude-sonnet-4-5', 'claude-opus-4-5-thinking']
+  const upstream = http.createServer((_req, res) =>
+    res
+      .writeHead(200, { 'content-type': 'application/json' })
+      .end(JSON.stringify({ data: ids.map((id) => ({ id })) }))
+  )
+  upstream.listen(0, '127.0.0.1')
+  await once(upstream, 'listening')
+  t.after(() => {
+    upstream.closeAllConnections()
+    upstream.close()
+  })
+  const source = (
+    await f.request(
+      '/admin/models/sources',
+      'POST',
+      {
+        kind: 'relay',
+        name: 'Recommendation fixture',
+        baseUrl: 'http://127.0.0.1:' + upstream.address().port,
+        apiKey: 'fake-source-key',
+      },
+      f.admin
+    )
+  ).body
+  const existing = f.db.read().models.find((model) => model.source_id === source.id)
+  assert.equal(existing.upstream_model, 'claude-sonnet-4-5')
+  await f.request(
+    '/admin/models/sources/' + source.id + '/models/' + existing.id,
+    'PATCH',
+    { name: '团队常用模型', active: true, maxOutputTokens: 1024 },
+    f.admin
+  )
+  ids = [
+    'claude-opus-4-5',
+    ...Array.from({ length: 35 }, (_, i) => 'standard-model-' + i),
+    'claude-sonnet-4-5',
+  ]
+  assert.equal(
+    (await f.request('/admin/models/sources/' + source.id + '/sync', 'POST', {}, f.admin)).status,
+    200
+  )
+  const saved = f.db.read().models.filter((model) => model.source_id === source.id)
+  const preserved = saved.find((model) => model.id === existing.id)
+  assert.equal(preserved.name, '团队常用模型')
+  assert.equal(preserved.active, true)
+  assert.equal(preserved.max_output_tokens, 1024)
+  assert.equal(preserved.recommended, false)
+  assert.equal(preserved.catalog_available, true)
+  assert(
+    saved.some(
+      (model) => model.upstream_model === 'claude-opus-4-5' && model.recommended && !model.active
+    )
+  )
 })

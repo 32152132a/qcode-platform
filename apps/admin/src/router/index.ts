@@ -1,4 +1,4 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import { getSession } from '@/api/request'
 const pages = {
   overview: () => import('@/views/overview/index.vue'),
@@ -15,13 +15,17 @@ const pages = {
   system: () => import('@/views/system/index.vue'),
 }
 const routes = [
-  { path: '/', redirect: '/download' },
+  { path: '/download', redirect: '/' },
   {
-    path: '/download',
+    path: '/',
     component: () => import('@/views/download/index.vue'),
     meta: { public: true },
   },
-  { path: '/login', component: () => import('@/views/login/index.vue'), meta: { public: true } },
+  {
+    path: '/login',
+    component: () => import('@/views/login/index.vue'),
+    meta: { public: true },
+  },
   {
     path: '/manage',
     component: () => import('@/layout/index.vue'),
@@ -34,14 +38,22 @@ const routes = [
       })),
     ],
   },
-  { path: '/:pathMatch(.*)*', redirect: '/download' },
+  { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
-export const router = createRouter({ history: createWebHashHistory(), routes })
+// Preserve bookmarks from the previous /console/#/... deployment.
+if (/^\/console(?:\/|$)/.test(window.location.pathname)) {
+  const legacy = window.location.hash.slice(1)
+  const target = /^\/(?:manage(?:\/|[?]|$)|login(?:[?]|$)|download(?:[?]|$))/.test(legacy)
+    ? legacy
+    : '/'
+  window.history.replaceState(window.history.state, '', target)
+}
+export const router = createRouter({ history: createWebHistory(), routes })
 router.beforeEach((to) => {
   if (!to.meta.public && !getSession()) return { path: '/login', query: { redirect: to.fullPath } }
   const permission = to.meta.permission
   if (typeof permission === 'string' && !getSession()?.user.permissions.includes(permission))
-    return '/download'
+    return '/'
 })
 window.addEventListener('qcode-session', () => {
   if (!getSession() && !router.currentRoute.value.meta.public) void router.replace('/login')

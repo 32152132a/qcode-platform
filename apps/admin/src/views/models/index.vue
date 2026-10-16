@@ -16,6 +16,12 @@
         :label="item.label + ' · ' + sources.filter((s) => s.kind === item.id).length"
         :name="item.id" /></el-tabs
     ><el-empty v-if="!visibleSources.length" description="暂无服务来源，添加后即可自动发现模型" />
+    <div v-if="kind === 'relay'" class="recommendation-note">
+      <span
+        >按上游顺序展示前 30
+        个有效文本模型，排除渠道、倍率和测试变体；已有启用及手动添加模型保留。</span
+      ><el-switch v-model="showAllModels" active-text="显示全部已添加模型" />
+    </div>
     <div class="source-list">
       <el-card v-for="source in visibleSources" :key="source.id" shadow="never"
         ><template #header
@@ -59,8 +65,8 @@
           </div>
         </div>
         <el-table
-          :data="models.filter((m) => m.source_id === source.id)"
-          empty-text="尚无模型，请同步模型或手动添加"
+          :data="displayModels(source)"
+          empty-text="暂无符合当前筛选的模型，可同步模型、添加模型或显示全部"
           ><el-table-column label="模型" min-width="220"
             ><template #default="{ row }"
               ><strong>{{ row.name }}</strong
@@ -129,7 +135,19 @@
     { id: 'official', label: '官网模型' },
     { id: 'relay', label: '中转站' },
   ]
+  const showAllModels = ref(false)
   const visibleSources = computed(() => sources.value.filter((s) => s.kind === kind.value))
+  function displayModels(source: ModelSource) {
+    return models.value.filter(
+      (model) =>
+        model.source_id === source.id &&
+        (source.kind !== 'relay' ||
+          showAllModels.value ||
+          model.recommended !== false ||
+          model.active ||
+          !model.discovered)
+    )
+  }
   async function load() {
     loading.value = true
     error.value = ''
@@ -327,11 +345,20 @@
   void load()
 </script>
 <style scoped lang="scss">
+  .recommendation-note {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    color: #909399;
+    font-size: 12px;
+  }
   .source-list {
     display: grid;
-    gap: 24px;
+    gap: 20px;
     .el-card {
-      border-radius: 14px;
+      border-radius: 4px;
     }
   }
   .source-heading {
@@ -340,7 +367,7 @@
     align-items: center;
     gap: 16px;
     h2 {
-      font-size: 17px;
+      font-size: 15px;
       margin: 0;
     }
     p {

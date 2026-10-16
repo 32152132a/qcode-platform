@@ -46,6 +46,7 @@ export function migrateModelSources(state) {
   }
 }
 function family(value) {
+  value = value.replace(/^(openai|anthropic|google|x-ai|xai|deepseek)\//i, '')
   return /^deepseek/i.test(value)
     ? 'deepseek'
     : /^(gpt|o[1-9])/i.test(value)
@@ -81,18 +82,13 @@ export function selectSourceModels(models, kind) {
   )
   if (kind === 'local') return valid.filter((m) => /qwen.*0[.:]5b/i.test(m.id)).slice(0, 1)
   if (kind === 'official') return valid.filter((m) => family(m.id) === 'deepseek').slice(0, 4)
-  const selected = []
-  for (const brand of ['gpt', 'claude', 'gemini', 'grok', 'deepseek']) {
-    const candidates = valid
-      .filter((m) => family(m.id) === brand)
-      .sort(
-        (a, b) =>
-          Number(/preview|experimental/i.test(a.id)) - Number(/preview|experimental/i.test(b.id)) ||
-          b.id.localeCompare(a.id, undefined, { numeric: true })
-      )
-    if (candidates[0]) selected.push(candidates[0])
-  }
-  return selected
+  const standard = valid.filter(
+    (model) =>
+      !/(?:^|[-_/ .])(preview|experimental|exp|test|testing|beta|alpha|channel|route|relay|vip|trial|aws|bedrock|vertex|kiro)(?:$|[-_/ .\d])/i.test(
+        model.id
+      ) && !/(?:[-_/@]\d+(?:\.\d+)?x(?:$|[-_/ .])|渠道|倍率|测试)/i.test(model.id)
+  )
+  return [...new Map(standard.map((model) => [model.id, model])).values()].slice(0, 30)
 }
 export function modelBody(model) {
   return {
@@ -264,8 +260,11 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
             fail(409, 'SOURCE_CHANGED', '来源或 Key 已更改，请重新同步')
           const selected = selectSourceModels(catalog, current.kind),
             all = new Set(catalog.map((m) => m.id))
-          for (const model of state.models.filter((m) => m.source_id === sourceId))
+          const recommended = new Set(selected.map((model) => model.id))
+          for (const model of state.models.filter((m) => m.source_id === sourceId)) {
             model.catalog_available = all.has(model.upstream_model)
+            model.recommended = recommended.has(model.upstream_model)
+          }
           for (const candidate of selected) {
             if (
               state.models.some(

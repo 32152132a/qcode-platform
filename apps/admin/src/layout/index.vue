@@ -1,142 +1,146 @@
 <template>
   <div class="admin-layout">
-    <aside>
-      <router-link class="brand" to="/download"
-        ><img src="/branding/qcode-96.png" alt="QCode" /><span
-          >QCode<small>团队 AI 控制台</small></span
-        ></router-link
-      >
-      <nav>
-        <router-link v-for="item in items" :key="item.id" :to="'/manage/' + item.id">{{
-          item.label
-        }}</router-link>
-      </nav>
-      <div class="account">
-        <span>{{ auth.user?.username }}</span
-        ><el-button text @click="logout">退出登录</el-button>
-      </div>
-    </aside>
-    <main>
-      <div class="mobile-nav">
-        <el-select :model-value="route.path" @change="router.push"
-          ><el-option
-            v-for="item in items"
-            :key="item.id"
-            :label="item.label"
-            :value="'/manage/' + item.id"
-        /></el-select>
-      </div>
-      <router-view />
-    </main>
+    <aside class="desktop-sidebar"><AdminNavigation :items="items" /></aside>
+    <AdminHeader
+      :title="currentTitle"
+      :username="auth.user?.username || '管理员'"
+      @menu="mobileMenu = true"
+      @logout="logout"
+    />
+    <main id="admin-content" class="admin-content" tabindex="-1"><router-view /></main>
+    <el-drawer
+      v-model="mobileMenu"
+      class="admin-menu-drawer"
+      direction="ltr"
+      size="224px"
+      :with-header="false"
+      aria-label="后台导航菜单"
+      ><AdminNavigation :items="items" @select="mobileMenu = false"
+    /></el-drawer>
   </div>
 </template>
 <script setup lang="ts">
-  import { computed } from 'vue'
+  import { computed, ref, watch } from 'vue'
+  import { ElMessage } from 'element-plus'
   import { useRoute, useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
+  import AdminNavigation from './components/AdminNavigation/index.vue'
+  import AdminHeader from './components/AdminHeader/index.vue'
+  import type { NavigationItem } from './types'
   const auth = useAuthStore(),
     router = useRouter(),
     route = useRoute()
+  const mobileMenu = ref(false)
   const entries = [
-    ['overview', '工作台概览', 'usage'],
-    ['users', '用户管理', 'users'],
-    ['models', '模型与服务', 'models'],
-    ['keys', 'Key 管理', 'keys'],
-    ['departments', '部门管理', 'departments'],
-    ['skills', '共享 Skill', 'skills'],
-    ['knowledge', '知识库', 'knowledge'],
-    ['usage', '用量统计', 'usage'],
-    ['requests', '请求日志', 'requests'],
-    ['audits', '操作审计', 'audits'],
-    ['settings', '系统设置', 'settings'],
-    ['system', '系统状态', 'system'],
+    ['overview', '工作台概览', 'usage', '工作空间'],
+    ['users', '用户管理', 'users', '组织与访问'],
+    ['departments', '部门管理', 'departments', '组织与访问'],
+    ['models', '模型与服务', 'models', 'AI 资源'],
+    ['keys', 'Key 管理', 'keys', 'AI 资源'],
+    ['skills', '共享 Skill', 'skills', 'AI 资源'],
+    ['knowledge', '知识库', 'knowledge', 'AI 资源'],
+    ['usage', '用量统计', 'usage', '运行与管理'],
+    ['requests', '请求日志', 'requests', '运行与管理'],
+    ['audits', '操作审计', 'audits', '运行与管理'],
+    ['settings', '系统设置', 'settings', '运行与管理'],
+    ['system', '系统状态', 'system', '运行与管理'],
   ]
-  const items = computed(() =>
-    entries.filter((item) => auth.can(item[2] + ':read')).map(([id, label]) => ({ id, label }))
+  const items = computed<NavigationItem[]>(() =>
+    entries
+      .filter((item) => auth.can(item[2] + ':read'))
+      .map(([id, label, , group]) => ({ id, label, group }))
+  )
+  const currentTitle = computed(
+    () => items.value.find((item) => route.path === '/manage/' + item.id)?.label || '管理控制台'
   )
   async function logout() {
-    await auth.logout()
-    await router.replace('/login')
+    try {
+      await auth.logout()
+      await router.replace('/login')
+    } catch (cause) {
+      ElMessage.error(cause instanceof Error ? cause.message : '退出失败，请重试')
+    }
   }
+  watch(
+    () => route.fullPath,
+    () => {
+      mobileMenu.value = false
+    }
+  )
 </script>
 <style scoped lang="scss">
   .admin-layout {
+    --el-color-primary: #409eff;
+    --el-color-primary-light-3: #79bbff;
+    --el-color-primary-light-5: #a0cfff;
+    --el-color-primary-light-7: #c6e2ff;
+    --el-color-primary-light-8: #d9ecff;
+    --el-color-primary-light-9: #ecf5ff;
+    --el-color-primary-dark-2: #337ecc;
+    --el-border-radius-base: 4px;
+    --el-text-color-primary: #303133;
+    --el-text-color-regular: #606266;
+    --el-border-color: #dcdfe6;
+    --el-border-color-light: #e4e7ed;
+    --admin-surface: #fff;
+    --admin-background: #f3f3f3;
+    --admin-border: #ebeef5;
+    --admin-gap: 20px;
+    --admin-radius: 4px;
     display: grid;
-    grid-template-columns: 240px minmax(0, 1fr);
-    min-height: 100vh;
-    aside {
-      display: flex;
-      flex-direction: column;
-      padding: 30px 20px;
-      background: white;
-      border-right: 1px solid #e9edf4;
+    grid-template-columns: 208px minmax(0, 1fr);
+    grid-template-rows: 60px minmax(0, 1fr);
+    grid-template-areas: 'sidebar header' 'sidebar content';
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    color: #303133;
+    background: var(--admin-background);
+    .desktop-sidebar {
+      grid-area: sidebar;
+      min-height: 0;
+      border-right: 1px solid #e8e8e8;
     }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 23px;
-      font-weight: 650;
-      padding: 0 12px 30px;
-      img {
-        width: 38px;
-        height: 38px;
-      }
-      small {
-        display: block;
-        font-size: 11px;
-        font-weight: 400;
-        color: #8b94a5;
-        margin-top: 5px;
-      }
+    :deep(.admin-header) {
+      grid-area: header;
     }
-    nav {
-      display: grid;
-      gap: 5px;
-      a {
-        padding: 12px 16px;
-        border-radius: 9px;
-        color: #727e90;
-        font-size: 14px;
-        &.router-link-active {
-          color: #465fcb;
-          background: #eef1fd;
-          font-weight: 600;
-        }
-        &:hover {
-          background: #f5f7fc;
-        }
-      }
-    }
-    .account {
-      margin-top: auto;
-      padding: 30px 10px 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    main {
-      padding: 44px clamp(24px, 5vw, 100px);
+    .admin-content {
+      grid-area: content;
       min-width: 0;
-      max-width: 1700px;
-      width: 100%;
-      margin: 0 auto;
+      min-height: 0;
+      overflow: auto;
+      padding: var(--admin-gap);
+      scrollbar-gutter: stable;
+      outline: none;
     }
-    .mobile-nav {
-      display: none;
+    :deep(.el-button) {
+      border-radius: 4px;
     }
-    @media (max-width: 800px) {
+    :deep(.el-card) {
+      border-radius: 4px;
+      box-shadow: none;
+    }
+    :deep(.el-table) {
+      --el-table-header-bg-color: #f5f7fa;
+      --el-table-header-text-color: #606266;
+      --el-table-border-color: #ebeef5;
+    }
+    :deep(.el-table th.el-table__cell) {
+      font-weight: 500;
+    }
+    :deep(.el-table .el-table__cell) {
+      padding-block: 12px;
+    }
+    @media (max-width: 768px) {
       grid-template-columns: minmax(0, 1fr);
-      aside {
+      grid-template-areas: 'header' 'content';
+      --admin-gap: 12px;
+      .desktop-sidebar {
         display: none;
       }
-      main {
-        padding: 24px 16px;
-      }
-      .mobile-nav {
-        display: block;
-        margin-bottom: 24px;
-      }
     }
+  }
+  :global(.admin-menu-drawer .el-drawer__body) {
+    padding: 0;
   }
 </style>

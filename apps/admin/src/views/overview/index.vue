@@ -1,4 +1,4 @@
-<template><UsageDashboard title="工作台概览" /></template>
+<template><OverviewDashboard /></template>
 <script setup lang="ts">
-  import UsageDashboard from '@/components/UsageDashboard/index.vue'
+  import OverviewDashboard from './components/OverviewDashboard/index.vue'
 </script>

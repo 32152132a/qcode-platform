@@ -21,6 +21,8 @@ export interface Model {
   provider: string
   protocol: string
   active: boolean
+  recommended?: boolean
+  discovered?: boolean
   catalog_available?: boolean
   is_default: boolean
   context_window: number

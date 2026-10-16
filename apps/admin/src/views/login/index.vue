@@ -1,6 +1,6 @@
 <template>
   <div class="login">
-    <router-link class="back" to="/download">← 返回下载首页</router-link
+    <router-link class="back" to="/">← 返回下载首页</router-link
     ><el-card
       ><img src="/branding/qcode-96.png" alt="QCode" />
       <h1>登录管理控制台</h1>

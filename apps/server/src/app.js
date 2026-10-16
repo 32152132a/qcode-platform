@@ -1,3 +1,4 @@
+import { registerWebPages } from './web-pages.js';
 import {migrateModelSources,registerModelSources,sourcesFor,backupBeforeModelSources} from './model-sources.js';
 import { registerKnowledge } from './knowledge.js';
 import { protocols } from './providers.js';
@@ -87,7 +88,7 @@ export function createApp(config, database) {
   });
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
   registerDistribution(app);
-  app.use('/console',express.static(fileURLToPath(new URL('../public/console', import.meta.url))));
+  registerWebPages(app);
   app.use(express.static(fileURLToPath(new URL('../public', import.meta.url))));
   const activeRequests = new Map();
   const cancelRequests = (userId, reason, sessionId) => {

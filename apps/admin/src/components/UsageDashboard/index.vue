@@ -1,5 +1,6 @@
 <template>
   <PagePanel
+    class="usage-dashboard"
     :title="title || '用量统计'"
     description="实际用量与保守计费分开展示。成本由请求时配置单价估算，各币种独立统计。"
     :loading="loading"
@@ -35,6 +36,7 @@
         :closable="false" /><el-card shadow="never"
         ><h3>每日 Token 趋势</h3>
         <div
+          v-show="data.days.length"
           ref="chart"
           class="chart"
           role="img"
@@ -138,6 +140,10 @@
   watch(data, async () => {
     await nextTick()
     if (!chart.value || !data.value) return
+    if (!data.value.days.length) {
+      instance?.clear()
+      return
+    }
     if (!instance) {
       instance = echarts.init(chart.value)
       observer = new ResizeObserver(() => instance?.resize())
@@ -146,26 +152,62 @@
     const days = [...data.value.days]
       .sort((a, b) => String(a.date).localeCompare(String(b.date)))
       .slice(-366)
+    instance.resize()
     instance.setOption({
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['实际 Token', '保守计费 Token'] },
-      grid: { left: 65, right: 20, bottom: 35, top: 45 },
-      xAxis: { type: 'category', data: days.map((d) => d.date) },
-      yAxis: { type: 'value' },
+      animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      textStyle: { fontFamily: 'Inter, Microsoft YaHei, sans-serif' },
+      tooltip: {
+        trigger: 'axis',
+        renderMode: 'richText',
+        backgroundColor: '#fff',
+        borderColor: '#ebeef5',
+        textStyle: { fontSize: 12, color: '#606266' },
+      },
+      legend: {
+        left: 10,
+        top: 0,
+        icon: 'roundRect',
+        itemWidth: 10,
+        itemHeight: 7,
+        itemGap: 20,
+        textStyle: { color: '#909399', fontSize: 11 },
+        data: ['实际 Token', '保守计费 Token'],
+      },
+      grid: { left: 12, right: 16, bottom: 12, top: 45, containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: days.map((d) => d.date),
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: '#909399', fontSize: 11, hideOverlap: true },
+      },
+      yAxis: {
+        type: 'value',
+        minInterval: 1,
+        splitNumber: 4,
+        axisLabel: {
+          color: '#909399',
+          fontSize: 10,
+          formatter: (value: number) =>
+            Intl.NumberFormat('en', { notation: 'compact' }).format(value),
+        },
+        splitLine: { lineStyle: { color: '#ebeef5', type: 'dashed' } },
+      },
       series: [
         {
           name: '实际 Token',
           type: 'bar',
           stack: 'tokens',
+          barMaxWidth: 24,
           data: days.map((d) => d.tokens),
-          itemStyle: { color: '#697ee1' },
+          itemStyle: { color: '#409eff' },
         },
         {
           name: '保守计费 Token',
           type: 'bar',
           stack: 'tokens',
           data: days.map((d) => d.conservativeTokens),
-          itemStyle: { color: '#bfc9f4' },
+          itemStyle: { color: '#c6e2ff' },
         },
       ],
     })
@@ -176,31 +218,45 @@
   })
 </script>
 <style scoped lang="scss">
-  .metrics {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 16px;
-    .el-card {
-      border-radius: 12px;
-    }
-    span {
-      color: #8691a5;
-      font-size: 12px;
-    }
-    strong {
-      display: block;
-      margin-top: 18px;
-      font-size: 24px;
+  .usage-dashboard {
+    h3 {
+      font-size: 14px;
       font-weight: 600;
+      margin: 0 0 20px;
+      color: #303133;
     }
-  }
-  .chart {
-    height: 300px;
-    width: 100%;
-  }
-  @media (max-width: 1000px) {
     .metrics {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 16px;
+      .el-card {
+        border-radius: 4px;
+        min-width: 0;
+      }
+      span {
+        color: #909399;
+        font-size: 12px;
+      }
+      strong {
+        display: block;
+        margin-top: 18px;
+        font-size: 24px;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+        font-variant-numeric: tabular-nums;
+      }
+    }
+    .chart {
+      height: 300px;
+      width: 100%;
+    }
+    @media (max-width: 1000px) {
+      .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        > .el-card:last-child {
+          grid-column: 1/-1;
+        }
+      }
     }
   }
 </style>

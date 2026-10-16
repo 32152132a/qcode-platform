@@ -7,7 +7,11 @@ import { createRequire } from 'node:module'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database.js'
 const { chromium } = createRequire(import.meta.url)(process.env.QCODE_TEST_PLAYWRIGHT_MODULE)
-await fs.cp(new URL('../../admin/dist/',import.meta.url),new URL('../public/console/',import.meta.url),{recursive:true});
+await fs.cp(
+  new URL('../../admin/dist/', import.meta.url),
+  new URL('../public/console/', import.meta.url),
+  { recursive: true }
+)
 const db = createDatabase()
 const app = createApp(
   {
@@ -27,7 +31,7 @@ const errors = []
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.goto(origin + '/console/#/login')
+  await page.goto(origin + '/login')
   await page.getByLabel('账号', { exact: true }).fill('admin')
   await page.getByLabel('密码', { exact: true }).fill('browser-test-password')
   await page.getByRole('button', { name: '登录', exact: true }).click()
@@ -46,12 +50,12 @@ try {
     system: '系统状态',
   }
   for (const [route, title] of Object.entries(pages)) {
-    await page.goto(origin + '/console/#/manage/' + route)
+    await page.goto(origin + '/manage/' + route)
     await page.getByRole('heading', { name: title, exact: true }).waitFor()
     await page.waitForTimeout(100)
     console.log('PAGE', route, 'passed')
   }
-  await page.goto(origin + '/console/#/manage/users')
+  await page.goto(origin + '/manage/users')
   await page.getByRole('button', { name: '创建用户', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('账号', { exact: true }).fill('browser-user')
@@ -60,7 +64,7 @@ try {
   await dialog.waitFor({ state: 'hidden' })
   await page.getByText('browser-user', { exact: true }).first().waitFor()
   console.log('CREATE USER passed')
-  await page.goto(origin + '/console/#/manage/models')
+  await page.goto(origin + '/manage/models')
   await page.getByRole('tab', { name: /中转站/ }).click()
   await page.getByRole('button', { name: '添加服务来源' }).click()
   await dialog.getByLabel('来源名称', { exact: true }).fill('Test relay')
@@ -76,28 +80,36 @@ try {
       .then((text) => text.includes('fixture-only-private-key')))
   )
   console.log('CREATE SOURCE passed')
-  await page.locator('.el-switch').first().click()
+  await page.locator('.source-heading .el-switch').first().click()
   await page.getByRole('button', { name: '确定', exact: true }).click()
   await page.waitForTimeout(300)
   assert.equal(db.read().settings.modelSources[0].active, false)
   console.log('SOURCE SWITCH passed')
-  await page.goto(origin+'/console/#/manage/settings');
-  await page.getByRole('button',{name:'修改设置',exact:true}).click();
-  await dialog.getByRole('button',{name:'保存',exact:true}).click();await dialog.waitFor({state:'hidden'});
-  console.log('EDIT SETTINGS passed');
-  await page.goto(origin+'/console/#/manage/skills');await page.getByRole('button',{name:'发布 Skill',exact:true}).click();
-  await dialog.getByLabel('名称（小写字母、数字、短横线）',{exact:true}).fill('test-guide');
-  await dialog.getByLabel('用途描述',{exact:true}).fill('Browser acceptance');
-  await dialog.getByLabel('Skill 内容',{exact:true}).fill('# Test guide\nRead references.');
-  await dialog.getByRole('button',{name:'保存',exact:true}).click();await dialog.waitFor({state:'hidden'});
-  await page.getByRole('row').filter({hasText:'test-guide'}).getByRole('button',{name:'编辑',exact:true}).click();
-  await dialog.getByRole('button',{name:'保存',exact:true}).click();await dialog.waitFor({state:'hidden'});
-  console.log('CREATE AND EDIT SKILL passed');
+  await page.goto(origin + '/manage/settings')
+  await page.getByRole('button', { name: '修改设置', exact: true }).click()
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await dialog.waitFor({ state: 'hidden' })
+  console.log('EDIT SETTINGS passed')
+  await page.goto(origin + '/manage/skills')
+  await page.getByRole('button', { name: '发布 Skill', exact: true }).click()
+  await dialog.getByLabel('名称（小写字母、数字、短横线）', { exact: true }).fill('test-guide')
+  await dialog.getByLabel('用途描述', { exact: true }).fill('Browser acceptance')
+  await dialog.getByLabel('Skill 内容', { exact: true }).fill('# Test guide\nRead references.')
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await dialog.waitFor({ state: 'hidden' })
+  await page
+    .getByRole('row')
+    .filter({ hasText: 'test-guide' })
+    .getByRole('button', { name: '编辑', exact: true })
+    .click()
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await dialog.waitFor({ state: 'hidden' })
+  console.log('CREATE AND EDIT SKILL passed')
   await fs.mkdir(path.resolve('.visual-tests'), { recursive: true })
   await page.screenshot({ path: path.resolve('.visual-tests/admin-models.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   for (const route of ['models', 'users', 'usage']) {
-    await page.goto(origin + '/console/#/manage/' + route)
+    await page.goto(origin + '/manage/' + route)
     await page.waitForTimeout(300)
     const size = await page.evaluate(() => ({
       width: document.documentElement.clientWidth,
@@ -105,7 +117,7 @@ try {
     }))
     assert(size.scroll <= size.width + 2, route + ' overflows ' + JSON.stringify(size))
   }
-  await page.goto(origin + '/console/#/download')
+  await page.goto(origin + '/')
   await page.screenshot({ path: path.resolve('.visual-tests/download-mobile.png'), fullPage: true })
   assert.deepEqual(errors, [])
   console.log('ADMIN UI ACCEPTANCE passed')

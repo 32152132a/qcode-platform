@@ -3,8 +3,8 @@
   color: #273449;
   background: #f5f7fb;
   font-synthesis: none;
-  --el-color-primary: #4d67d9;
-  --el-border-radius-base: 9px;
+  --el-color-primary: #409eff;
+  --el-border-radius-base: 4px;
   --el-font-size-base: 14px;
 }
 * {
@@ -24,20 +24,20 @@ textarea {
 }
 .el-dialog {
   max-width: calc(100vw - 28px);
-  border-radius: 16px !important;
+  border-radius: 6px !important;
 }
 .el-select,
 .el-input-number {
   width: 100%;
 }
 .el-table {
-  --el-table-header-bg-color: #f8f9fc;
+  --el-table-header-bg-color: #f5f7fa;
 }
 .el-form-item__label {
   font-weight: 500;
 }
 .el-button {
-  border-radius: 8px;
+  border-radius: 4px;
 }
 .el-message-box {
   max-width: calc(100vw - 32px);
