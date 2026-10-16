@@ -120,6 +120,17 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     return source
   }
   function saveSource(state, body, actor, existing) {
+    const name = text(body.name ?? existing?.name, '来源名称', 80)
+    const nameKey = name.normalize('NFKC').toLowerCase()
+    if (
+      (!existing || nameKey !== existing.name.trim().normalize('NFKC').toLowerCase()) &&
+      sourcesFor(state).some(
+        (source) =>
+          source.id !== existing?.id &&
+          source.name.trim().normalize('NFKC').toLowerCase() === nameKey
+      )
+    )
+      fail(409, 'SOURCE_NAME_EXISTS', '服务来源名称已存在，请使用其他名称')
     const kind = body.kind ?? existing?.kind
     if (!sourceKinds.includes(kind)) fail(400, 'INVALID_SOURCE', '请选择本地、官网或中转站')
     if (existing && kind !== existing.kind)
@@ -148,7 +159,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       const value = text(body.apiKey, 'API Key', 4096)
       const key = {
         id: id(),
-        name: text(body.name, '名称', 80) + ' 服务 Key',
+        name: name + ' 服务 Key',
         secret: vault.encrypt(value),
         suffix: value.slice(-4),
         active: true,
@@ -166,7 +177,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     const source = {
       ...existing,
       id: existing?.id || id(),
-      name: text(body.name ?? existing?.name, '名称', 80),
+      name,
       kind,
       base_url: address,
       key_id: keyId,
@@ -277,8 +288,19 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
               sourceId.slice(0, 8) +
               '-' +
               createHash('sha256').update(candidate.id).digest('hex').slice(0, 12)
+            let displayName = candidate.id
+            let suffix = 2
+            while (
+              state.models.some(
+                (model) =>
+                  model.name.trim().normalize('NFKC').toLowerCase() ===
+                  displayName.normalize('NFKC').toLowerCase()
+              )
+            ) {
+              displayName = candidate.id + ' (' + suffix++ + ')'
+            }
             const model = saveModel(state, {
-              name: candidate.id,
+              name: displayName,
               publicName,
               pricingKnown: false,
               upstreamModel: candidate.id,

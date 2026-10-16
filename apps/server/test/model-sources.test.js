@@ -221,3 +221,154 @@ test('resync refreshes recommendation flags without removing configured models o
     )
   )
 })
+
+test('client model names do not expose source labels and model display names are unique on create and rename', async (t) => {
+  const f = await fixture(t)
+  await f.create()
+  const token = await f.login()
+  const first = f.db.read().models[0]
+  const originalSource = f.db
+    .read()
+    .settings.modelSources.find((source) => source.id === first.source_id)
+  assert(originalSource)
+  const config = (await f.request('/client/config', 'GET', undefined, token)).body
+  assert.equal(config.models.find((model) => model.id === first.public_name).name, first.name)
+  assert.doesNotMatch(JSON.stringify(config.models), new RegExp(originalSource.name))
+  const base = {
+    upstreamModel: 'test-upstream',
+    baseUrl: first.base_url,
+    keyId: first.key_id,
+    publicName: 'another-public-model',
+    active: false,
+    name: 'Team Model',
+  }
+  assert.equal((await f.request('/admin/models', 'POST', base, f.admin)).status, 201)
+  const duplicate = await f.request(
+    '/admin/models',
+    'POST',
+    { ...base, publicName: 'unique-id', name: '  team model  ' },
+    f.admin
+  )
+  assert.equal(duplicate.status, 409)
+  assert.equal(duplicate.body.error.code, 'MODEL_NAME_EXISTS')
+  const rename = await f.request(
+    '/admin/models/' + first.id,
+    'PUT',
+    {
+      name: 'Ｔｅａｍ Model',
+      publicName: first.public_name,
+      upstreamModel: first.upstream_model,
+      baseUrl: first.base_url,
+      keyId: first.key_id,
+    },
+    f.admin
+  )
+  assert.equal(rename.status, 409)
+  assert.equal(f.db.read().models.find((model) => model.id === first.id).name, first.name)
+  const unchanged = await f.request(
+    '/admin/models/' + first.id,
+    'PUT',
+    {
+      name: first.name,
+      publicName: first.public_name,
+      upstreamModel: first.upstream_model,
+      baseUrl: first.base_url,
+      keyId: first.key_id,
+    },
+    f.admin
+  )
+  assert.equal(unchanged.status, 200)
+})
+
+test('source names are unique across categories and rejected renames leave configuration intact', async (t) => {
+  const f = await fixture(t)
+  const create = await f.request(
+    '/admin/models/sources',
+    'POST',
+    { kind: 'relay', name: 'Team Relay', baseUrl: 'https://example.invalid/v1', autoSync: false },
+    f.admin
+  )
+  assert.equal(create.status, 201)
+  const source = create.body
+  const duplicate = await f.request(
+    '/admin/models/sources',
+    'POST',
+    { kind: 'local', name: '  team relay ', autoSync: false },
+    f.admin
+  )
+  assert.equal(duplicate.status, 409)
+  assert.equal(duplicate.body.error.code, 'SOURCE_NAME_EXISTS')
+  const original = f.db.read().settings.modelSources.find((item) => item.id !== source.id)
+  assert.equal(
+    (
+      await f.request(
+        '/admin/models/sources/' + original.id,
+        'PUT',
+        { name: 'TEAM RELAY' },
+        f.admin
+      )
+    ).status,
+    409
+  )
+  assert.equal(
+    f.db.read().settings.modelSources.find((item) => item.id === original.id).name,
+    original.name
+  )
+  assert.equal(
+    (
+      await f.request(
+        '/admin/models/sources/' + source.id,
+        'PUT',
+        { name: 'Team Relay', active: false },
+        f.admin
+      )
+    ).status,
+    200
+  )
+})
+
+test('discovering identical upstream IDs across sources creates distinct names without resetting existing choices', async (t) => {
+  const f = await fixture(t)
+  const upstream = http.createServer((_req, res) =>
+    res
+      .writeHead(200, { 'content-type': 'application/json' })
+      .end(JSON.stringify({ data: [{ id: 'claude-opus-4-5' }] }))
+  )
+  upstream.listen(0, '127.0.0.1')
+  await once(upstream, 'listening')
+  t.after(() => {
+    upstream.closeAllConnections()
+    upstream.close()
+  })
+  const address = 'http://127.0.0.1:' + upstream.address().port
+  for (const name of ['Source A', 'Source B'])
+    assert.equal(
+      (
+        await f.request(
+          '/admin/models/sources',
+          'POST',
+          { kind: 'relay', name, baseUrl: address, apiKey: 'fixture-key' },
+          f.admin
+        )
+      ).status,
+      201
+    )
+  const models = f.db.read().models.filter((model) => model.upstream_model === 'claude-opus-4-5')
+  assert.equal(models.length, 2)
+  assert.deepEqual(
+    models.map((model) => model.name),
+    ['claude-opus-4-5', 'claude-opus-4-5 (2)']
+  )
+  assert(models.every((model) => !model.active))
+  assert.equal(new Set(models.map((model) => model.public_name)).size, 2)
+  for (const model of models)
+    assert.equal(
+      (await f.request('/admin/models/sources/' + model.source_id + '/sync', 'POST', {}, f.admin))
+        .status,
+      200
+    )
+  assert.equal(
+    f.db.read().models.filter((model) => model.upstream_model === 'claude-opus-4-5').length,
+    2
+  )
+})

@@ -280,6 +280,8 @@ export function createApp(config, database) {
       context_window: integer(body.contextWindow ?? 131072, 'contextWindow', 2000000), input_price: body.inputPrice ?? 0, output_price: body.outputPrice ?? 0, currency: body.currency || 'CNY', max_tokens_field: body.maxTokensField || 'max_tokens',
       stream_usage: body.streamUsage !== false, active: body.active !== false, is_default: body.isDefault === true, created_at: existing?.created_at || now() };
     if (!/^[a-zA-Z0-9_.-]+$/.test(model.public_name) || !model.max_output_tokens || model.context_window < model.max_output_tokens) fail(400, 'INVALID_MODEL', '公开模型名称或上下文/输出上限配置无效');
+    const nameKey = model.name.normalize('NFKC').toLowerCase();
+    if ((!existing || nameKey !== existing.name.trim().normalize('NFKC').toLowerCase()) && state.models.some(m => m.id !== model.id && m.name.trim().normalize('NFKC').toLowerCase() === nameKey)) fail(409, 'MODEL_NAME_EXISTS', '模型显示名称已存在，请使用其他名称');
     if (state.models.some(m => m.id !== model.id && m.public_name === model.public_name)) fail(409, 'MODEL_EXISTS', 'Public model name already exists');
     if (model.is_default) for (const m of state.models) m.is_default = false;
     if (existing && ['provider','base_url','upstream_model','protocol','key_id','max_tokens_field','stream_usage','max_output_tokens'].some(field => existing[field] !== model[field])) model.verification = null;
