@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { catalogDisplayFields } from './model-presentation.js'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { id, now, text, baseUrl, fail, audit } from './domain.js'
@@ -234,6 +235,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
                 m.id,
                 {
                   id: m.id,
+                  ...catalogDisplayFields(m),
                   ...(Array.isArray(m.supported_endpoint_types)
                     ? {
                         supported_endpoint_types: m.supported_endpoint_types
@@ -405,6 +407,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
             contextWindow: current.kind === 'local' ? 32768 : 131072,
             active: false,
           })
+          Object.assign(model, catalogDisplayFields(candidate))
           model.source_id = sourceId
           model.catalog_available = true
           model.recommended = true

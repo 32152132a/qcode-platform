@@ -146,6 +146,7 @@
     }
     .row-actions {
       display: flex;
+      justify-content: center;
       gap: 8px;
       flex-wrap: wrap;
       .el-button {

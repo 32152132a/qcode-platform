@@ -30,7 +30,7 @@
         :prop="column.prop"
         :label="column.label"
         :width="computedColumnWidth(column)"
-        :min-width="column.minWidth"
+        :min-width="headerMinWidth(column)"
         :fixed="column.fixed"
         :sortable="column.sortable"
         :sort-method="column.sortMethod"
@@ -356,8 +356,30 @@
     return { textAlign: align }
   }
 
+  let headerMeasure: CanvasRenderingContext2D | null | undefined
+  function headerMinWidth(column: AdvancedTableColumn) {
+    headerMeasure ??= document.createElement('canvas').getContext('2d')
+    const fontSize =
+      getComputedStyle(document.documentElement).getPropertyValue('--el-font-size-base').trim() ||
+      '14px'
+    if (headerMeasure) headerMeasure.font = '500 ' + fontSize + ' sans-serif'
+    const textWidth =
+      headerMeasure?.measureText(column.label || '').width ||
+      Array.from(column.label || '').length * 14
+    return Math.max(
+      Number(column.minWidth) || 0,
+      Math.ceil(textWidth) + 32 + (column.sortable ? 24 : 0)
+    )
+  }
+  function computedColumnWidth(column: AdvancedTableColumn) {
+    const configured = configuredColumnWidth.value(column)
+    if (configured == null) return undefined
+    const width = Number.parseFloat(String(configured))
+    return Number.isFinite(width) ? Math.max(width, headerMinWidth(column)) : configured
+  }
+
   // 计算属性：动态计算操作列宽度
-  const computedColumnWidth = computed(() => {
+  const configuredColumnWidth = computed(() => {
     return (column: AdvancedTableColumn) => {
       if (!column.buttons) {
         return column.width
@@ -486,6 +508,11 @@
   .advanced-table {
     width: 100%;
     flex: 1;
+  }
+
+  .advanced-table :deep(.el-table__header-wrapper .cell) {
+    white-space: nowrap;
+    word-break: normal;
   }
 
   .pagination-wrapper {

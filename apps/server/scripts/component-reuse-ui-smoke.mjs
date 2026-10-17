@@ -183,6 +183,10 @@ try {
         scroll: document.documentElement.scrollWidth,
       }))
       assert(size.scroll <= size.width + 2, route + JSON.stringify(size))
+      const headings = await page.locator('.el-table__header-wrapper th .cell').evaluateAll(cells => cells.filter(cell => cell.getBoundingClientRect().width > 0).map(cell => ({ text: cell.textContent, nowrap: getComputedStyle(cell).whiteSpace, fits: cell.scrollWidth <= cell.clientWidth + 1 })))
+      assert(headings.every(cell => cell.nowrap === 'nowrap' && cell.fits), route + ' headers ' + JSON.stringify(headings))
+      const actionAlignment = await page.locator('.row-actions').evaluateAll(rows => rows.map(row => getComputedStyle(row).justifyContent))
+      assert(actionAlignment.every(value => value === 'center'), route + ' action alignment')
       await page.screenshot({
         path: '.visual-tests/reuse-' + route + '-' + width + '.png',
         fullPage: true,
