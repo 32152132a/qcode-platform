@@ -12,6 +12,8 @@
   --admin-gap: 20px;
   --admin-padding: 20px 24px;
   --admin-radius: var(--el-border-radius-base);
+  --admin-dialog-max-width: 640px;
+  --admin-confirm-max-width: 420px;
 }
 * {
   box-sizing: border-box;
@@ -29,7 +31,7 @@ textarea {
   font: inherit;
 }
 .el-dialog {
-  max-width: min(640px, calc(100vw - 32px));
+  max-width: min(var(--admin-dialog-max-width), calc(100vw - 32px));
   border-radius: var(--admin-radius);
 }
 .el-select,
@@ -60,7 +62,7 @@ textarea {
   font-weight: 500;
 }
 .el-message-box {
-  max-width: calc(100vw - 32px);
+  max-width: min(var(--admin-confirm-max-width), calc(100vw - 32px));
 }
 .el-drawer__body {
   overflow: auto;
