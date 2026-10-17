@@ -11,13 +11,14 @@
         <h3>一个客户端，开始使用 AI</h3>
         <p>下载安装客户端，使用团队账号登录，即可选择管理员已启用的模型，无需自行配置模型地址或 API Key。</p>
         <ol class="steps" aria-label="员工使用流程"><li>安装客户端</li><li>登录团队账号</li><li>开始对话与工作</li></ol>
-        <router-link class="entry" to="/">前往客户端下载 <ArrowRight /></router-link>
+        <a class="entry" href="#install">前往客户端下载 <ArrowRight /></a>
       </article>
       <article class="role admin">
         <div class="role-heading"><span class="role-icon"><Setting /></span><span>给管理员</span></div>
         <h3>统一接入，集中管理</h3>
         <p>创建员工账号，接入官网、本地部署或中转站模型，统一管理 Key、额度与使用记录。后续上新模型，员工无需重新安装。</p>
-        <nav class="admin-entries" aria-label="平台管理快捷入口">
+        <router-link v-if="!entries.length" class="entry" to="/login">进入管理控制台 <ArrowRight /></router-link>
+        <nav v-else class="admin-entries" aria-label="平台管理快捷入口">
           <router-link v-for="entry in entries" :key="entry.path" :to="entry.path">
             <component :is="entry.icon" /><span><b>{{ entry.label }}</b><small>{{ entry.description }}</small></span><ArrowRight />
           </router-link>
@@ -78,7 +79,7 @@
       b { font-size: 13px; font-weight: 500; }
       small { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
     }
-    a { text-decoration: none; &:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 4px; border-radius: 4px; } }
+    a { text-decoration: none; &:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 4px; border-radius: var(--admin-radius); } }
     footer { display: flex; align-items: flex-start; gap: 9px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.8; svg { margin-top: 3px; } }
     @media (max-width: 800px) { .roles { grid-template-columns: minmax(0, 1fr); gap: 16px; } .role { padding: 20px; } }
   }

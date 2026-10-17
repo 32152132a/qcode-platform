@@ -88,6 +88,8 @@
         </div>
       </section>
 
+      <div class="wrap"><PlatformIntro /></div>
+
       <section class="benefits wrap" aria-label="产品特点">
         <article v-for="feature in features" :key="feature.title">
           <span class="feature-icon"><component :is="feature.icon" /></span>
@@ -153,6 +155,7 @@
 </template>
 
 <script setup lang="ts">
+import PlatformIntro from "../PlatformIntro/index.vue";
 import { ref } from "vue";
 import {
   ArrowRight,

@@ -63,21 +63,21 @@
     align-items: center;
     margin-bottom: 16px;
     padding: 0 0 12px 0;
-    border-bottom: 1px solid #ebeef5;
+    border-bottom: 1px solid var(--admin-border);
   }
 
   .card-title {
     display: flex;
     align-items: center;
     margin: 0;
-    color: #303133;
+    color: var(--el-text-color-primary);
     line-height: 1.4;
   }
 
   .title-line {
     width: 3px;
     height: 16px;
-    background-color: var(--el-color-primary, #409eff);
+    background-color: var(--el-color-primary);
     margin-right: 8px;
     border-radius: 2px;
   }
@@ -85,7 +85,7 @@
   .title-tip {
     font-size: 12px;
     margin-left: 6px;
-    color: #909399;
+    color: var(--el-text-color-secondary);
     cursor: help;
   }
 

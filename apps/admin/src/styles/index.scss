@@ -1,11 +1,17 @@
 :root {
-  font-family: Inter, 'Microsoft YaHei', system-ui, sans-serif;
-  color: #273449;
-  background: #f5f7fb;
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--el-text-color-primary);
+  background: var(--admin-background);
   font-synthesis: none;
   --el-color-primary: #409eff;
   --el-border-radius-base: 4px;
   --el-font-size-base: 14px;
+  --admin-surface: var(--el-bg-color);
+  --admin-background: #f3f3f3;
+  --admin-border: var(--el-border-color-lighter);
+  --admin-gap: 20px;
+  --admin-padding: 20px 24px;
+  --admin-radius: var(--el-border-radius-base);
 }
 * {
   box-sizing: border-box;
@@ -24,20 +30,34 @@ textarea {
 }
 .el-dialog {
   max-width: min(640px, calc(100vw - 32px));
-  border-radius: 6px !important;
+  border-radius: var(--admin-radius);
 }
 .el-select,
 .el-input-number {
   width: 100%;
 }
 .el-table {
-  --el-table-header-bg-color: #f5f7fa;
+  --el-table-header-bg-color: var(--el-fill-color-light);
+  --el-table-header-text-color: var(--el-text-color-regular);
+  th.el-table__cell {
+    font-weight: 500;
+  }
+  .el-table__cell {
+    padding-block: 12px;
+  }
+}
+.el-card {
+  --el-card-border-radius: var(--admin-radius);
+  --el-card-padding: 20px;
+}
+@media (max-width: 768px) {
+  :root {
+    --admin-gap: 12px;
+    --admin-padding: 18px 16px;
+  }
 }
 .el-form-item__label {
   font-weight: 500;
-}
-.el-button {
-  border-radius: 4px;
 }
 .el-message-box {
   max-width: calc(100vw - 32px);

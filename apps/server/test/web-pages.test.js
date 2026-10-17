@@ -31,10 +31,14 @@ test('history page routes refresh correctly without swallowing API or asset erro
   for (const route of ['/assets/app.js', '/console/assets/app.js']) {
     assert.equal(await (await fetch(base + route)).text(), 'window.qcode=true;');
   }
+  const unknownPage = await fetch(base + '/missing-page', { headers: { Accept: 'text/html' } });
+  assert.equal(unknownPage.status, 200);
+  assert.match(await unknownPage.text(), /QCode shell/);
+  assert.equal((await fetch(base + '/missing-page')).status, 404);
   assert.equal((await fetch(base + '/admin/users')).status, 401);
   assert.deepEqual(await (await fetch(base + '/health')).json(), { status: 'ok' });
   for (const route of ['/v1/missing', '/auth/missing', '/client/missing', '/downloads/missing', '/assets/missing.js', '/manage/missing.js']) {
-    const response = await fetch(base + route);
+    const response = await fetch(base + route, { headers: { Accept: 'text/html' } });
     assert.equal(response.status, 404, route);
     assert.doesNotMatch(await response.text(), /QCode shell/);
   }

@@ -38,7 +38,11 @@ const routes = [
       })),
     ],
   },
-  { path: '/:pathMatch(.*)*', redirect: '/' },
+  {
+    path: '/:pathMatch(.*)*',
+    component: () => import('@/views/not-found/index.vue'),
+    meta: { public: true },
+  },
 ]
 // Preserve bookmarks from the previous /console/#/... deployment.
 if (/^\/console(?:\/|$)/.test(window.location.pathname)) {

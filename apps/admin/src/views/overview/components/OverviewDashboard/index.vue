@@ -8,7 +8,6 @@
       ><el-button :loading="loading" @click="load"><Refresh />刷新数据</el-button></template
     >
     <section class="overview">
-      <PlatformIntro />
       <div class="toolbar">
         <div class="period-label">
           <Calendar /><span>{{ rangeLabel }}</span
@@ -167,7 +166,6 @@
   import { useResource } from '@/hooks/useResource'
   import PagePanel from '@/components/PagePanel/index.vue'
   import UsageTrend from '../UsageTrend/index.vue'
-  import PlatformIntro from '../PlatformIntro/index.vue'
   import type { OverviewUsage, UsageGroup } from '../types'
   const dates = ref<[string, string] | null>(null)
   const query = ref('')
@@ -286,11 +284,11 @@
 </script>
 <style scoped lang="scss">
   .overview {
-    --muted: #909399;
+    --muted: var(--el-text-color-secondary);
     display: grid;
-    gap: 20px;
+    gap: var(--admin-gap);
     min-width: 0;
-    color: #303133;
+    color: var(--el-text-color-primary);
     svg {
       width: 16px;
       height: 16px;
@@ -305,11 +303,11 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 20px;
+      gap: var(--admin-gap);
       padding: 14px 18px;
-      border: 1px solid #ebeef5;
-      border-radius: 4px;
-      background: #fff;
+      border: 1px solid var(--admin-border);
+      border-radius: var(--admin-radius);
+      background: var(--admin-surface);
     }
     .period-label {
       display: flex;
@@ -342,12 +340,12 @@
     .metrics {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 20px;
+      gap: var(--admin-gap);
     }
     .metric {
-      border: 1px solid #ebeef5;
-      border-radius: 4px;
-      background: #fff;
+      border: 1px solid var(--admin-border);
+      border-radius: var(--admin-radius);
+      background: var(--admin-surface);
       padding: 20px;
       min-width: 0;
       > strong {
@@ -399,13 +397,13 @@
     .analytics-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.9fr) minmax(260px, 1fr);
-      gap: 20px;
+      gap: var(--admin-gap);
     }
     .panel {
       min-width: 0;
-      border: 1px solid #ebeef5;
-      border-radius: 4px;
-      background: #fff;
+      border: 1px solid var(--admin-border);
+      border-radius: var(--admin-radius);
+      background: var(--admin-surface);
       padding: 20px;
     }
     .panel-heading {
@@ -443,7 +441,7 @@
         width: 14px;
         height: 3px;
         border-radius: 3px;
-        background: #409eff;
+        background: var(--el-color-primary);
         &.conservative {
           background: #b4bdcf;
         }
@@ -464,7 +462,7 @@
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        color: #409eff;
+        color: var(--el-color-primary);
         white-space: nowrap;
       }
       svg {
@@ -475,7 +473,7 @@
     .side-panels {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: 20px;
+      gap: var(--admin-gap);
     }
     .status-track {
       display: flex;
@@ -578,11 +576,11 @@
     .rankings {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 20px;
+      gap: var(--admin-gap);
     }
     .ranking-list {
       display: grid;
-      gap: 20px;
+      gap: var(--admin-gap);
       padding-block: 4px 10px;
     }
     .ranking-row {
@@ -640,7 +638,7 @@
     .accounting-note {
       display: flex;
       gap: 9px;
-      color: #929bad;
+      color: var(--el-text-color-secondary);
       font-size: 11px;
       line-height: 1.9;
       padding: 0 4px;
@@ -651,13 +649,13 @@
       }
       b {
         font-weight: 500;
-        color: #79859b;
+        color: var(--el-text-color-regular);
       }
     }
     .initial-loading {
       padding: 30px;
-      background: #fff;
-      border-radius: 4px;
+      background: var(--admin-surface);
+      border-radius: var(--admin-radius);
     }
     @media (max-width: 1200px) {
       .toolbar {
@@ -679,7 +677,7 @@
       }
     }
     @media (max-width: 650px) {
-      gap: 20px;
+      gap: var(--admin-gap);
 
       .metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));

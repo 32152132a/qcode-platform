@@ -36,6 +36,14 @@ try {
   await page.getByLabel('密码', { exact: true }).fill('browser-test-password')
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await page.getByRole('heading', { name: '工作台概览', exact: true }).waitFor()
+  assert.equal(await page.getByRole('heading', { name: '员工安装即用，团队统一管理' }).count(), 0)
+  await page.getByRole('menuitem', { name: '用户管理', exact: true }).click()
+  await page.getByRole('heading', { name: '用户管理', exact: true }).waitFor()
+  await page.goto(origin + '/missing-page-test')
+  await page.getByText('抱歉，您访问的页面不存在', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '返回首页', exact: true }).click()
+  await page.getByRole('heading', { name: '员工安装即用，团队统一管理', exact: true }).waitFor()
+  console.log('NAVIGATION, HOMEPAGE AND 404 passed')
   const pages = {
     users: '用户管理',
     models: '模型与服务',
@@ -117,6 +125,12 @@ try {
     }))
     assert(size.scroll <= size.width + 2, route + ' overflows ' + JSON.stringify(size))
   }
+  await page.goto(origin + '/manage/users')
+  await page.getByRole('button', { name: '打开导航菜单', exact: true }).click()
+  await page.getByRole('dialog').getByRole('menuitem', { name: '模型与服务', exact: true }).click()
+  await page.getByRole('heading', { name: '模型与服务', exact: true }).waitFor()
+  await page.getByRole('dialog').waitFor({ state: 'hidden' })
+  console.log('MOBILE MENU passed')
   await page.goto(origin + '/')
   await page.screenshot({ path: path.resolve('.visual-tests/download-mobile.png'), fullPage: true })
   assert.deepEqual(errors, [])

@@ -223,18 +223,18 @@
       font-size: 14px;
       font-weight: 600;
       margin: 0 0 20px;
-      color: #303133;
+      color: var(--el-text-color-primary);
     }
     .metrics {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 16px;
       .el-card {
-        border-radius: 4px;
+        border-radius: var(--admin-radius);
         min-width: 0;
       }
       span {
-        color: #909399;
+        color: var(--el-text-color-secondary);
         font-size: 12px;
       }
       strong {

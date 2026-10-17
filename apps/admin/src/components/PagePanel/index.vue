@@ -1,17 +1,26 @@
 <template>
-  <section class="page-panel" :class="{ 'page-panel--transparent': transparent }">
-    <header class="page-heading">
-      <div class="page-title">
-        <h1>{{ title }}</h1>
-        <p v-if="description">{{ description }}</p>
-      </div>
-      <div v-if="$slots.actions" class="page-actions"><slot name="actions" /></div>
-    </header>
-    <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-    <div v-loading="loading" class="page-content"><slot /></div>
-  </section>
+  <LayoutFormTable class="page-panel" :transparent="transparent">
+    <template #form>
+      <header class="page-heading">
+        <div class="page-title">
+          <h1>{{ title }}</h1>
+          <p v-if="description">{{ description }}</p>
+        </div>
+        <div v-if="$slots.actions" class="page-actions">
+          <slot name="actions" />
+        </div>
+      </header>
+    </template>
+    <template v-if="error" #status
+      ><el-alert v-if="error" :title="error" type="error" :closable="false" show-icon
+    /></template>
+    <template #table
+      ><div v-loading="loading" class="page-content"><slot /></div
+    ></template>
+  </LayoutFormTable>
 </template>
 <script setup lang="ts">
+  import LayoutFormTable from '@/layout/LayoutFormTable.vue'
   defineProps<{
     title: string
     description?: string
@@ -22,19 +31,11 @@
 </script>
 <style scoped lang="scss">
   .page-panel {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
-    min-width: 0;
-    gap: var(--admin-gap, 20px);
     .page-heading {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 20px;
-      background: #fff;
-      border-radius: 4px;
-      padding: 20px 24px;
+      gap: var(--admin-gap);
     }
     .page-title {
       min-width: 0;
@@ -43,7 +44,7 @@
         align-items: center;
         gap: 9px;
         font-size: 17px;
-        color: #303133;
+        color: var(--el-text-color-primary);
         font-weight: 600;
         letter-spacing: 0;
         margin: 0;
@@ -57,7 +58,7 @@
         }
       }
       p {
-        color: #909399;
+        color: var(--el-text-color-secondary);
         font-size: 12px;
         line-height: 1.8;
         margin: 9px 0 0 12px;
@@ -83,14 +84,7 @@
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       align-content: start;
-      gap: 20px;
-      background: #fff;
-      padding: 20px 24px;
-      border-radius: 4px;
-    }
-    &--transparent .page-content {
-      background: transparent;
-      padding: 0;
+      gap: var(--admin-gap);
     }
     @media (max-width: 1100px) {
       .page-heading {
@@ -104,10 +98,6 @@
       }
     }
     @media (max-width: 650px) {
-      .page-heading,
-      .page-content {
-        padding: 18px 16px;
-      }
       .page-title p {
         margin-left: 0;
       }
@@ -118,9 +108,6 @@
         width: 100%;
         min-width: 0;
         flex-basis: 100%;
-      }
-      &--transparent .page-content {
-        padding: 0;
       }
     }
   }

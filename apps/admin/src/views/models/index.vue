@@ -28,22 +28,20 @@
       v-if="!visibleSources.length"
       description="暂无服务来源，添加后可读取列表并选择模型导入" />
     <div class="source-list">
-      <el-card v-for="source in visibleSources" :key="source.id" shadow="never"
-        ><template #header
-          ><div class="source-heading">
-            <div>
-              <h2>{{ source.name }}</h2>
-              <p>{{ source.base_url }}</p>
-            </div>
-            <el-switch
-              :model-value="source.active"
-              :disabled="!auth.can('models:write') || busy === source.id"
-              active-text="启用"
-              inactive-text="关闭"
-              @change="toggle(source)"
-            /></div
-        ></template>
-        <div class="source-toolbar">
+      <SourceCard
+        v-for="source in visibleSources"
+        :key="source.id"
+        :title="source.name"
+        :address="source.base_url"
+        ><template #state>
+          <el-switch
+            :model-value="source.active"
+            :disabled="!auth.can('models:write') || busy === source.id"
+            active-text="启用"
+            inactive-text="关闭"
+            @change="toggle(source)"
+        /></template>
+        <template #status>
           <el-tag :type="source.sync_status === 'failed' ? 'warning' : 'info'">{{
             source.synced_at
               ? '上次同步 ' + new Date(source.synced_at).toLocaleString()
@@ -52,23 +50,20 @@
           ><el-tag v-if="source.sync_status === 'failed'" type="warning">{{
             source.sync_error
           }}</el-tag>
-          <div v-if="auth.can('models:write')" class="buttons">
-            <el-button
-              :loading="busy === source.id"
-              :disabled="!source.active"
-              @click="sync(source)"
-              >同步模型</el-button
-            ><el-button @click="editSource(source)">配置来源</el-button
-            ><el-button @click="addModel(source)">添加模型</el-button
-            ><el-button
-              v-if="!models.some((m) => m.source_id === source.id)"
-              type="danger"
-              text
-              @click="removeSource(source)"
-              >删除</el-button
-            >
-          </div>
-        </div>
+        </template>
+        <template v-if="auth.can('models:write')" #actions>
+          <el-button :loading="busy === source.id" :disabled="!source.active" @click="sync(source)"
+            >同步模型</el-button
+          ><el-button @click="editSource(source)">配置来源</el-button
+          ><el-button @click="addModel(source)">添加模型</el-button
+          ><el-button
+            v-if="!models.some((m) => m.source_id === source.id)"
+            type="danger"
+            text
+            @click="removeSource(source)"
+            >删除</el-button
+          >
+        </template>
         <SourceModelTable
           :models="displayModels(source)"
           :source-active="source.active"
@@ -77,7 +72,7 @@
           @edit="(model) => modelEditor?.open(model, load)"
           @check="check"
           @toggle="toggleModel"
-      /></el-card>
+      /></SourceCard>
     </div>
     <ModelSyncDialog ref="syncDialog" /><EntityDialog ref="editor" /><ModelDialog ref="modelEditor"
   /></PagePanel>
@@ -90,6 +85,7 @@
   import ModelDialog from './components/ModelDialog/index.vue'
   import ModelSyncDialog from './components/ModelSyncDialog/index.vue'
   import SourceModelTable from './components/SourceModelTable/index.vue'
+  import SourceCard from './components/SourceCard/index.vue'
   import { verificationLabel as verification } from './model-status'
   import { request } from '@/api/request'
   import { useAuthStore } from '@/stores/auth'
@@ -155,7 +151,9 @@
       }
     }
     await run(source.id, () =>
-      request('/admin/models/sources/' + source.id, 'PUT', { active: !source.active })
+      request('/admin/models/sources/' + source.id, 'PUT', {
+        active: !source.active,
+      })
     )
   }
   function sync(source: ModelSource) {
@@ -173,14 +171,21 @@
         fields.push({ prop: 'baseUrl', label: '服务基础地址', required: true })
       if (category !== 'local')
         fields.push(
-          { prop: 'apiKey', label: source ? '替换 Key（留空保留）' : 'API Key', type: 'password' },
+          {
+            prop: 'apiKey',
+            label: source ? '替换 Key（留空保留）' : 'API Key',
+            type: 'password',
+          },
           {
             prop: 'keyId',
             label: '或选择已有 Key',
             type: 'select',
             options: keys
               .filter((k) => k.active)
-              .map((k) => ({ label: String(k.name) + ' · …' + k.suffix, value: String(k.id) })),
+              .map((k) => ({
+                label: String(k.name) + ' · …' + k.suffix,
+                value: String(k.id),
+              })),
           }
         )
       fields.push({
@@ -265,7 +270,10 @@
       ElMessage({
         message: String(
           result.message ||
-            verification({ ...model, verification: { status: String(result.status) } })
+            verification({
+              ...model,
+              verification: { status: String(result.status) },
+            })
         ),
         type: ['verified', 'connected'].includes(String(result.status)) ? 'success' : 'warning',
       })
@@ -310,38 +318,6 @@
   }
   .source-list {
     display: grid;
-    gap: 20px;
-    .el-card {
-      border-radius: 4px;
-    }
-  }
-  .source-heading {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    h2 {
-      font-size: 15px;
-      margin: 0;
-    }
-    p {
-      color: #8b95a5;
-      font-size: 12px;
-      overflow-wrap: anywhere;
-      margin: 8px 0 0;
-    }
-  }
-  .source-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-    .buttons {
-      margin-left: auto;
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
+    gap: var(--admin-gap);
   }
 </style>

@@ -37,6 +37,7 @@
 <script setup lang="ts">
   import { computed, ref, watch } from 'vue'
   import { ElMessage } from 'element-plus'
+  import { usePage } from '@/hooks/usePage'
   import QyqTable from '@/components/qyq-table/index.vue'
   import QyqForm from '@/components/qyq-form/index.vue'
   import type { FormItemProp } from '@/components/qyq-form/types'
@@ -59,9 +60,7 @@
   )
   const emit = defineEmits<{ 'page-change': [page: number] }>()
   const search = ref<Row>({ query: '' }),
-    busy = ref(''),
-    localPage = ref(1),
-    localPageSize = ref(10)
+    busy = ref('')
   const searchFields: FormItemProp[] = [
     {
       prop: 'query',
@@ -84,6 +83,12 @@
         )
     )
   )
+  const {
+    page: localPage,
+    pageSize: localPageSize,
+    offset,
+    resetPage,
+  } = usePage(() => filtered.value.length)
   const total = computed(() => props.serverPagination?.total ?? filtered.value.length)
   const currentPage = computed({
     get: () => props.serverPagination?.page ?? localPage.value,
@@ -101,10 +106,7 @@
   const pageRows = computed(() =>
     props.serverPagination
       ? props.rows
-      : filtered.value.slice(
-          (localPage.value - 1) * localPageSize.value,
-          localPage.value * localPageSize.value
-        )
+      : filtered.value.slice(offset.value, offset.value + localPageSize.value)
   )
   const tableColumns = computed(() =>
     props.actions.length
@@ -129,18 +131,7 @@
       busy.value = ''
     }
   }
-  watch([() => search.value.query, localPageSize], () => {
-    localPage.value = 1
-  })
-  watch(
-    () => filtered.value.length,
-    (length) => {
-      localPage.value = Math.min(
-        localPage.value,
-        Math.max(1, Math.ceil(length / localPageSize.value))
-      )
-    }
-  )
+  watch(() => search.value.query, resetPage)
 </script>
 <style scoped lang="scss">
   .data-table {

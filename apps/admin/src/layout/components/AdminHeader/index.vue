@@ -25,11 +25,11 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 20px;
+    gap: var(--admin-gap);
     padding: 0 24px;
     min-width: 0;
-    background: #fff;
-    border-bottom: 1px solid #e8e8e8;
+    background: var(--admin-surface);
+    border-bottom: 1px solid var(--admin-border);
     svg {
       width: 16px;
       height: 16px;
@@ -44,7 +44,7 @@
       font-size: 13px;
     }
     .location-root {
-      color: #909399;
+      color: var(--el-text-color-secondary);
     }
     .separator {
       width: 11px;
@@ -52,7 +52,7 @@
       color: #b7bac1;
     }
     .location-current {
-      color: #606266;
+      color: var(--el-text-color-regular);
       white-space: nowrap;
     }
     .account-avatar {
@@ -61,18 +61,18 @@
       width: 28px;
       height: 28px;
       border-radius: 50%;
-      background: #f0f2f5;
-      color: #909399;
+      background: var(--el-fill-color);
+      color: var(--el-text-color-secondary);
     }
     .username {
-      color: #606266;
+      color: var(--el-text-color-regular);
       max-width: 160px;
       white-space: nowrap;
       text-overflow: ellipsis;
       overflow: hidden;
     }
     .header-account .el-button {
-      color: #909399;
+      color: var(--el-text-color-secondary);
       font-size: 12px;
     }
     .menu-toggle {

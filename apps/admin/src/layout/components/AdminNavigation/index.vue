@@ -6,16 +6,13 @@
       ></router-link
     >
     <nav aria-label="后台导航">
-      <template v-for="group in groups" :key="group.name"
-        ><span class="group-title">{{ group.name }}</span
-        ><router-link
-          v-for="item in group.items"
-          :key="item.id"
-          :to="'/manage/' + item.id"
-          @click="emit('select')"
-          ><component :is="icons[item.id]" /><span>{{ item.label }}</span></router-link
-        ></template
-      >
+      <el-menu :default-active="route.path" router @select="emit('select')">
+        <el-menu-item-group v-for="group in groups" :key="group.name" :title="group.name">
+          <el-menu-item v-for="item in group.items" :key="item.id" :index="'/manage/' + item.id">
+            <el-icon><component :is="icons[item.id]" /></el-icon><span>{{ item.label }}</span>
+          </el-menu-item>
+        </el-menu-item-group>
+      </el-menu>
     </nav>
     <router-link class="download-entry" to="/" @click="emit('select')"
       ><Download />客户端下载<ArrowRight
@@ -24,6 +21,7 @@
 </template>
 <script setup lang="ts">
   import { computed } from 'vue'
+  import { useRoute } from 'vue-router'
   import {
     ArrowRight,
     Collection,
@@ -41,6 +39,7 @@
     View,
   } from '@element-plus/icons-vue'
   import type { NavigationItem } from '../../types'
+  const route = useRoute()
   const props = defineProps<{ items: NavigationItem[] }>()
   const emit = defineEmits<{ select: [] }>()
   const icons = {
@@ -70,7 +69,7 @@
     min-height: 0;
     display: grid;
     grid-template-rows: 60px minmax(0, 1fr) auto;
-    background: #fff;
+    background: var(--admin-surface);
     svg {
       width: 16px;
       height: 16px;
@@ -81,7 +80,7 @@
       align-items: center;
       gap: 10px;
       padding: 0 22px;
-      border-bottom: 1px solid #ebeef5;
+      border-bottom: 1px solid var(--admin-border);
       img {
         width: 30px;
         height: 30px;
@@ -89,54 +88,28 @@
       > span {
         font-size: 19px;
         font-weight: 600;
-        color: #303133;
+        color: var(--el-text-color-primary);
       }
       small {
         display: block;
         margin-top: 2px;
-        color: #909399;
+        color: var(--el-text-color-secondary);
         font-size: 10px;
         font-weight: 400;
       }
     }
     nav {
-      display: grid;
-      align-content: start;
-      gap: 3px;
-      padding: 14px 12px;
       overflow-y: auto;
-      a {
-        display: flex;
-        align-items: center;
-        gap: 11px;
-        color: #606266;
-        padding: 11px 14px;
-        border-radius: 4px;
-        font-size: 13px;
-        min-width: 0;
-        &:hover {
-          background: #f5f7fa;
-        }
-        &.router-link-active {
-          color: #409eff;
-          background: #ecf5ff;
-          font-weight: 500;
-        }
-        svg {
-          color: #909399;
-        }
-        &.router-link-active svg {
-          color: inherit;
-        }
+      padding: 12px;
+      .el-menu {
+        border: 0;
       }
-    }
-    .group-title {
-      font-size: 10px;
-      color: #a0a3a8;
-      letter-spacing: 1px;
-      padding: 14px 14px 7px;
-      &:first-child {
-        padding-top: 3px;
+      .el-menu-item {
+        height: 42px;
+        border-radius: var(--admin-radius);
+      }
+      :deep(.el-menu-item-group__title) {
+        font-size: 12px;
       }
     }
     .download-entry {
@@ -145,15 +118,15 @@
       gap: 10px;
       margin: 0 18px;
       padding: 17px 8px;
-      color: #909399;
-      border-top: 1px solid #ebeef5;
+      color: var(--el-text-color-secondary);
+      border-top: 1px solid var(--admin-border);
       font-size: 12px;
       > svg:last-child {
         margin-left: auto;
         width: 12px;
       }
       &:hover {
-        color: #409eff;
+        color: var(--el-color-primary);
       }
     }
   }

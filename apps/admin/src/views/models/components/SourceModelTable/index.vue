@@ -53,7 +53,8 @@
   </div>
 </template>
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue'
+  import { computed } from 'vue'
+  import { usePage } from '@/hooks/usePage'
   import QyqTable from '@/components/qyq-table/index.vue'
   import type { Model } from '@/types/models'
   import { verificationLabel as verification } from '../../model-status'
@@ -68,8 +69,7 @@
     check: [model: Model]
     toggle: [model: Model]
   }>()
-  const page = ref(1),
-    pageSize = ref(10)
+  const { page, pageSize } = usePage(() => props.models.length)
   const columns = computed(() => [
     { prop: 'name', label: '模型', minWidth: 220 },
     { prop: 'status', label: '状态', width: 160 },
@@ -81,18 +81,6 @@
   const pageRows = computed(() =>
     props.models.slice((page.value - 1) * pageSize.value, page.value * pageSize.value)
   )
-  watch(pageSize, () => {
-    page.value = 1
-  })
-  watch(
-    () => props.models.length,
-    () => {
-      page.value = Math.min(
-        page.value,
-        Math.max(1, Math.ceil(props.models.length / pageSize.value))
-      )
-    }
-  )
 </script>
 <style scoped lang="scss">
   .source-model-table {
@@ -100,7 +88,7 @@
     .model-id {
       display: block;
       font-size: 11px;
-      color: #909399;
+      color: var(--el-text-color-secondary);
       margin-top: 6px;
       overflow-wrap: anywhere;
     }

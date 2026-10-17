@@ -488,15 +488,6 @@
     flex: 1;
   }
 
-  .advanced-table :deep(.el-table__header-wrapper th.el-table__cell) {
-    background: rgba(0, 0, 0, 0.02);
-  }
-
-  .advanced-table :deep(.el-table__header-wrapper .cell) {
-    color: #606266;
-    font-weight: 600;
-  }
-
   .pagination-wrapper {
     display: flex;
     justify-content: flex-end;
