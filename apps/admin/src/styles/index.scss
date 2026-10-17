@@ -23,7 +23,7 @@ textarea {
   font: inherit;
 }
 .el-dialog {
-  max-width: calc(100vw - 28px);
+  max-width: min(640px, calc(100vw - 32px));
   border-radius: 6px !important;
 }
 .el-select,

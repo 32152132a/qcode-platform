@@ -37,3 +37,5 @@ import './desktop-distribution.test.js';
 import './model-sources.test.js';
 
 import './web-pages.test.js';
+
+import './request-queue.test.js';

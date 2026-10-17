@@ -1,3 +1,4 @@
+import { createAccountRequestQueue } from './request-queue.js';
 import { registerWebPages } from './web-pages.js';
 import {migrateModelSources,registerModelSources,sourcesFor,backupBeforeModelSources} from './model-sources.js';
 import { registerKnowledge } from './knowledge.js';
@@ -310,7 +311,17 @@ export function createApp(config, database) {
   app.get('/v1/models', (req, res) => {
     res.json({ object: 'list', data: availableModels(db.read()).map(model => ({ id: model.public_name, object: 'model', created: 0, owned_by: 'qcode' })) });
   });
-  app.post('/v1/chat/completions', (req, res) => complete(req, res, { db, vault, config, activeRequests }));
+  const queueRequest = createAccountRequestQueue({
+    waitMs: config.requestQueueWaitMs ?? 15000,
+    canStart: userId => {
+      const state = db.read(), user = state.users.find(item => item.id === userId);
+      return !user || state.requests.filter(item => item.user_id === userId && item.status === 'pending').length < (user.max_concurrent_requests || 1);
+    },
+  });
+  app.post('/v1/chat/completions', (req, res) => queueRequest(req, res, () => {
+    auth(req, res, () => {});
+    return complete(req, res, { db, vault, config, activeRequests });
+  }));
   app.use((_req, _res) => fail(404, 'NOT_FOUND', 'Endpoint not found'));
   app.use((error, _req, res, _next) => {
     if (res.headersSent) return res.destroy();

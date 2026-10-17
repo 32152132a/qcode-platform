@@ -11,3 +11,6 @@ artifacts/
 
 /apps/admin/dist/
 /apps/server/public/console/
+
+# Local browser test logs and scratch files
+/apps/server/.cache/

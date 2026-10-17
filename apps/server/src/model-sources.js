@@ -61,34 +61,20 @@ function family(value) {
               ? 'qwen'
               : null
 }
-export function selectSourceModels(models, kind) {
-  const valid = models.filter(
-    (m) =>
-      (kind === 'local' ||
-        !m.supported_endpoint_types?.length ||
-        m.supported_endpoint_types.some((value) =>
-          [
-            'openai',
-            'chat-completions',
-            'openai-response',
-            'responses',
-            'openai-compatible',
-          ].includes(String(value).toLowerCase())
-        )) &&
-      typeof m.id === 'string' &&
-      m.id.length <= 120 &&
-      !/[\x00-\x1f]/.test(m.id) &&
-      !/(embedding|rerank|image|video|audio|tts|whisper|dall-e)/i.test(m.id)
+export function catalogModelIssue(model, kind) {
+  if (/(embedding|rerank|image|video|audio|tts|whisper|dall-e)/i.test(model.id))
+    return '暂不支持该类模型'
+  if (
+    kind !== 'local' &&
+    model.supported_endpoint_types?.length &&
+    !model.supported_endpoint_types.some((value) =>
+      ['openai', 'chat-completions', 'openai-response', 'responses', 'openai-compatible'].includes(
+        String(value).toLowerCase()
+      )
+    )
   )
-  if (kind === 'local') return valid.filter((m) => /qwen.*0[.:]5b/i.test(m.id)).slice(0, 1)
-  if (kind === 'official') return valid.filter((m) => family(m.id) === 'deepseek').slice(0, 4)
-  const standard = valid.filter(
-    (model) =>
-      !/(?:^|[-_/ .])(preview|experimental|exp|test|testing|beta|alpha|channel|route|relay|vip|trial|aws|bedrock|vertex|kiro)(?:$|[-_/ .\d])/i.test(
-        model.id
-      ) && !/(?:[-_/@]\d+(?:\.\d+)?x(?:$|[-_/ .])|渠道|倍率|测试)/i.test(model.id)
-  )
-  return [...new Map(standard.map((model) => [model.id, model])).values()].slice(0, 30)
+    return '上游未声明兼容的对话接口'
+  return null
 }
 export function modelBody(model) {
   return {
@@ -258,7 +244,9 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
                 },
               ])
           ).values(),
-        ].slice(0, 2000)
+        ]
+        if (catalog.length > 2000)
+          fail(502, 'CATALOG_TOO_LARGE', '模型数量超过 2000 个，请缩小上游列表；保留原列表')
         if (!catalog.length) fail(502, 'INVALID_CATALOG', '未找到有效模型')
         return db.transaction((state) => {
           const current = find(state, sourceId),
@@ -269,71 +257,26 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
             (key && (!currentKey?.active || currentKey.secret !== key.secret))
           )
             fail(409, 'SOURCE_CHANGED', '来源或 Key 已更改，请重新同步')
-          const selected = selectSourceModels(catalog, current.kind),
-            all = new Set(catalog.map((m) => m.id))
-          const recommended = new Set(selected.map((model) => model.id))
-          for (const model of state.models.filter((m) => m.source_id === sourceId)) {
+          const all = new Set(catalog.map((model) => model.id))
+          for (const model of state.models.filter((model) => model.source_id === sourceId))
             model.catalog_available = all.has(model.upstream_model)
-            model.recommended = recommended.has(model.upstream_model)
-          }
-          for (const candidate of selected) {
-            if (
-              state.models.some(
-                (m) => m.source_id === sourceId && m.upstream_model === candidate.id
-              )
-            )
-              continue
-            const publicName =
-              'qcode-' +
-              sourceId.slice(0, 8) +
-              '-' +
-              createHash('sha256').update(candidate.id).digest('hex').slice(0, 12)
-            let displayName = candidate.id
-            let suffix = 2
-            while (
-              state.models.some(
-                (model) =>
-                  model.name.trim().normalize('NFKC').toLowerCase() ===
-                  displayName.normalize('NFKC').toLowerCase()
-              )
-            ) {
-              displayName = candidate.id + ' (' + suffix++ + ')'
-            }
-            const model = saveModel(state, {
-              name: displayName,
-              publicName,
-              pricingKnown: false,
-              upstreamModel: candidate.id,
-              baseUrl: current.base_url,
-              keyId: current.key_id,
-              provider: current.kind === 'local' ? 'ollama' : family(candidate.id) || 'custom',
-              protocol:
-                candidate.supported_endpoint_types?.some((value) =>
-                  ['openai-response', 'responses'].includes(String(value).toLowerCase())
-                ) &&
-                !candidate.supported_endpoint_types?.some((value) =>
-                  ['openai', 'chat-completions'].includes(String(value).toLowerCase())
-                )
-                  ? 'responses'
-                  : current.protocol,
-              maxOutputTokens: current.kind === 'local' ? 256 : 8192,
-              contextWindow: current.kind === 'local' ? 32768 : 131072,
-              active: current.kind === 'local',
-            })
-            model.source_id = sourceId
-            model.catalog_available = true
-            model.recommended = true
-            model.discovered = true
-          }
-          current.catalog = catalog
+          current.catalog = catalog.map((model) => ({
+            ...model,
+            unavailable_reason: catalogModelIssue(model, current.kind),
+          }))
+          current.catalog_revision = id()
+          current.catalog_source_revision = current.revision
+          current.catalog_key_fingerprint = key
+            ? createHash('sha256').update(key.secret).digest('hex')
+            : null
           current.synced_at = now()
           current.sync_status = 'ok'
           current.sync_error = null
           audit(state, actor, 'source.sync', sourceId)
           return {
             source: current,
-            addedCandidates: selected.length,
-            note: '自动发现的云模型默认待验证，验证通过后可启用；已有编辑和开关保持不变',
+            addedCandidates: 0,
+            note: '已读取候选列表，请选择需要导入的模型；已有配置保持不变',
           }
         })
       } catch (error) {
@@ -385,6 +328,95 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
   app.post('/admin/models/sources/:id/sync', async (req, res) =>
     res.json(await synchronize(req.params.id, req.user))
   )
+  app.post('/admin/models/sources/:id/import', (req, res) => {
+    const body = req.body || {}
+    if (
+      !Array.isArray(body.modelIds) ||
+      !body.modelIds.length ||
+      body.modelIds.length > 2000 ||
+      body.modelIds.some((value) => typeof value !== 'string')
+    )
+      fail(400, 'INVALID_SELECTION', '请选择需要导入的模型')
+    res.json(
+      db.transaction((state) => {
+        const sourceId = req.params.id,
+          current = find(state, sourceId)
+        if (!current.active) fail(409, 'SOURCE_DISABLED', '请先启用服务来源')
+        const key =
+          current.kind === 'local'
+            ? null
+            : state.keys.find((item) => item.id === current.key_id && item.active)
+        if (current.kind !== 'local' && !key) fail(400, 'INVALID_KEY', '请为服务来源配置有效 Key')
+        if (
+          !body.catalogRevision ||
+          body.catalogRevision !== current.catalog_revision ||
+          current.catalog_source_revision !== current.revision ||
+          current.catalog_key_fingerprint !==
+            (key ? createHash('sha256').update(key.secret).digest('hex') : null)
+        )
+          fail(409, 'CATALOG_CHANGED', '模型列表或服务配置已更新，请关闭弹窗后重新同步')
+        const ids = new Set(body.modelIds),
+          selected = (current.catalog || []).filter((model) => ids.has(model.id))
+        if (
+          selected.length !== ids.size ||
+          selected.some((model) => catalogModelIssue(model, current.kind))
+        )
+          fail(400, 'INVALID_SELECTION', '所选模型不存在或暂不支持，请重新选择')
+        let added = 0
+        for (const candidate of selected) {
+          if (
+            state.models.some((m) => m.source_id === sourceId && m.upstream_model === candidate.id)
+          )
+            continue
+          const publicName =
+            'qcode-' +
+            sourceId.slice(0, 8) +
+            '-' +
+            createHash('sha256').update(candidate.id).digest('hex').slice(0, 12)
+          let displayName = candidate.id
+          let suffix = 2
+          while (
+            state.models.some(
+              (model) =>
+                model.name.trim().normalize('NFKC').toLowerCase() ===
+                displayName.normalize('NFKC').toLowerCase()
+            )
+          ) {
+            displayName = candidate.id + ' (' + suffix++ + ')'
+          }
+          const model = saveModel(state, {
+            name: displayName,
+            publicName,
+            pricingKnown: false,
+            upstreamModel: candidate.id,
+            baseUrl: current.base_url,
+            keyId: current.key_id,
+            provider: current.kind === 'local' ? 'ollama' : family(candidate.id) || 'custom',
+            protocol:
+              candidate.supported_endpoint_types?.some((value) =>
+                ['openai-response', 'responses'].includes(String(value).toLowerCase())
+              ) &&
+              !candidate.supported_endpoint_types?.some((value) =>
+                ['openai', 'chat-completions'].includes(String(value).toLowerCase())
+              )
+                ? 'responses'
+                : current.protocol,
+            maxOutputTokens: current.kind === 'local' ? 256 : 8192,
+            contextWindow: current.kind === 'local' ? 32768 : 131072,
+            active: false,
+          })
+          model.source_id = sourceId
+          model.catalog_available = true
+          model.recommended = true
+          model.discovered = true
+          added++
+        }
+
+        audit(state, req.user, 'source.import', sourceId)
+        return { added, skipped: selected.length - added }
+      })
+    )
+  })
   app.post('/admin/models/sources/:id/models', (req, res) =>
     res.status(201).json(
       db.transaction((state) => {

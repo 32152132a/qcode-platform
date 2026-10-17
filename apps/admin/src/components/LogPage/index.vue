@@ -8,28 +8,13 @@
       ><el-button @click="load">刷新</el-button
       ><el-button @click="exportCsv">导出 CSV</el-button></template
     >
-    <div class="filters">
-      <el-input
-        v-model="search"
-        placeholder="搜索用户、模型或操作"
-        clearable
-        @keyup.enter="apply"
-      /><el-date-picker
-        v-model="dates"
-        type="daterange"
-        value-format="YYYY-MM-DD"
-        start-placeholder="开始日期"
-        end-placeholder="结束日期"
-      /><el-select v-if="kind === 'requests'" v-model="status" placeholder="全部状态" clearable
-        ><el-option v-for="item in statuses" :key="item" :label="item" :value="item" /></el-select
-      ><el-button @click="apply">查询</el-button>
-    </div>
-    <DataTable :rows="data?.items || []" :columns="columns" /><el-pagination
-      :current-page="page"
-      :page-size="25"
-      :total="data?.total || 0"
-      layout="total, prev, pager, next"
-      @current-change="changePage"
+    <LogFilters :kind="kind" @search="apply" />
+    <DataTable
+      :rows="data?.items || []"
+      :columns="columns"
+      :searchable="false"
+      :server-pagination="{ page, pageSize: 25, total: data?.total || 0 }"
+      @page-change="changePage"
   /></PagePanel>
 </template>
 <script setup lang="ts">
@@ -37,17 +22,14 @@
   import { ElMessage } from 'element-plus'
   import PagePanel from '@/components/PagePanel/index.vue'
   import DataTable from '@/components/DataTable/index.vue'
+  import LogFilters from './components/LogFilters/index.vue'
   import { useResource } from '@/hooks/useResource'
   import { download } from '@/api/request'
   import { date } from '@/utils/forms'
   import type { Row, Column } from '@/types'
   const props = defineProps<{ kind: 'requests' | 'audits' }>()
   const page = ref(1),
-    search = ref(''),
-    dates = ref<string[]>([]),
-    status = ref(''),
     query = ref('')
-  const statuses = ['success', 'failed', 'pending', 'interrupted']
   const { data, loading, error, load } = useResource<{ items: Row[]; total: number }>(
     () => '/admin/' + props.kind + '?offset=' + (page.value - 1) * 25 + '&limit=25' + query.value
   )
@@ -78,14 +60,8 @@
           { prop: 'target', label: '对象', minWidth: 200 },
         ]
   )
-  function apply() {
+  function apply(values: Record<string, string>) {
     page.value = 1
-    const values: Record<string, string> = { search: search.value }
-    if (dates.value?.length === 2) {
-      values.from = dates.value[0]
-      values.to = dates.value[1]
-    }
-    if (status.value && props.kind === 'requests') values.status = status.value
     query.value = '&' + new URLSearchParams(values)
     void load()
   }
@@ -103,18 +79,3 @@
     }
   }
 </script>
-<style scoped lang="scss">
-  .filters {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    :deep(.el-date-editor) {
-      max-width: 100%;
-      min-width: 0;
-    }
-    .el-input,
-    .el-select {
-      width: 220px;
-    }
-  }
-</style>

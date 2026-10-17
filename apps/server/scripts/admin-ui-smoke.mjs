@@ -66,7 +66,7 @@ try {
   console.log('CREATE USER passed')
   await page.goto(origin + '/manage/models')
   await page.getByRole('tab', { name: /中转站/ }).click()
-  await page.getByRole('button', { name: '添加服务来源' }).click()
+  await page.getByRole('button', { name: '添加中转站' }).click()
   await dialog.getByLabel('来源名称', { exact: true }).fill('Test relay')
   await dialog.getByLabel('服务基础地址', { exact: true }).fill('https://example.invalid/v1')
   await dialog.getByLabel('API Key', { exact: true }).fill('fixture-only-private-key')

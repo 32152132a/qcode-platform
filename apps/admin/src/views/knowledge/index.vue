@@ -9,9 +9,11 @@
       ><el-button v-if="auth.can('knowledge:write')" type="primary" @click="picker?.click()"
         >上传文档</el-button
       ><input ref="picker" type="file" accept=".md,.txt" hidden @change="upload" /></template
-    ><el-input v-model="query" placeholder="搜索知识库内容" clearable @keyup.enter="search"
-      ><template #append><el-button @click="search">检索</el-button></template></el-input
-    ><el-alert v-if="searchError" :title="searchError" type="error" :closable="false" /><el-card
+    ><KnowledgeSearch v-model="query" @search="search" /><el-alert
+      v-if="searchError"
+      :title="searchError"
+      type="error"
+      :closable="false" /><el-card
       v-for="result in results"
       :key="String(result.documentId)"
       shadow="never"
@@ -25,6 +27,7 @@
   import { ref, computed } from 'vue'
   import { ElMessage } from 'element-plus'
   import PagePanel from '@/components/PagePanel/index.vue'
+  import KnowledgeSearch from './components/KnowledgeSearch/index.vue'
   import DataTable, { type RowAction } from '@/components/DataTable/index.vue'
   import EntityDialog from '@/components/EntityDialog/index.vue'
   import { useResource } from '@/hooks/useResource'

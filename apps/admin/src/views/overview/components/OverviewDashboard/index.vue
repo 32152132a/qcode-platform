@@ -1,13 +1,14 @@
 <template>
   <PagePanel
     title="工作台概览"
-    description="查看团队的模型使用、请求状态与估算成本。"
+    description="连接团队成员与 AI，统一管理账号、模型和使用情况。"
     :error="error"
     transparent
     ><template #actions
       ><el-button :loading="loading" @click="load"><Refresh />刷新数据</el-button></template
     >
     <section class="overview">
+      <PlatformIntro />
       <div class="toolbar">
         <div class="period-label">
           <Calendar /><span>{{ rangeLabel }}</span
@@ -166,6 +167,7 @@
   import { useResource } from '@/hooks/useResource'
   import PagePanel from '@/components/PagePanel/index.vue'
   import UsageTrend from '../UsageTrend/index.vue'
+  import PlatformIntro from '../PlatformIntro/index.vue'
   import type { OverviewUsage, UsageGroup } from '../types'
   const dates = ref<[string, string] | null>(null)
   const query = ref('')

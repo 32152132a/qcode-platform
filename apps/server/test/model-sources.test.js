@@ -3,7 +3,18 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import { once } from 'node:events'
 import { fixture } from './gateway.test.js'
-import { selectSourceModels } from '../src/model-sources.js'
+import { catalogModelIssue } from '../src/model-sources.js'
+async function importSelected(f, sourceId, modelIds) {
+  const sync = await f.request('/admin/models/sources/' + sourceId + '/sync', 'POST', {}, f.admin)
+  assert.equal(sync.status, 200)
+  return f.request(
+    '/admin/models/sources/' + sourceId + '/import',
+    'POST',
+    { modelIds, catalogRevision: sync.body.source.catalog_revision },
+    f.admin
+  )
+}
+
 test('model source switch blocks all new requests while preserving model identities and history', async (t) => {
   const f = await fixture(t)
   await f.create()
@@ -59,6 +70,8 @@ test('source discovery scopes credentials and preserves edits, disables retired 
   const sync = () => f.request('/admin/models/sources/' + source.id + '/sync', 'POST', {}, f.admin)
   assert.equal((await sync()).status, 200)
   assert.equal(received[0], 'Bearer test-private-relay-secret')
+  assert.equal(f.db.read().models.filter((m) => m.source_id === source.id).length, 0)
+  assert.equal((await importSelected(f, source.id, models.slice(0, 3))).status, 200)
   let saved = f.db.read().models.filter((m) => m.source_id === source.id)
   assert.equal(saved.length, 3)
   assert(saved.every((m) => !m.active))
@@ -88,23 +101,21 @@ test('source discovery scopes credentials and preserves edits, disables retired 
   const token = await f.login()
   assert.equal((await f.request('/admin/models/sources', 'POST', {}, token)).status, 403)
 })
-test('synced models exclude non-text and test variants while preserving upstream order', () => {
-  const rows = [
-    'gpt-5-preview',
-    'gpt-4.9',
+test('manual catalog selection keeps versions and variants but marks unsupported capabilities', () => {
+  for (const id of [
+    'claude-opus-5-5',
+    'claude-opus-5-5-preview',
     'gpt-5.1',
-    'gpt-image-1',
-    'text-embedding-3',
     'gemini-3-pro',
+    'model-channel',
     'qwen:0.5b',
-  ].map((id) => ({ id }))
-  assert.deepEqual(
-    selectSourceModels(rows, 'relay').map((m) => m.id),
-    ['gpt-4.9', 'gpt-5.1', 'gemini-3-pro', 'qwen:0.5b']
-  )
-  assert.deepEqual(
-    selectSourceModels(rows, 'local').map((m) => m.id),
-    ['qwen:0.5b']
+  ])
+    assert.equal(catalogModelIssue({ id }, 'relay'), null)
+  assert(catalogModelIssue({ id: 'text-embedding-3' }, 'relay'))
+  assert(catalogModelIssue({ id: 'non-chat', supported_endpoint_types: ['image'] }, 'relay'))
+  assert.equal(
+    catalogModelIssue({ id: 'claude-opus-5-5', supported_endpoint_types: ['openai'] }, 'relay'),
+    null
   )
 })
 
@@ -134,37 +145,7 @@ test('source migration snapshot is encrypted and compatible with the existing re
   assert.equal(restored.requests, 0)
 })
 
-test('relay sync selects the first 30 distinct eligible models and keeps official Pro and Flash', () => {
-  const standard = [
-    'claude-opus-4-5',
-    'gemini-2.5-pro',
-    'gemini-2.5-flash',
-    ...Array.from({ length: 40 }, (_, i) => 'model-' + i),
-  ]
-  const rejected = [
-    'gpt-image-1',
-    'text-embedding-3',
-    'claude-opus-4-5-channel',
-    'claude-opus-4-5-2x',
-    'gpt-test',
-    'gemini-3-pro-preview',
-    'model-渠道',
-    'model-2.5x',
-    'model-beta',
-    'model-aws',
-  ]
-  const rows = [...rejected, standard[0], ...standard].map((id) => ({ id }))
-  rows.unshift({ id: 'non-chat', supported_endpoint_types: ['image'] })
-  const ids = selectSourceModels(rows, 'relay').map((model) => model.id)
-  assert.deepEqual(ids, standard.slice(0, 30))
-  assert.equal(ids.length, 30)
-  assert.deepEqual(
-    selectSourceModels([{ id: 'claude-opus-4-5-20251101' }], 'relay').map((model) => model.id),
-    ['claude-opus-4-5-20251101']
-  )
-})
-
-test('resync refreshes recommendation flags without removing configured models or resetting user choices', async (t) => {
+test('resync only refreshes catalog and availability without importing models or resetting choices', async (t) => {
   const f = await fixture(t)
   let ids = ['claude-sonnet-4-5', 'claude-opus-4-5-thinking']
   const upstream = http.createServer((_req, res) =>
@@ -191,6 +172,7 @@ test('resync refreshes recommendation flags without removing configured models o
       f.admin
     )
   ).body
+  assert.equal((await importSelected(f, source.id, [ids[0]])).status, 200)
   const existing = f.db.read().models.find((model) => model.source_id === source.id)
   assert.equal(existing.upstream_model, 'claude-sonnet-4-5')
   await f.request(
@@ -213,13 +195,10 @@ test('resync refreshes recommendation flags without removing configured models o
   assert.equal(preserved.name, '团队常用模型')
   assert.equal(preserved.active, true)
   assert.equal(preserved.max_output_tokens, 1024)
-  assert.equal(preserved.recommended, false)
   assert.equal(preserved.catalog_available, true)
-  assert(
-    saved.some(
-      (model) => model.upstream_model === 'claude-opus-4-5' && model.recommended && !model.active
-    )
-  )
+  assert.equal(saved.length, 1)
+  assert.equal((await importSelected(f, source.id, ['claude-opus-4-5'])).status, 200)
+  assert.equal(f.db.read().models.filter((model) => model.source_id === source.id).length, 2)
 })
 
 test('client model names do not expose source labels and model display names are unique on create and rename', async (t) => {
@@ -353,6 +332,10 @@ test('discovering identical upstream IDs across sources creates distinct names w
       ).status,
       201
     )
+  for (const source of f.db
+    .read()
+    .settings.modelSources.filter((source) => ['Source A', 'Source B'].includes(source.name)))
+    assert.equal((await importSelected(f, source.id, ['claude-opus-4-5'])).status, 200)
   const models = f.db.read().models.filter((model) => model.upstream_model === 'claude-opus-4-5')
   assert.equal(models.length, 2)
   assert.deepEqual(
@@ -370,5 +353,83 @@ test('discovering identical upstream IDs across sources creates distinct names w
   assert.equal(
     f.db.read().models.filter((model) => model.upstream_model === 'claude-opus-4-5').length,
     2
+  )
+})
+
+test('full catalog selection imports beyond thirty, is atomic, idempotent and rejects stale or disabled sources', async (t) => {
+  const f = await fixture(t)
+  const ids = [
+    ...Array.from({ length: 45 }, (_, i) => 'model-' + i),
+    'claude-opus-5-5',
+    'text-embedding-3',
+  ]
+  const upstream = http.createServer((_req, res) =>
+    res
+      .writeHead(200, { 'content-type': 'application/json' })
+      .end(JSON.stringify({ data: ids.map((id) => ({ id })) }))
+  )
+  upstream.listen(0, '127.0.0.1')
+  await once(upstream, 'listening')
+  t.after(() => {
+    upstream.closeAllConnections()
+    upstream.close()
+  })
+  const source = (
+    await f.request(
+      '/admin/models/sources',
+      'POST',
+      {
+        kind: 'relay',
+        name: 'Manual selection',
+        baseUrl: 'http://127.0.0.1:' + upstream.address().port,
+        apiKey: 'fake-import-key',
+      },
+      f.admin
+    )
+  ).body
+  const sync = (
+    await f.request('/admin/models/sources/' + source.id + '/sync', 'POST', {}, f.admin)
+  ).body.source
+  assert.equal(sync.catalog.length, 47)
+  assert.equal(f.db.read().models.filter((model) => model.source_id === source.id).length, 0)
+  const submit = (modelIds, catalogRevision = sync.catalog_revision) =>
+    f.request(
+      '/admin/models/sources/' + source.id + '/import',
+      'POST',
+      { modelIds, catalogRevision },
+      f.admin
+    )
+  assert.equal((await submit(['model-0', 'missing'])).status, 400)
+  assert.equal((await submit(['model-0', 'text-embedding-3'])).status, 400)
+  assert.equal(f.db.read().models.filter((model) => model.source_id === source.id).length, 0)
+  const chosen = ['model-0', 'claude-opus-5-5']
+  assert.deepEqual((await submit(chosen)).body, { added: 2, skipped: 0 })
+  assert.deepEqual((await submit(chosen)).body, { added: 0, skipped: 2 })
+  assert(
+    f.db
+      .read()
+      .models.filter((model) => model.source_id === source.id)
+      .every((model) => !model.active)
+  )
+  await f.request('/admin/models/sources/' + source.id + '/sync', 'POST', {}, f.admin)
+  assert.equal((await submit(['model-1'])).body.error.code, 'CATALOG_CHANGED')
+  const current = f.db.read().settings.modelSources.find((item) => item.id === source.id)
+  await f.request('/admin/models/sources/' + source.id, 'PUT', { name: 'Changed source' }, f.admin)
+  assert.equal((await submit(['model-1'], current.catalog_revision)).status, 409)
+  await f.request('/admin/models/sources/' + source.id, 'PUT', { active: false }, f.admin)
+  assert.equal((await submit(['model-1'])).body.error.code, 'SOURCE_DISABLED')
+  assert.equal(f.db.read().models.filter((model) => model.source_id === source.id).length, 2)
+  await f.create()
+  const token = await f.login()
+  assert.equal(
+    (
+      await f.request(
+        '/admin/models/sources/' + source.id + '/import',
+        'POST',
+        { modelIds: chosen, catalogRevision: sync.catalog_revision },
+        token
+      )
+    ).status,
+    403
   )
 })

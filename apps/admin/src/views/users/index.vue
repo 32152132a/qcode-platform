@@ -12,20 +12,8 @@
         ><el-button type="primary" @click="edit()">创建用户</el-button></template
       ></template
     ><DataTable :rows="data || []" :columns="columns" :actions="actions" /><EntityDialog
-      ref="editor"
-    /><el-dialog v-model="showSessions" title="登录设备" width="650px"
-      ><el-table :data="sessions"
-        ><el-table-column prop="device" label="设备" /><el-table-column
-          prop="created_at"
-          label="登录时间"
-        /><el-table-column label="操作"
-          ><template #default="{ row }"
-            ><el-button link type="danger" @click="revokeSession(row)">撤销</el-button></template
-          ></el-table-column
-        ></el-table
-      ></el-dialog
-    ></PagePanel
-  >
+      ref="editor" /><UserSessionsDialog ref="sessionDialog"
+  /></PagePanel>
 </template>
 <script setup lang="ts">
   import { computed, ref } from 'vue'
@@ -33,6 +21,7 @@
   import PagePanel from '@/components/PagePanel/index.vue'
   import DataTable, { type RowAction } from '@/components/DataTable/index.vue'
   import EntityDialog from '@/components/EntityDialog/index.vue'
+  import UserSessionsDialog from './components/UserSessionsDialog/index.vue'
   import { useResource } from '@/hooks/useResource'
   import { useAuthStore } from '@/stores/auth'
   import { request } from '@/api/request'
@@ -42,9 +31,7 @@
   const auth = useAuthStore(),
     { data, loading, error, load } = useResource<Row[]>(() => '/admin/users'),
     editor = ref<InstanceType<typeof EntityDialog>>(),
-    showSessions = ref(false),
-    sessions = ref<Row[]>([]),
-    sessionUser = ref<Row>()
+    sessionDialog = ref<InstanceType<typeof UserSessionsDialog>>()
   const columns: Column[] = [
     { prop: 'username', label: '用户', minWidth: 120 },
     { prop: 'department', label: '部门' },
@@ -237,20 +224,8 @@
       ElMessage.error(cause instanceof Error ? cause.message : '读取失败')
     }
   }
-  async function openSessions(row: Row) {
-    sessionUser.value = row
-    sessions.value = await request<Row[]>('/admin/users/' + row.id + '/sessions')
-    showSessions.value = true
-  }
-  async function revokeSession(row: Row) {
-    await confirmAction(
-      '撤销这个设备登录？',
-      () => request('/admin/users/' + sessionUser.value?.id + '/sessions/' + row.id, 'DELETE'),
-      () => {
-        void openSessions(sessionUser.value!)
-        void load()
-      }
-    )
+  function openSessions(row: Row) {
+    return sessionDialog.value?.open(row, load)
   }
   async function importCsv() {
     try {

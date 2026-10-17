@@ -10,7 +10,12 @@ export interface ModelSource {
   synced_at?: string
   sync_status?: string
   sync_error?: string
-  catalog?: { id: string }[]
+  catalog_revision?: string
+  catalog?: {
+    id: string
+    supported_endpoint_types?: string[]
+    unavailable_reason?: string | null
+  }[]
 }
 export interface Model {
   id: string

@@ -1,12 +1,24 @@
 <template>
   <div class="data-table">
-    <el-input
+    <QyqForm
+      @submit.prevent
+      v-if="searchable"
       v-model="search"
-      placeholder="搜索当前列表"
-      clearable
-      aria-label="搜索当前列表"
-    /><QyqTable :data="filtered" :columns="tableColumns" :show-pagination="false"
-      ><template #actions-cell="{ row }"
+      class="table-search"
+      :columns="1"
+      :show-btn="false"
+      :form-options="searchFields"
+    />
+    <QyqTable
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      :data="pageRows"
+      :columns="tableColumns"
+      :total="total"
+      :max-height="440"
+      :pagination-config="serverPagination ? { layout: 'total, prev, pager, next' } : {}"
+    >
+      <template #actions-cell="{ row }"
         ><div class="row-actions">
           <el-button
             v-for="action in actions.filter((item) => !item.visible || item.visible(row))"
@@ -18,14 +30,16 @@
             >{{ action.label }}</el-button
           >
         </div></template
-      ></QyqTable
-    >
+      >
+    </QyqTable>
   </div>
 </template>
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { computed, ref, watch } from 'vue'
   import { ElMessage } from 'element-plus'
   import QyqTable from '@/components/qyq-table/index.vue'
+  import QyqForm from '@/components/qyq-form/index.vue'
+  import type { FormItemProp } from '@/components/qyq-form/types'
   import type { Row, Column } from '@/types'
   export interface RowAction {
     label: string
@@ -34,19 +48,75 @@
     run: (row: Row) => unknown | Promise<unknown>
   }
   const props = withDefaults(
-    defineProps<{ rows: Row[]; columns: Column[]; actions?: RowAction[] }>(),
-    { actions: () => [] }
+    defineProps<{
+      rows: Row[]
+      columns: Column[]
+      actions?: RowAction[]
+      searchable?: boolean
+      serverPagination?: { page: number; pageSize: number; total: number }
+    }>(),
+    { actions: () => [], searchable: true }
   )
-  const search = ref(''),
-    busy = ref('')
+  const emit = defineEmits<{ 'page-change': [page: number] }>()
+  const search = ref<Row>({ query: '' }),
+    busy = ref(''),
+    localPage = ref(1),
+    localPageSize = ref(10)
+  const searchFields: FormItemProp[] = [
+    {
+      prop: 'query',
+      type: 'input',
+      label: '搜索当前列表',
+      placeholder: '搜索当前列表',
+      clearable: true,
+      isNotTrim: true,
+      allowSpecialChars: true,
+    },
+  ]
   const filtered = computed(() =>
     props.rows.filter((row) =>
-      JSON.stringify(row).toLowerCase().includes(search.value.toLowerCase())
+      JSON.stringify(row)
+        .toLowerCase()
+        .includes(
+          String(search.value.query || '')
+            .trim()
+            .toLowerCase()
+        )
     )
+  )
+  const total = computed(() => props.serverPagination?.total ?? filtered.value.length)
+  const currentPage = computed({
+    get: () => props.serverPagination?.page ?? localPage.value,
+    set: (value) => {
+      if (props.serverPagination) emit('page-change', value)
+      else localPage.value = value
+    },
+  })
+  const pageSize = computed({
+    get: () => props.serverPagination?.pageSize ?? localPageSize.value,
+    set: (value) => {
+      if (!props.serverPagination) localPageSize.value = value
+    },
+  })
+  const pageRows = computed(() =>
+    props.serverPagination
+      ? props.rows
+      : filtered.value.slice(
+          (localPage.value - 1) * localPageSize.value,
+          localPage.value * localPageSize.value
+        )
   )
   const tableColumns = computed(() =>
     props.actions.length
-      ? [...props.columns, { prop: 'actions', label: '操作', minWidth: 230 }]
+      ? [
+          ...props.columns,
+          {
+            prop: 'actions',
+            label: '操作',
+            minWidth: props.actions.length === 1 ? 110 : 230,
+            fixed: 'right' as const,
+          },
+        ]
       : props.columns
   )
   async function run(action: RowAction, row: Row) {
@@ -59,6 +129,18 @@
       busy.value = ''
     }
   }
+  watch([() => search.value.query, localPageSize], () => {
+    localPage.value = 1
+  })
+  watch(
+    () => filtered.value.length,
+    (length) => {
+      localPage.value = Math.min(
+        localPage.value,
+        Math.max(1, Math.ceil(length / localPageSize.value))
+      )
+    }
+  )
 </script>
 <style scoped lang="scss">
   .data-table {
@@ -66,16 +148,18 @@
     grid-template-columns: minmax(0, 1fr);
     min-width: 0;
     gap: 18px;
-    > .el-input {
+    .table-search {
+      width: 100%;
       max-width: 320px;
+      min-width: 0;
     }
     .row-actions {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-    }
-    .row-actions .el-button {
-      margin: 0;
+      .el-button {
+        margin: 0;
+      }
     }
   }
 </style>
