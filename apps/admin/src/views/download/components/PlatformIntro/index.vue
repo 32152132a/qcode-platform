@@ -3,7 +3,7 @@
     <header class="intro-heading">
       <span class="eyebrow">团队 AI 工作平台</span>
       <h2 id="platform-title">员工安装即用，团队统一管理</h2>
-      <p>把账号、模型和使用管理留在后台，让每个人专注于自己的工作。</p>
+      <p>账号、模型、共享技能与知识库统一配置，让每个人专注于自己的工作。</p>
     </header>
     <div class="roles">
       <article class="role employee">
@@ -16,7 +16,7 @@
       <article class="role admin">
         <div class="role-heading"><span class="role-icon"><Setting /></span><span>给管理员</span></div>
         <h3>统一接入，集中管理</h3>
-        <p>创建员工账号，接入官网、本地部署或中转站模型，统一管理 Key、额度与使用记录。后续上新模型，员工无需重新安装。</p>
+        <p>创建员工账号，接入官网、本地部署或中转站模型，统一管理 Key、额度与使用记录。发布共享 Skill 和知识库资料，员工同步后即可使用；后续上新模型，员工无需重新安装。</p>
         <router-link v-if="!entries.length" class="entry" to="/login">进入管理控制台 <ArrowRight /></router-link>
         <nav v-else class="admin-entries" aria-label="平台管理快捷入口">
           <router-link v-for="entry in entries" :key="entry.path" :to="entry.path">

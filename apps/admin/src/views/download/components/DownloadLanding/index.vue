@@ -88,7 +88,7 @@
         </div>
       </section>
 
-      <div class="wrap"><PlatformIntro /></div>
+      <div class="wrap"><PlatformIntro /><TeamResources /></div>
 
       <section class="benefits wrap" aria-label="产品特点">
         <article v-for="feature in features" :key="feature.title">
@@ -156,6 +156,7 @@
 
 <script setup lang="ts">
 import PlatformIntro from "../PlatformIntro/index.vue";
+import TeamResources from "../TeamResources/index.vue";
 import { ref } from "vue";
 import {
   ArrowRight,
