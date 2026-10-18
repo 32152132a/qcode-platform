@@ -1,19 +1,19 @@
 <template>
   <section class="platform-intro" aria-labelledby="platform-title">
-    <header class="intro-heading">
+    <header data-reveal class="intro-heading">
       <span class="eyebrow">团队 AI 工作平台</span>
       <h2 id="platform-title">员工安装即用，团队统一管理</h2>
       <p>账号、模型、共享技能与知识库统一配置，让每个人专注于自己的工作。</p>
     </header>
     <div class="roles">
-      <article class="role employee">
+      <article data-reveal class="role employee">
         <div class="role-heading"><span class="role-icon"><Monitor /></span><span>给团队成员</span></div>
         <h3>一个客户端，开始使用 AI</h3>
         <p>下载安装客户端，使用团队账号登录，即可选择管理员已启用的模型，无需自行配置模型地址或 API Key。</p>
         <ol class="steps" aria-label="员工使用流程"><li>安装客户端</li><li>登录团队账号</li><li>开始对话与工作</li></ol>
         <a class="entry" href="#install">前往客户端下载 <ArrowRight /></a>
       </article>
-      <article class="role admin">
+      <article data-reveal class="role admin">
         <div class="role-heading"><span class="role-icon"><Setting /></span><span>给管理员</span></div>
         <h3>统一接入，集中管理</h3>
         <p>创建员工账号，接入官网、本地部署或中转站模型，统一管理 Key、额度与使用记录。发布共享 Skill 和知识库资料，员工同步后即可使用；后续上新模型，员工无需重新安装。</p>
@@ -25,7 +25,7 @@
         </nav>
       </article>
     </div>
-    <footer><Lock /><span>模型 Key 由后台保管，员工使用自己的账号；工作文件在员工电脑上处理，模型请求通过网关统一转发。</span></footer>
+    <footer data-reveal><Lock /><span>模型 Key 由后台保管，员工使用自己的账号；工作文件在员工电脑上处理，模型请求通过网关统一转发。</span></footer>
   </section>
 </template>
 <script setup lang="ts">

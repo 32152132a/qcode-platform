@@ -1,5 +1,5 @@
 <template>
-  <div class="landing">
+  <div ref="landingRoot" class="landing">
     <header class="navigation wrap">
       <router-link class="brand" to="/" aria-label="QCode 首页">
         <img src="/branding/qcode-96.png" alt="" /><span>QCode</span>
@@ -20,24 +20,25 @@
     <main>
       <section class="hero wrap" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <span class="eyebrow"><span></span> 为团队打造的 AI 工作空间</span>
-          <h1 id="hero-title">从一个想法，<br />到<span>完成一件事。</span></h1>
-          <p class="intro">
+          <span data-reveal class="eyebrow"><span></span> 为团队打造的 AI 工作空间</span>
+          <h1 data-reveal id="hero-title">从一个想法，<br />到<span>完成一件事。</span></h1>
+          <p data-reveal class="intro">
             把 AI 带到你的电脑上。整理资料、起草文档、编写代码，<br
               class="desktop-break"
             />用熟悉的方式，和团队的 AI 一起工作。
           </p>
-          <a class="primary-button" href="/downloads/installer"
+          <a data-reveal class="primary-button" href="/downloads/installer"
             ><Download /> 下载 Windows 版 <ArrowRight
           /></a>
-          <p class="requirements">Windows 10 / 11 · 64 位 · 内置运行环境</p>
-          <div class="hero-notes">
+          <p data-reveal class="requirements">Windows 10 / 11 · 64 位 · 内置运行环境</p>
+          <div data-reveal class="hero-notes">
             <span><Check /> 团队账号登录</span
             ><span><Check /> 多模型自由选择</span>
           </div>
         </div>
 
         <div
+          data-reveal
           class="preview"
           role="img"
           aria-label="工作台布局示意：左侧会话列表，右侧任务和输入区域。实际界面以客户端为准。"
@@ -91,7 +92,7 @@
       <div class="wrap"><PlatformIntro /><TeamResources /></div>
 
       <section class="benefits wrap" aria-label="产品特点">
-        <article v-for="feature in features" :key="feature.title">
+        <article data-reveal v-for="feature in features" :key="feature.title">
           <span class="feature-icon"><component :is="feature.icon" /></span>
           <div>
             <h2>{{ feature.title }}</h2>
@@ -106,7 +107,7 @@
         class="install wrap"
         aria-labelledby="install-title"
       >
-        <div class="section-heading">
+        <div data-reveal class="section-heading">
           <div>
             <span class="eyebrow">开始使用</span>
             <h2 id="install-title">你的下一个工作伙伴。</h2>
@@ -114,7 +115,7 @@
           <p>安装客户端，登录团队账号，即可开始。</p>
         </div>
         <div class="platforms">
-          <article class="platform windows">
+          <article data-reveal class="platform windows">
             <div class="platform-heading">
               <span class="platform-icon"><Monitor /></span
               ><span class="availability">现已可用</span>
@@ -125,7 +126,7 @@
               ><Download /> 下载 Windows 安装包</a
             ><small>Windows 10 / 11 · x64</small>
           </article>
-          <article class="platform mac">
+          <article data-reveal class="platform mac">
             <div class="platform-heading">
               <span class="platform-icon"><Platform /></span
               ><span class="availability pending">准备中</span>
@@ -137,7 +138,7 @@
           </article>
         </div>
         <ol class="steps">
-          <li v-for="(step, index) in steps" :key="step.title">
+          <li data-reveal v-for="(step, index) in steps" :key="step.title">
             <span class="step-number">0{{ index + 1 }}</span>
             <div>
               <h3>{{ step.title }}</h3>
@@ -158,6 +159,7 @@
 import PlatformIntro from "../PlatformIntro/index.vue";
 import TeamResources from "../TeamResources/index.vue";
 import { ref } from "vue";
+import { useLandingMotion } from "./useLandingMotion";
 import {
   ArrowRight,
   Check,
@@ -173,7 +175,9 @@ import {
   Top,
 } from "@element-plus/icons-vue";
 
+const landingRoot = ref<HTMLElement>();
 const installSection = ref<HTMLElement>();
+useLandingMotion(landingRoot);
 const features = [
   {
     icon: Folder,
