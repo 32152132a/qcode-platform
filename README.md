@@ -1,43 +1,37 @@
-# QCode 私有 AI 编码平台 · 0.3.0
+# QCode 团队 AI 工作平台
 
-员工电脑运行 DeepSeek Harness，企业网关统一管理账号、模型凭据、部门、配额、共享 Skill 和用量。真实模型 Key 在服务器加密保存；员工端通过本地转发桥接续期会话，不把供应商 Key 写入 Harness。
+当前主线是 **QCode 管理网关 + QCode Desktop**。管理员统一管理账号、模型、Key、配额、共享 Skill 和知识库；员工安装桌面客户端后登录使用。供应商 Key 只在网关加密保存。
 
-当前定位：可进行团队试用的单实例版本。已完成本地自动化与模拟模型验证；真实供应商、企业网络、Docker 和员工电脑需要统一验收，不能以模拟模型测试代替生产验收。
+## 仓库职责
 
-## 快速体验
+| 仓库 | 内容 | 如何发布 |
+| --- | --- | --- |
+| qcode-platform（本仓库） | Vue 3 管理端、Node.js 网关、SQLite、模型代理与下载服务 | 通过 deploy-qyq 的既有部署流程更新服务器 |
+| qcode-openwork | Electron 桌面客户端、OpenCode 本机引擎、终端入口、安装与更新 | 在该仓库运行 release-desktop.bat |
+| qcode-opencode | 早期 OpenCode 定制源码，保留备用 | 当前桌面打包不自动编译此仓库 |
+| qcode-harness | 早期 Harness 方案，保留备用 | 非当前员工安装入口 |
+| deploy-qyq | Docker、Nginx 和部署脚本 | 管理端/网关部署入口 |
 
-安装 Node.js 24，在仓库根目录运行：
+## 两种发布不要混用
 
-```powershell
-cd apps/server
-npm ci
-cd ../..
-./Start-QCode.ps1 demo
-```
+- **更新管理端或网关**：提交并推送本仓库，再执行现有服务器部署脚本。不需要重新打包员工客户端。
+- **更新桌面或终端**：在 qcode-openwork 双击 release-desktop.bat，构建、验收后上传安装包；仅构建使用 -BuildOnly。
+- 当前桌面更新地址为 /downloads/desktop/latest.yml；首页安装包入口为 /downloads/installer。
+- apps/client、scripts/release-client.ps1 和 /downloads/manifest.json 属于旧客户端兼容链路，不是当前 Desktop 发布入口。旧发布脚本必须显式提供 -LegacyClient 才会执行。
 
-打开 http://127.0.0.1:3310，演示凭据保存在本机 `apps/server/.demo-access.txt`。模拟模型不需要真实 Key。演示数据与原网关配置隔离。
+详见 [当前架构和发布入口](docs/CURRENT-ARCHITECTURE.md)。桌面构建、真实安装和更新仍需员工环境验收，模拟模型通过不等于所有供应商均兼容。
 
-## 已实现
+## 本地运行服务端
 
-- 用户创建、批量导入、编辑、启停、改密、删除、会话撤销和并发限制。
-- 管理员、运营、审计、员工角色；部门模型和 Key 分配；个人及部门配额。
-- Key 加密、导入、检查、替换与回收；多模型和 OpenAI Compatible 请求转发。
-- 流式输出、用量结算、每日统计、排行、分币种成本、CSV 导出和管理审计。
-- Windows `qcode web/tui/login/logout/switch/doctor/update/rollback`；加密保存登录、自动续期、独立配置和工作目录。
-- 共享 Skill 按部门分发；客户端版本检查、更新和回滚。
-- Windows 安装脚本和 EXE 构建；固定版本运行环境与依赖；SQLite、加密备份恢复、Docker/HTTPS 配置。
+需要 Node.js 24。进入 apps/admin 执行 npm ci、npm run build；进入 apps/server 执行 npm ci，按其 README 配置私有 .env 后启动。也可使用仓库中的 Docker Compose。
 
-## 文档与发布
+隔离演示与服务端检查仍可运行 Start-QCode.ps1 demo、Start-QCode.ps1 test、Start-QCode.ps1 check；它们不是桌面安装包发布命令。
 
-- [服务器运行说明](apps/server/README.md)
-- [交付边界、部署及统一验收清单](docs/product-handoff.md)
-- [客户端源码与安装脚本](apps/client)
+## 数据与安全边界
 
-在 Windows 运行 `./scripts/release-client.ps1`，完成测试、构建定制客户端、生成 EXE、上传和切换下载版本。仅本地打包加 `-BuildOnly`。产物在忽略提交的 `artifacts/`，服务器发行卷独立于源码；首次使用需先部署支持发行卷的网关。参见 [客户端发布说明](docs/CUSTOM-CLIENT.md)。EXE 默认未签名，签名需提供企业证书。
+SQLite 的 .db/.sqlite 文件是一个数据库，可含多张表。生产数据、.env、模型 Key、会话、备份与安装包不得提交到 Git；数据库和加密主密钥需要分开妥善备份。
 
-```powershell
-./Start-QCode.ps1 test
-./Start-QCode.ps1 check
-```
+这是面向单实例、小团队试用的版本。知识库当前支持 TXT/Markdown，作为参考文档同步并由 AI 按需读取，不是向量数据库 RAG。当前不调整数据库和知识库实现。
 
-真实 `.env`、数据库、日志、备份、登录凭据和生成的安装包均不提交。原有验证脚本保留在仓库，当前入口为 `Start-QCode.ps1`。
+- [服务端运行与维护](apps/server/README.md)
+- [旧客户端发布说明（仅兼容维护）](docs/CUSTOM-CLIENT.md)

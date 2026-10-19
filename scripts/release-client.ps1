@@ -1,5 +1,6 @@
 [CmdletBinding()]
 param(
+    [switch]$LegacyClient,
     [switch]$BuildOnly,
     [string]$OpenCodeRepository='',
     [string]$OpenCodeBundle='',
@@ -10,6 +11,7 @@ param(
     [string]$CertificateThumbprint=''
 )
 $ErrorActionPreference='Stop'
+if(-not $LegacyClient){throw 'Legacy client publisher only. For current QCode Desktop run qcode-openwork/release-desktop.bat. Use -LegacyClient only for intentional old-client maintenance.'}
 $env:PSModulePath=(Join-Path $PSHOME 'Modules')+';'+$env:PSModulePath
 $root=Split-Path $PSScriptRoot -Parent
 function Invoke-Checked([string]$Program,[string[]]$Arguments){

@@ -1,3 +1,5 @@
+> 历史方案 / 兼容维护文档。当前 Desktop 入口见 [当前架构](CURRENT-ARCHITECTURE.md)。不要按本页发布当前桌面应用。
+
 # QCode 定制客户端构建与发布
 
 服务器管理账号、模型 Key、额度和审计；员工安装包内置 QCode 定制 Harness Web。源码放 Gitee，安装包放服务器独立发行卷。重新部署网关不会覆盖已发布安装包。

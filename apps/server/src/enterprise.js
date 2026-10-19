@@ -20,7 +20,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       organizationName: settings.organizationName, supportMessage: settings.supportMessage, autoUpdate: settings.autoUpdate,
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state, req.user).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
   });
-  app.get('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read(), req.user).map(s => ({ id: s.id, name: s.name, description: s.description, revision: s.revision, files: s.files })) }));
+  app.get('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read(), req.user).map(s => ({ id: s.id, name: s.name, kind: s.kind === 'knowledge' ? 'knowledge' : 'skill', title: s.knowledge?.title || s.name, description: s.description, revision: s.revision, files: s.files })) }));
   app.get('/admin/departments', (_req, res) => {
     const state = db.read();
     res.json(state.departments.map(d => ({ ...d, members: state.users.filter(u => u.department_id === d.id).length, used: departmentConsumption(state, d, config.timezone) })));

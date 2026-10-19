@@ -15,7 +15,7 @@ test('knowledge upload searches and syncs readable references; updates and delet
  const f=await fixture(t),created=await f.request('/admin/knowledge','POST',document,f.admin);assert.equal(created.status,201);const id=created.body.id;
  assert.equal((await f.request('/admin/skills','GET',undefined,f.admin)).body.length,0);
  const searched=await f.request('/client/knowledge/search?q='+encodeURIComponent('部署检查'),'GET',undefined,f.employee);assert.equal(searched.status,200);assert.equal(searched.body.results[0].documentId,id);assert.match(searched.body.results[0].excerpt,/Docker/);
- const skills=(await f.request('/client/skills','GET',undefined,f.employee)).body.skills;assert.equal(skills.length,1);assert.match(skills[0].files['SKILL.md'],/references\/document.md/);
+ const skills=(await f.request('/client/skills','GET',undefined,f.employee)).body.skills;assert.equal(skills.length,1);assert.equal(skills[0].kind,"knowledge");assert.equal(skills[0].title,document.title);assert.match(skills[0].files['SKILL.md'],/references\/document.md/);
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-knowledge-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
  fs.mkdirSync(path.join(root,'skills'),{recursive:true});fs.writeFileSync(path.join(root,'skills','personal-note.txt'),'keep');
  await syncSkills(root,skills);const reference=path.join(root,'skills','qcode-'+id,'references','document.md');assert.match(fs.readFileSync(reference,'utf8'),/Docker/);

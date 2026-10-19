@@ -1,3 +1,5 @@
+> 历史方案 / 兼容维护文档。当前 Desktop 入口见 [当前架构](docs/CURRENT-ARCHITECTURE.md)。不要按本页发布当前桌面应用。
+
 # Inno Setup migration checkpoint
 
 Saved on 2026-10-14 before replacing the IExpress installer with Inno Setup. This is a work-in-progress backup, not a release or full acceptance.

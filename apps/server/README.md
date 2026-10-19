@@ -29,15 +29,15 @@ node --env-file=.env scripts/maintenance.js archive-audits --days 180
 
 默认每用户一个同时进行的模型请求，可由管理员修改；会话数量另行控制。禁用账号、重置密码或撤销会话会取消网关中的关联请求，但上游是否立即停止计算由服务商决定。价格为管理员配置的每百万 Token 单价，按请求快照；CNY/USD 分别统计，未知 usage 不伪造零成本。
 
-## 员工安装与更新
+## 员工安装与更新（当前主线）
 
-后台下载 ZIP 后解压运行 `install.ps1 -Gateway https://你的网关`，或运行 Inno Setup EXE。完整发行包包含私有 Node 24.19.0 和定制运行时，可离线安装；安装器写入当前用户目录、配置用户 PATH 和快捷方式，并注册 Windows 系统卸载入口，统一使用 QCode 图标。登录、模型请求与更新需要连接网关。旧版升级时选择原安装目录，保留网关设置、数据及版本回滚机制。
+下载 /downloads/installer 的 QCode Desktop EXE。Windows 安装包包含 Electron 和本机 OpenCode 引擎，可离线安装；登录、模型调用、资源同步及更新需要连接网关。
 
-首次执行 `qcode web` 输入员工账号密码；`qcode tui -WorkDir D:\projects\demo` 指定项目。`qcode logout` 登出，`qcode switch` 换账号。`qcode doctor` 检查网关和运行环境，`qcode update` 更新，`qcode rollback` 切回上一客户端版本。自动更新由后台开关控制，强制最低版本独立生效。
+桌面快捷方式或 qcodeweb 打开工作台；qcode 打开终端；qcode models 查看模型，qcode doctor 检查本地服务，qcode update 更新，qcode logout 退出登录。账号凭据由桌面使用系统加密能力保存，上游 Key 不分发给员工。每个账号有独立配置与会话；目录分离不是操作系统沙箱。
 
-访问凭据和刷新凭据通过 Windows DPAPI 保存，运行期间自动轮换。Harness 只获得回环桥接凭据。每网关/用户使用独立 Harness 配置、Skill 与默认项目目录；同一 Windows 账号仍可读取其权限范围内其他文件，目录隔离不是操作系统沙箱。
+当前客户端源码和发布脚本位于相邻的 qcode-openwork 仓库，运行 release-desktop.bat 构建、验收并上传，-BuildOnly 仅生成安装包。后台/网关代码由本仓库既有部署流程发布。
 
-更新要求 HTTPS（本机回环除外），验证 ZIP SHA256 和解压路径；版本目录不可变并支持指针回滚。系统“已安装的应用”、开始菜单“卸载 QCode”及安装目录 `uninstall.cmd` 使用无终端卸载流程：默认删除程序、内置运行环境、启动快捷方式、自身 PATH 项及登录 Token，下次使用需重新登录；保留个人配置、历史会话和后续数据清理入口。完整清理仍要求“删除全部 QCode 本地数据”确认短语。用户项目、默认 workspace 和无法识别的文件始终保留。卸载前校验安装标记并拒绝链接、目录联接或仍运行的客户端；失败原因会显示并写入 `%LOCALAPPDATA%\QCode-uninstall-logs`。旧安装可使用新脚本加 `-InstallRoot` 指向旧目录，脚本会验证版本所有权。离职时还应在后台禁用账号。
+旧 apps/client、ZIP、Inno Setup 及 /downloads/manifest.json 仅为旧安装保留兼容，不是当前 Desktop 入口。当前 Desktop 使用 /downloads/desktop/latest.yml；不要混用两种清单。详见 ../../docs/CURRENT-ARCHITECTURE.md。
 
 ## 部署和检查
 
