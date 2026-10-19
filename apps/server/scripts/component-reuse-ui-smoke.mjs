@@ -6,7 +6,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database.js'
-const { chromium } = createRequire(import.meta.url)(process.env.QCODE_TEST_PLAYWRIGHT_MODULE)
+const { chromium } = createRequire(import.meta.url)(process.env.QCODE_TEST_PLAYWRIGHT_MODULE || 'playwright')
 await fs.cp(
   new URL('../../admin/dist/', import.meta.url),
   new URL('../public/console/', import.meta.url),
@@ -26,7 +26,7 @@ const server = http.createServer(app)
 server.listen(0, '127.0.0.1')
 await once(server, 'listening')
 const origin = 'http://127.0.0.1:' + server.address().port
-const browser = await chromium.launch({ channel: 'msedge', headless: true })
+const browser = await chromium.launch({ ...(process.platform === 'win32' ? { channel: 'msedge' } : {}), headless: true })
 const errors = []
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })

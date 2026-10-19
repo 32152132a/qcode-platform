@@ -1,3 +1,5 @@
+> 本文记录旧版 PowerShell / Inno 客户端。当前 Electron 桌面登录与发布以 docs/CURRENT-ARCHITECTURE.md 为准。
+
 # Windows 网页登录最小改动
 
 - 桌面和开始菜单以隐藏 PowerShell 调用 bin/desktop.ps1；启动异常弹出说明。命令行 qcode 仍默认 TUI；qcode web / qcodeweb 使用网页登录。
@@ -21,6 +23,6 @@ EXE 验收检测到本机已有正式安装时，编译同一负载的独立测�
 
 员工登录页面源码位于 `apps/client/web-login.html`，由 `web-login.mjs` 在本机提供，随客户端安装包一起分发；更新服务器不会替换员工电脑上的页面。输入框和密码控件使用本地 HTML/CSS，不依赖在线 UI 资源。
 
-后台下拉框由 `apps/server/public/ui-select.js` 统一增强，保留原生 select 的表单值、change 事件和预设赋值；支持键盘、禁用同步和本地弹层，旧浏览器不支持 Popover 时保留原生控件。
+管理端已迁移至 Vue 3 + Element Plus，表单与选择器统一使用现有组件；旧 ui-select.js 增强器已清理。
 
 启动前检查 `/client/config`。没有启用模型时仍允许登录并打开工作台，模型列表为空；发起生成请求时才提示模型不可用。所有启用模型共享给全部用户，用户/部门默认模型只决定初始选择。新模型启用后重启客户端即可获取，无需重新安装。模型绑定 Key 优先，避免切换模型时误用其他服务的个人 Key。旧网关的启动错误仍可通过“重新尝试启动”恢复。

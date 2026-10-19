@@ -28,13 +28,14 @@ test('Windows release command uploads before activation and stops on preflight o
   const scripts=path.join(temporary,'scripts');fs.mkdirSync(scripts);
   const script=path.join(scripts,'release-client.ps1');
   fs.copyFileSync(fileURLToPath(new URL('../../../scripts/release-client.ps1',import.meta.url)),script);
-  async function run(mode,target='tester@example.invalid'){
+  async function run(mode,target='tester@example.invalid',legacy=true){
     fs.writeFileSync(log,'');
-    const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-PublishDirectory',release,'-Target',target,'-SshKey',key],{windowsHide:true,env:{...process.env,PATH:temporary+path.delimiter+path.dirname(process.execPath)+path.delimiter+process.env.PATH,QCODE_RELEASE_TEST_LOG:log,QCODE_RELEASE_TEST_MODE:mode}});
+    const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,...(legacy?['-LegacyClient']:[]),'-PublishDirectory',release,'-Target',target,'-SshKey',key],{windowsHide:true,env:{...process.env,PATH:temporary+path.delimiter+path.dirname(process.execPath)+path.delimiter+process.env.PATH,QCODE_RELEASE_TEST_LOG:log,QCODE_RELEASE_TEST_MODE:mode}});
     let output='';child.stdout.on('data',data=>output+=data);child.stderr.on('data',data=>output+=data);
     const code=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',resolve);});
     return {code,output,calls:fs.readFileSync(log,'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line))};
   }
+  const defaultRun=await run('success',undefined,false);assert.notEqual(defaultRun.code,0);assert.equal(defaultRun.calls.length,0);assert.match(defaultRun.output, /LegacyClient/);
   const success=await run('success');assert.equal(success.code,0,success.output);
   const publication=success.calls.findIndex(args=>args.at(-1).includes('node /app/apps/server/scripts/publish-client.js'));
   assert.ok(publication>0);

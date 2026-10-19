@@ -65,7 +65,7 @@ Windows EXE 使用 Inno Setup 6，安装到当前用户目录，统一使用 `ap
 
 当前使用 HTTP，SHA-256 检查文件与清单一致性，不提供发行者身份认证或传输加密。
 
-新安装包交付定制 Web。`qcode tui` 需要对应用户安装兼容的 `qcode-tui` profile；没有时会提示。原来的 `start-stage2-tui.ps1` 不变。
+新安装包交付定制 Web。`qcode tui` 需要对应用户安装兼容的 `qcode-tui` profile；没有时会提示。早期 stage2/stage3 本机验证脚本已移至 `harness-latest` 历史分支；当前主线不再依赖 Codex 私有运行环境。
 
 ## 验证范围
 

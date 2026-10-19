@@ -14,8 +14,6 @@
 
 完整回归 59 项通过，66 个 JS 模块语法检查通过。浏览器实测上传、搜索、编辑、启停和删除，1440 / 768 / 390 像素宽度无横向溢出。SQLite 重启持久化、权限和上传校验、托管同步清理均通过；真实 OpenCode 内核的 /skill 接口能发现知识 Skill，参考文件存在。尚未使用真实模型验证回答及引用效果。
 
-## 并行任务合并
+## 当前代码入口
 
-开发分支 codex/knowledge-minimal，独立工作区 D:/works/trae/qcode-platform-knowledge。本次整体验收已逐项接入主工作区；提交和部署结果见整体验收记录。
-
-新增 knowledge.js、knowledge-ui.js、knowledge.css 和 knowledge.test.js。现有文件仅添加路由注册、管理员权限、导航与渲染入口、普通 Skill 接口排除知识资料、测试入口。admin.js 可能与用量图表任务冲突，应等该任务提交后逐处合并入口，不能整文件覆盖。合并后重新运行服务端测试和后台浏览器检查，再按现有 Git 部署流程上线。无需重建员工安装包。
+后台页面位于 `apps/admin/src/views/knowledge`，复用表单、表格与弹窗组件；服务端接口位于 `apps/server/src/knowledge.js`，回归测试为 `knowledge.test.js`。旧 DOM 页面与专用 CSS 已随 Vue 重构清理，浏览器验证并入现用管理端验收。

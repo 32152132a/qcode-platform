@@ -46,7 +46,11 @@ jobs:
       - run: npm ci
       - run: npm install --no-save --package-lock=false playwright@1.62.1
       - run: npx playwright install --with-deps chromium
-      - run: node scripts/ui-smoke.js
+      - run: npm ci --prefix ../admin
+      - run: npm run build --prefix ../admin
+      - run: node scripts/admin-ui-smoke.mjs
+      - run: node scripts/model-sync-ui-smoke.mjs
+      - run: node scripts/component-reuse-ui-smoke.mjs
   docker:
     runs-on: ubuntu-latest
     steps:
