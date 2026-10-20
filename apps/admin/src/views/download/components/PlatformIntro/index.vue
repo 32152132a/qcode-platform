@@ -4,6 +4,7 @@
       <span class="eyebrow">团队 AI 工作平台</span>
       <h2 id="platform-title">员工安装即用，团队统一管理</h2>
       <p>账号、模型、共享技能与知识库统一配置，让每个人专注于自己的工作。</p>
+      <p>由曲永庆基于 OpenCode / OpenWork 集成与定制。<a href="/about.html">了解平台与开发者</a></p>
     </header>
     <div class="roles">
       <article data-reveal class="role employee">
