@@ -1,3 +1,4 @@
+import { businessRequest } from '../../client/api-contract.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -21,7 +22,7 @@ test('Ollama keyless chat, catalogue and connectivity retain gateway auth, quota
   const app=createApp(config,db),server=http.createServer(app);server.listen(0,'127.0.0.1');await once(server,'listening');
   t.after(()=>{server.closeAllConnections();server.close();upstream.closeAllConnections();upstream.close();});
   const url=`http://127.0.0.1:${server.address().port}`;
-  async function request(route,method='GET',body,token){const r=await fetch(url+route,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});const text=await r.text();return {status:r.status,body:r.headers.get('content-type')?.includes('application/json')?JSON.parse(text):text};}
+  async function request(route,method='GET',body,token){const encoded=businessRequest(route,method,body);body=encoded.data;const r=await fetch(url+encoded.url,{method:encoded.method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});const text=await r.text();return {status:r.status,body:r.headers.get('content-type')?.includes('application/json')?JSON.parse(text):text};}
   const admin=(await request('/auth/login','POST',{username:'admin',password:'admin-password'})).body.token;
   const model=db.read().models.find(m=>m.public_name==='qcode-qwen-local');assert.equal(model.key_id,null);assert.equal(model.is_default,false);
   const catalog=await request('/admin/models/catalog','POST',{baseUrl,provider:'ollama'},admin);assert.deepEqual(catalog.body.models,['qwen:0.5b']);

@@ -7,7 +7,9 @@ export const useAuthStore = defineStore('auth', () => {
   window.addEventListener('qcode-session', () => {
     user.value = getSession()?.user || null
   })
-  const can = (permission: string) => user.value?.permissions.includes(permission) || false
+  // Demo may open forms; the server remains the authority for every submission.
+  const can = (permission: string) =>
+    user.value?.permissions.includes(user.value.role === 'demo' ? permission.replace(/:write$/, ':read') : permission) || false
   async function login(username: string, password: string) {
     const session = await request<Session>('/auth/login', 'POST', {
       username,

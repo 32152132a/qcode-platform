@@ -1,6 +1,26 @@
 import { randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword, tokenHash } from './database.js';
 import { now, id, password, fail, publicUser, audit } from './domain.js';
+export function ensureDemoUser(db, config) {
+  if (!config.demoEnabled) return;
+  const username = config.demoUsername;
+  if (typeof username !== 'string' || !/^[\p{L}\p{N}_.@-]{1,80}$/u.test(username)) throw new Error('Invalid DEMO_USERNAME');
+  password(config.demoPassword);
+  db.transaction(state => {
+    const existing = state.users.find(user => user.username.toLowerCase() === username.toLowerCase());
+    if (existing && existing.role !== 'demo') throw new Error('DEMO_USERNAME conflicts with an existing account');
+    if (existing) {
+      if (!verifyPassword(config.demoPassword, existing.password_hash)) {
+        existing.password_hash = hashPassword(config.demoPassword);
+        state.tokens = state.tokens.filter(token => token.user_id !== existing.id);
+      }
+      return;
+    }
+    state.users.push({ id: state.nextUserId++, username, role: 'demo', password_hash: hashPassword(config.demoPassword),
+      is_active: 1, department: '', department_id: null, created_at: now(), session_limit: 20,
+      model_id: null, key_id: null, quota_mode: 'custom', quotas: {}, max_concurrent_requests: 1, legacy_tokens: 0 });
+  });
+}
 export function registerAuth(app, { db, config, cancelRequests }) {
   const sessionAlive = session => (session.refresh_expires_at || session.expires_at) > now();
   function issue(state, user, previous) {
@@ -17,8 +37,19 @@ export function registerAuth(app, { db, config, cancelRequests }) {
     const user = session && state.users.find(u => u.id === session.user_id);
     if (!user) fail(401, 'INVALID_TOKEN', '登录已过期，请重新登录');
     if (!user.is_active) fail(403, 'USER_DISABLED', '账号已被禁用，请联系管理员');
+    if (user.role === 'demo') {
+      if (!config.demoEnabled) fail(403, 'DEMO_DISABLED', '演示入口已关闭');
+      if (!['GET', 'HEAD'].includes(req.method) && !['read', 'session'].includes(req.businessOperation?.[3]))
+        fail(403, 'DEMO_READ_ONLY', '演示账号暂不支持此操作');
+    }
     req.user = user; req.session = session; next();
   };
+  app.post('/auth/demo', (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const user = config.demoEnabled && db.read().users.find(user => user.username === config.demoUsername && user.role === 'demo' && user.is_active);
+    res.json(user && verifyPassword(config.demoPassword, user.password_hash)
+      ? { enabled: true, username: user.username, password: config.demoPassword } : { enabled: false });
+  });
   app.post('/auth/login', (req, res) => {
     const address = req.ip, current = Date.now();
     const { username, password: supplied, device } = req.body || {};
@@ -33,6 +64,7 @@ export function registerAuth(app, { db, config, cancelRequests }) {
       fail(401, 'LOGIN_FAILED', '用户名或密码错误');
     }
     if (!user.is_active) fail(403, 'USER_DISABLED', '账号已被禁用');
+    if (user.role === 'demo' && !config.demoEnabled) fail(403, 'DEMO_DISABLED', '演示入口已关闭');
     if (user.session_limit < 1) fail(409, 'SESSION_LIMIT', '账号登录名额为 0，请联系管理员');
     const { result, replaced } = db.transaction(next => {
       next.tokens = next.tokens.filter(sessionAlive);
@@ -64,8 +96,8 @@ export function registerAuth(app, { db, config, cancelRequests }) {
       return issue(next, user, session);
     }));
   });
-  app.get('/auth/me', auth, (req, res) => res.json(publicUser(db.read(), req.user, config.timezone)));
-  app.get('/auth/sessions', auth, (req, res) => res.json(db.read().tokens.filter(s => s.user_id === req.user.id && sessionAlive(s)).map(s => ({
+  app.post('/auth/me', auth, (req, res) => res.json(publicUser(db.read(), req.user, config.timezone)));
+  app.post('/auth/sessions/list', auth, (req, res) => res.json(db.read().tokens.filter(s => s.user_id === req.user.id && sessionAlive(s)).map(s => ({
     id: s.id || s.token_hash.slice(0,12), device: s.device, created_at: s.created_at, expires_at: s.refresh_expires_at || s.expires_at, current: s.token_hash === req.session.token_hash,
   }))));
   app.post('/auth/logout', auth, (req, res) => {

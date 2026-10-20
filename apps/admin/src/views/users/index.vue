@@ -180,6 +180,7 @@
             { label: '普通用户', value: 'user' },
             { label: '运维', value: 'operator' },
             { label: '审计员', value: 'auditor' },
+            { label: '演示账号', value: 'demo' },
             { label: '管理员', value: 'admin' },
           ],
         })

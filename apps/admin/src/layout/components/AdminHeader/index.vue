@@ -9,6 +9,7 @@
       >
     </div>
     <div class="header-account">
+      <el-tag v-if="demo" type="warning" size="small">演示模式</el-tag>
       <span class="account-avatar"><User /></span
       ><span class="username" :title="username">{{ username }}</span
       ><el-button text @click="emit('logout')">退出登录</el-button>
@@ -17,7 +18,7 @@
 </template>
 <script setup lang="ts">
   import { ArrowRight, Menu, User } from '@element-plus/icons-vue'
-  defineProps<{ title: string; username: string }>()
+  defineProps<{ title: string; username: string; demo?: boolean }>()
   const emit = defineEmits<{ menu: []; logout: [] }>()
 </script>
 <style scoped lang="scss">

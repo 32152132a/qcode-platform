@@ -10,7 +10,7 @@ async function fixture(t,limit){
  const db=createDatabase(),cancelled=[];db.transaction(s=>s.users.push({id:1,username:'employee',password_hash:hashPassword('employee-password'),role:'user',is_active:1,session_limit:limit,quotas:{},legacy_tokens:0},{id:2,username:'other',password_hash:hashPassword('other-password'),role:'user',is_active:1,session_limit:1,quotas:{},legacy_tokens:0}));
  const app=express();app.use(express.json());registerAuth(app,{db,config:{accessTokenMinutes:30,refreshTokenDays:30,loginFailureLimit:10,timezone:'Asia/Shanghai'},cancelRequests:(...args)=>cancelled.push(args)});app.use((error,req,res,next)=>res.status(error.status||500).json({code:error.code}));
  const server=http.createServer(app);server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close();});
- async function request(route,body,token){const r=await fetch(`http://127.0.0.1:${server.address().port}`+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()};}
+ async function request(route,body,token){const r=await fetch(`http://127.0.0.1:${server.address().port}`+route,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()};}
  async function login(username='employee',password='employee-password'){return request('/auth/login',{username,password});}
  return {db,cancelled,request,login};
 }

@@ -5,6 +5,7 @@
     </aside>
     <AdminHeader
       :title="currentTitle"
+      :demo="auth.user?.role === 'demo'"
       :username="auth.user?.username || '管理员'"
       @menu="mobileMenu = true"
       @logout="logout"

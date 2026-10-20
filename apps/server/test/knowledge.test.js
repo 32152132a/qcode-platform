@@ -1,10 +1,11 @@
+import { businessRequest } from '../../client/api-contract.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import os from 'node:os';import http from 'node:http';import {once} from 'node:events';
 import {createApp} from '../src/app.js';import {createDatabase} from '../src/database.js';import {syncSkills} from '../../client/skills.mjs';
 async function fixture(t,database=createDatabase()){
  const config={encryptionSecret:'a'.repeat(64),adminUsername:'admin',adminPassword:'admin-password',baseUrl:'http://127.0.0.1:39998/v1',upstreamModel:'test',publicModel:'qcode-model',upstreamKey:'fake-key'};
  const server=http.createServer(createApp(config,database));server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close();});
  const url=`http://127.0.0.1:${server.address().port}`;
- async function request(route,method='GET',body,token){const r=await fetch(url+route,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,body:await r.json()};}
+ async function request(route,method='GET',body,token){const encoded=businessRequest(route,method,body);body=encoded.data;const r=await fetch(url+encoded.url,{method:encoded.method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,body:await r.json()};}
  const admin=(await request('/auth/login','POST',{username:'admin',password:'admin-password'})).body.token;
  for(const [username,role]of [['employee','user'],['operator','operator']])await request('/admin/users','POST',{username,role,password:'user-password'},admin);
  const login=async username=>(await request('/auth/login','POST',{username,password:'user-password'})).body.token;

@@ -1,3 +1,4 @@
+import { businessRequest } from '../../client/api-contract.mjs';
 import http from 'node:http';
 import {once} from 'node:events';
 import {randomBytes} from 'node:crypto';
@@ -12,7 +13,7 @@ const db=createDatabase(),password=randomBytes(24).toString('hex');
 const app=createApp({encryptionSecret:randomBytes(32).toString('hex'),adminUsername:'local-check',adminPassword:password,ollamaBaseUrl:baseUrl(address),timeoutMs:60000},db);
 const server=http.createServer(app);server.listen(0,'127.0.0.1');await once(server,'listening');
 const origin=`http://127.0.0.1:${server.address().port}`;
-async function request(route,body,token){const response=await fetch(origin+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(65000)});if(!response.ok)throw Error('Gateway check failed: '+response.status+' '+route);return response.json();}
+async function request(route,body,token){const encoded=businessRequest(route,body?'POST':'GET',body);body=encoded.data;const response=await fetch(origin+encoded.url,{method:encoded.method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(65000)});if(!response.ok)throw Error('Gateway check failed: '+response.status+' '+route);return response.json();}
 try{
  const admin=(await request('/auth/login',{username:'local-check',password})).token;
  const model=(await request('/admin/models',undefined,admin)).find(m=>m.public_name==='qcode-qwen-local');

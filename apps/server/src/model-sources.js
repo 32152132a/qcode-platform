@@ -300,8 +300,8 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       pending.delete(sourceId)
     }
   }
-  app.get('/admin/models/sources', (_req, res) => res.json(sourcesFor(db.read())))
-  app.post('/admin/models/sources', async (req, res) => {
+  app.post('/admin/models/sources/list', (_req, res) => res.json(sourcesFor(db.read())))
+  app.post('/admin/models/sources/create', async (req, res) => {
     const source = db.transaction((state) => saveSource(state, req.body || {}, req.user))
     if (source.auto_sync && source.active && (source.key_id || source.kind === 'local')) {
       try {
@@ -310,14 +310,14 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     }
     res.status(201).json(find(db.read(), source.id))
   })
-  app.put('/admin/models/sources/:id', (req, res) =>
+  app.post('/admin/models/sources/:id/update', (req, res) =>
     res.json(
       db.transaction((state) =>
         saveSource(state, req.body || {}, req.user, find(state, req.params.id))
       )
     )
   )
-  app.delete('/admin/models/sources/:id', (req, res) => {
+  app.post('/admin/models/sources/:id/delete', (req, res) => {
     db.transaction((state) => {
       find(state, req.params.id)
       if (state.models.some((m) => m.source_id === req.params.id))
@@ -448,7 +448,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       })
     )
   )
-  app.patch('/admin/models/sources/:id/models/:modelId', (req, res) =>
+  app.post('/admin/models/sources/:id/models/:modelId/update', (req, res) =>
     res.json(
       db.transaction((state) => {
         const source = find(state, req.params.id),

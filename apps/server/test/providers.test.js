@@ -1,3 +1,4 @@
+import { businessRequest } from '../../client/api-contract.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -42,7 +43,7 @@ async function fixture(t) {
   server.listen(0,'127.0.0.1');await once(server,'listening');
   t.after(()=>{server.closeAllConnections();server.close();upstream.closeAllConnections();upstream.close();});
   const url=`http://127.0.0.1:${server.address().port}`,baseUrl=`http://127.0.0.1:${upstream.address().port}/v1`;
-  async function request(path,method='GET',body,token){const response=await fetch(url+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined});return {status:response.status,body:await response.json()};}
+  async function request(path,method='GET',body,token){const encoded=businessRequest(path,method,body);body=encoded.data;const response=await fetch(url+encoded.url,{method:encoded.method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined});return {status:response.status,body:await response.json()};}
   const admin=(await request('/auth/login','POST',{username:'admin',password:'admin-password'})).body.token;
   const key=(await request('/admin/keys','POST',{name:'Relay key',apiKey:'sk-test-private-relay'},admin)).body[0];
   async function model(provider,protocol='chat-completions'){

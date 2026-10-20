@@ -1,3 +1,4 @@
+import { businessRequest } from './api-contract.mjs';
 import { clientModels } from './model-catalog.mjs';
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -28,7 +29,8 @@ export class GatewaySession {
     return response;
   }
   async json(route) {
-    const response=await this.fetch(route,{signal:AbortSignal.timeout(15000)}), data=await response.json();
+    const encoded=businessRequest(route);
+    const response=await this.fetch(encoded.url,{method:encoded.method,body:JSON.stringify(encoded.data),headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000)}), data=await response.json();
     if (!response.ok) throw Object.assign(new Error(data.error?.message || '网关请求失败'),{code:data.error?.code,status:response.status});
     return data;
   }

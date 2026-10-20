@@ -4,6 +4,7 @@ COPY apps/admin/package.json apps/admin/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY apps/admin/index.html apps/admin/tsconfig.json apps/admin/vite.config.ts ./
 COPY apps/admin/src ./src
+COPY apps/client/api-contract.mjs /client/api-contract.mjs
 RUN npm run build
 
 FROM node:24.19.0-bookworm-slim
@@ -11,6 +12,7 @@ WORKDIR /app/apps/server
 COPY apps/server/package.json apps/server/package-lock.json ./
 RUN npm ci --omit=dev
 COPY apps/server/src ./src
+COPY apps/client/api-contract.mjs /app/apps/client/api-contract.mjs
 COPY apps/server/public ./public
 COPY --from=admin-build /admin/dist ./public/console
 COPY apps/server/scripts ./scripts

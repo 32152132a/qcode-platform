@@ -53,7 +53,7 @@ try {
   const token = await page.evaluate(
     () => JSON.parse(sessionStorage.getItem('qcode.admin.session')).token
   )
-  const response = await page.request.post(origin + '/admin/models/sources', {
+  const response = await page.request.post(origin + '/admin/models/sources/create', {
     headers: { Authorization: 'Bearer ' + token },
     data: {
       kind: 'relay',

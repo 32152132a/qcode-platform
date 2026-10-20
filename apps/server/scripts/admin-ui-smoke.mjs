@@ -17,6 +17,7 @@ const app = createApp(
   {
     encryptionSecret: 'a'.repeat(64),
     adminUsername: 'admin',
+    demoEnabled: true,
     adminPassword: 'browser-test-password',
     timeoutMs: 5000,
   },
@@ -133,6 +134,17 @@ try {
   console.log('MOBILE MENU passed')
   await page.goto(origin + '/')
   await page.screenshot({ path: path.resolve('.visual-tests/download-mobile.png'), fullPage: true })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear() })
+  await page.goto(origin + '/login')
+  await page.getByRole('button', { name: '体验演示版', exact: true }).click()
+  assert.equal(await page.getByLabel('账号', { exact: true }).inputValue(), 'demo')
+  assert.equal(await page.getByLabel('密码', { exact: true }).inputValue(), 'qcode-demo-2026')
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await page.getByText('演示模式', { exact: true }).waitFor()
+  await page.goto(origin + '/manage/users')
+  await page.getByRole('heading', { name: '用户管理', exact: true }).waitFor()
+  console.log('DEMO LOGIN AND READ-ONLY NAVIGATION passed')
   assert.deepEqual(errors, [])
   console.log('ADMIN UI ACCEPTANCE passed')
 } finally {

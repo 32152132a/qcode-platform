@@ -11,7 +11,7 @@ function validateDepartmentReferences(state, body) {
   if (body.keyId != null && !state.keys.some(k => k.id === body.keyId && k.active)) fail(400, 'INVALID_KEY', '请选择启用的 Key');
 }
 export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests }) {
-  app.get('/client/config', auth, (req, res) => {
+  app.post('/client/config', auth, (req, res) => {
     const state = db.read(), model = resolveModel(state, req.user), settings = settingsFor(state);
     res.json({ model: model?.public_name || null,
       models: availableModels(state).map(item => ({ id: item.public_name, name: item.name, ...modelPresentation(item), contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
@@ -20,8 +20,8 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       organizationName: settings.organizationName, supportMessage: settings.supportMessage, autoUpdate: settings.autoUpdate,
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state, req.user).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
   });
-  app.get('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read(), req.user).map(s => ({ id: s.id, name: s.name, kind: s.kind === 'knowledge' ? 'knowledge' : 'skill', title: s.knowledge?.title || s.name, description: s.description, revision: s.revision, files: s.files })) }));
-  app.get('/admin/departments', (_req, res) => {
+  app.post('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read(), req.user).map(s => ({ id: s.id, name: s.name, kind: s.kind === 'knowledge' ? 'knowledge' : 'skill', title: s.knowledge?.title || s.name, description: s.description, revision: s.revision, files: s.files })) }));
+  app.post('/admin/departments/list', (_req, res) => {
     const state = db.read();
     res.json(state.departments.map(d => ({ ...d, members: state.users.filter(u => u.department_id === d.id).length, used: departmentConsumption(state, d, config.timezone) })));
   });
@@ -37,8 +37,8 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
     audit(state, actor, existing ? 'department.update' : 'department.create', department.id);
     return department;
   }
-  app.post('/admin/departments', (req, res) => res.status(201).json(db.transaction(state => saveDepartment(state, req.body || {}, req.user))));
-  app.put('/admin/departments/:id', (req, res) => {
+  app.post('/admin/departments/create', (req, res) => res.status(201).json(db.transaction(state => saveDepartment(state, req.body || {}, req.user))));
+  app.post('/admin/departments/:id/update', (req, res) => {
     const result = db.transaction(state => {
       const department = state.departments.find(d => d.id === req.params.id);
       if (!department) fail(404, 'DEPARTMENT_NOT_FOUND', '部门不存在');
@@ -55,14 +55,14 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       department.quota_reset_at = now(); audit(state, req.user, 'department.quota.reset', department.id);
     }); res.json({ ok: true });
   });
-  app.delete('/admin/departments/:id', (req, res) => {
+  app.post('/admin/departments/:id/delete', (req, res) => {
     db.transaction(state => {
       if (!state.departments.some(d => d.id === req.params.id)) fail(404, 'DEPARTMENT_NOT_FOUND', '部门不存在');
       if (state.users.some(u => u.department_id === req.params.id) || state.skills.some(s => s.department_ids.includes(req.params.id))) fail(409, 'DEPARTMENT_IN_USE', '请先移出成员并调整关联的 Skill');
       state.departments = state.departments.filter(d => d.id !== req.params.id); audit(state, req.user, 'department.delete', req.params.id);
     }); res.json({ ok: true });
   });
-  app.get('/admin/skills', (_req, res) => res.json(db.read().skills.filter(s=>s.kind!=='knowledge')));
+  app.post('/admin/skills/list', (_req, res) => res.json(db.read().skills.filter(s=>s.kind!=='knowledge')));
   function saveSkill(state, body, actor, existing) {
     const name = text(body.name, 'Skill 名称', 64);
     if (!/^[a-z][a-z0-9-]*$/.test(name)) fail(400, 'INVALID_SKILL_NAME', 'Skill 名称只能使用小写字母、数字和短横线，并以字母开头');
@@ -84,17 +84,17 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
     if (existing) Object.assign(existing, skill); else state.skills.push(skill);
     audit(state, actor, existing ? 'skill.update' : 'skill.create', skill.id); return skill;
   }
-  app.post('/admin/skills', (req, res) => res.status(201).json(db.transaction(state => saveSkill(state, req.body || {}, req.user))));
-  app.put('/admin/skills/:id', (req, res) => res.json(db.transaction(state => {
+  app.post('/admin/skills/create', (req, res) => res.status(201).json(db.transaction(state => saveSkill(state, req.body || {}, req.user))));
+  app.post('/admin/skills/:id/update', (req, res) => res.json(db.transaction(state => {
     const skill = state.skills.find(s => s.id === req.params.id && s.kind!=='knowledge');
     if (!skill) fail(404, 'SKILL_NOT_FOUND', 'Skill 不存在');
     return saveSkill(state, req.body || {}, req.user, skill);
   })));
-  app.delete('/admin/skills/:id', (req, res) => {
+  app.post('/admin/skills/:id/delete', (req, res) => {
     db.transaction(state => { if (!state.skills.some(s => s.id === req.params.id && s.kind!=='knowledge')) fail(404, 'SKILL_NOT_FOUND', 'Skill 不存在'); state.skills = state.skills.filter(s => s.id !== req.params.id); audit(state, req.user, 'skill.delete', req.params.id); }); res.json({ ok: true });
   });
-  app.get('/admin/settings', (_req, res) => res.json(settingsFor(db.read())));
-  app.put('/admin/settings', (req, res) => res.json(db.transaction(state => {
+  app.post('/admin/settings/detail', (_req, res) => res.json(settingsFor(db.read())));
+  app.post('/admin/settings/update', (req, res) => res.json(db.transaction(state => {
     const body = req.body || {}, current = settingsFor(state);
     if (body.organizationName !== undefined) current.organizationName = text(body.organizationName, '组织名称', 80);
     if (body.supportMessage !== undefined) current.supportMessage = text(body.supportMessage, '支持提示', 500);
@@ -107,13 +107,13 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
     if (body.auditRetentionDays !== undefined) current.auditRetentionDays = integer(body.auditRetentionDays, '日志保留天数', 3650);
     state.settings = current; audit(state, req.user, 'settings.update', 'system'); return current;
   })));
-  app.get('/admin/users/:id/sessions', (req, res) => {
+  app.post('/admin/users/:id/sessions/list', (req, res) => {
     const state = db.read(), user = state.users.find(u => u.id === Number(req.params.id));
     if (!user) fail(404, 'USER_NOT_FOUND', '用户不存在');
     if (user.role === 'admin' && req.user.role !== 'admin') fail(403, 'ADMIN_PROTECTED', '仅管理员可以查看管理员会话');
     res.json(state.tokens.filter(t => t.user_id === user.id && (t.refresh_expires_at || t.expires_at) > now()).map(t => ({ id: t.id || t.token_hash.slice(0,12), device: t.device || '旧客户端', created_at: t.created_at, expires_at: t.refresh_expires_at || t.expires_at })));
   });
-  app.delete('/admin/users/:id/sessions/:sessionId', (req, res) => {
+  app.post('/admin/users/:id/sessions/:sessionId/delete', (req, res) => {
     db.transaction(state => { state.tokens = state.tokens.filter(t => !(t.user_id === Number(req.params.id) && (t.id || t.token_hash.slice(0,12)) === req.params.sessionId)); audit(state, req.user, 'session.revoke', req.params.sessionId); });
     cancelRequests(Number(req.params.id), 'SESSION_REVOKED', req.params.sessionId); res.json({ ok: true });
   });

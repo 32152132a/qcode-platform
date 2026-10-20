@@ -1,3 +1,4 @@
+import { businessRequest } from '../../../client/api-contract.mjs'
 import axios, { type AxiosRequestConfig } from 'axios'
 import type { Session } from '@/types'
 const client = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || '', timeout: 20000 })
@@ -43,11 +44,12 @@ export async function request<T = unknown>(
   options: AxiosRequestConfig = {}
 ): Promise<T> {
   try {
+    const encoded = businessRequest(url, method, data)
     const response = await client.request<T>({
       ...options,
-      url,
-      method,
-      data,
+      url: encoded.url,
+      method: encoded.method,
+      data: encoded.data,
       headers: {
         ...options.headers,
         ...(session?.token ? { Authorization: 'Bearer ' + session.token } : {}),

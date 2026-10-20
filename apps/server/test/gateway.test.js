@@ -1,3 +1,4 @@
+import { businessRequest } from '../../client/api-contract.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -38,7 +39,8 @@ export async function fixture(t, extra = {}) {
     upstreamModel: 'private-model', publicModel: 'qcode-model', upstreamKey: 'secret-provider-key', timeoutMs: 2000, ...extra };
   const url = await listen(t, http.createServer(createApp(config, db)));
   async function request(route, method = 'GET', body, token) {
-    const response = await fetch(url + route, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const encoded = businessRequest(route, method, body);
+    const response = await fetch(url + encoded.url, { method: encoded.method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: encoded.data === undefined ? undefined : JSON.stringify(encoded.data) });
     return { status: response.status, body: await response.json() };
   }
   const admin = (await request('/auth/login', 'POST', { username: 'admin', password: 'admin-password' })).body.token;

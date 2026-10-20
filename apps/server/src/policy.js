@@ -5,6 +5,7 @@ export const rolePermissions = {
   auditor: ['users:read','departments:read','usage:read','requests:read','audits:read','system:read'],
   user: [],
 };
+rolePermissions.demo = rolePermissions.admin.filter(permission => permission.endsWith(':read'));
 export const permissions = user => Object.hasOwn(rolePermissions, user.role) ? rolePermissions[user.role] : [];
 export const departmentFor = (state, user) => state.departments.find(d => d.id === user.department_id);
 export function effectiveQuotas(state, user) {
@@ -40,7 +41,7 @@ export function protectAdministrator(state, user, actor, changingRole = false) {
 }
 export function adminPermission(db, config) {
   return (req, _res, next) => {
-    const resource = req.path.split('/')[1], action = ['GET','HEAD'].includes(req.method) ? 'read' : 'write';
+    const resource = req.path.split('/')[1], action = req.businessOperation?.[3] || (['GET','HEAD'].includes(req.method) ? 'read' : 'write');
     if (!permissions(req.user).includes(`${resource}:${action}`)) fail(403, 'PERMISSION_DENIED', '当前角色没有此操作权限');
     const address = req.ip?.replace(/^::ffff:/, '');
     if (config.adminAddresses.length && !config.adminAddresses.includes(address)) fail(403, 'ADMIN_SOURCE_DENIED', '此来源地址不允许访问后台');
@@ -50,7 +51,7 @@ export function adminPermission(db, config) {
       if (user) protectAdministrator(db.read(), user, req.user);
     }
     // Operators can manage ordinary staff but cannot grant roles or access secrets.
-    if (req.user.role !== 'admin' && (req.body?.role || req.body?.users?.some?.(u => u?.role && u.role !== 'user'))) fail(403, 'ROLE_ADMIN_REQUIRED', '只有管理员可以设置角色');
+    if (action === 'write' && req.user.role !== 'admin' && (req.body?.role || req.body?.users?.some?.(u => u?.role && u.role !== 'user'))) fail(403, 'ROLE_ADMIN_REQUIRED', '只有管理员可以设置角色');
     next();
   };
 }

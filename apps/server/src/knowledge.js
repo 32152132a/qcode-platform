@@ -50,13 +50,13 @@ function saveDocument(state,body,existing){
 }
 export function registerKnowledge(app,{db,auth}){
   const find=(state,value)=>{const doc=state.skills.find(s=>s.id===value&&isKnowledge(s));if(!doc)fail(404,'KNOWLEDGE_NOT_FOUND','文档不存在');return doc;};
-  app.get('/admin/knowledge',(_req,res)=>res.json({documents:db.read().skills.filter(isKnowledge).map(publicDocument),limits:knowledgeLimits}));
-  app.get('/admin/knowledge/search',(req,res)=>res.json({results:searchKnowledge(db.read(),req.query.q,{includeInactive:true})}));
-  app.get('/admin/knowledge/:id',(req,res)=>{const doc=find(db.read(),req.params.id);res.json({...publicDocument(doc),content:doc.files['references/document.md']});});
-  app.post('/admin/knowledge',(req,res)=>res.status(201).json(db.transaction(state=>{const document=saveDocument(state,req.body||{});audit(state,req.user,'knowledge.create',document.id);return document;})));
-  app.put('/admin/knowledge/:id',(req,res)=>res.json(db.transaction(state=>{const document=saveDocument(state,req.body||{},find(state,req.params.id));audit(state,req.user,'knowledge.update',document.id);return document;})));
-  app.delete('/admin/knowledge/:id',(req,res)=>{db.transaction(state=>{find(state,req.params.id);state.skills=state.skills.filter(s=>s.id!==req.params.id);audit(state,req.user,'knowledge.delete',req.params.id);});res.json({ok:true});});
-  app.get('/client/knowledge/search',auth,(req,res)=>{
+  app.post('/admin/knowledge/list',(_req,res)=>res.json({documents:db.read().skills.filter(isKnowledge).map(publicDocument),limits:knowledgeLimits}));
+  app.post('/admin/knowledge/search',(req,res)=>res.json({results:searchKnowledge(db.read(),req.query.q,{includeInactive:true})}));
+  app.post('/admin/knowledge/:id/detail',(req,res)=>{const doc=find(db.read(),req.params.id);res.json({...publicDocument(doc),content:doc.files['references/document.md']});});
+  app.post('/admin/knowledge/create',(req,res)=>res.status(201).json(db.transaction(state=>{const document=saveDocument(state,req.body||{});audit(state,req.user,'knowledge.create',document.id);return document;})));
+  app.post('/admin/knowledge/:id/update',(req,res)=>res.json(db.transaction(state=>{const document=saveDocument(state,req.body||{},find(state,req.params.id));audit(state,req.user,'knowledge.update',document.id);return document;})));
+  app.post('/admin/knowledge/:id/delete',(req,res)=>{db.transaction(state=>{find(state,req.params.id);state.skills=state.skills.filter(s=>s.id!==req.params.id);audit(state,req.user,'knowledge.delete',req.params.id);});res.json({ok:true});});
+  app.post('/client/knowledge/search',auth,(req,res)=>{
     const state=db.read(),department=state.departments.find(d=>d.id===req.user.department_id);
     if(department&&!department.active)fail(403,'DEPARTMENT_DISABLED','所在部门已被禁用');
     res.json({results:searchKnowledge(state,req.query.q)});

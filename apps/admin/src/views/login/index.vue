@@ -5,6 +5,7 @@
       ><img src="/branding/qcode-96.png" alt="QCode" />
       <h1>登录管理控制台</h1>
       <p>统一管理团队、模型和使用额度</p>
+      <el-alert v-if="demoSelected" title="演示账号可浏览后台，提交操作不会修改数据" type="info" :closable="false" />
       <el-form label-position="top" @submit.prevent="submit"
         ><el-form-item label="账号"
           ><el-input
@@ -24,12 +25,14 @@
           :loading="busy"
           >登录</el-button
         ></el-form
-      ></el-card
+      ><el-button v-if="demo" link type="primary" :disabled="busy" @click="useDemo">体验演示版</el-button>
+      </el-card
     >
   </div>
 </template>
 <script setup lang="ts">
-  import { ref } from 'vue'
+  import { ref, computed, onMounted } from 'vue'
+  import { request } from '@/api/request'
   import { useRouter, useRoute } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
   const username = ref(''),
@@ -39,6 +42,20 @@
     auth = useAuthStore(),
     router = useRouter(),
     route = useRoute()
+  const demo = ref<{ username: string; password: string } | null>(null)
+  const demoSelected = computed(() => !!demo.value && username.value === demo.value.username)
+  onMounted(async () => {
+    try {
+      const result = await request<{ enabled: boolean; username?: string; password?: string }>('/auth/demo')
+      if (result.enabled && result.username && result.password) demo.value = { username: result.username, password: result.password }
+    } catch { /* Keep normal login available when demo configuration cannot be read. */ }
+  })
+  function useDemo() {
+    if (!demo.value) return
+    username.value = demo.value.username
+    password.value = demo.value.password
+    error.value = ''
+  }
   async function submit() {
     if (!username.value || !password.value) {
       error.value = '请输入账号和密码'

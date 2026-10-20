@@ -1,3 +1,4 @@
+import { businessOperation, obsoleteBusinessRequest } from '../../client/api-contract.mjs';
 import { createAccountRequestQueue } from './request-queue.js';
 import { registerWebPages } from './web-pages.js';
 import {migrateModelSources,registerModelSources,sourcesFor,backupBeforeModelSources} from './model-sources.js';
@@ -10,7 +11,7 @@ import { isIP } from 'node:net';
 import { createDatabase, createVault, hashPassword } from './database.js';
 import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, audit, availableModels, resolveModel } from './domain.js';
 import { complete, statistics } from './proxy.js';
-import { registerAuth } from './auth.js';
+import { registerAuth, ensureDemoUser } from './auth.js';
 import { adminPermission, rolePermissions, protectAdministrator } from './policy.js';
 import { registerEnterpriseRoutes } from './enterprise.js';
 import { registerDistribution } from './distribution.js';
@@ -34,6 +35,7 @@ export function readConfig(env) {
     loginFailureLimit: number('LOGIN_FAILURE_LIMIT', 10, 1, 100), trustedProxies,
     dbPath: env.DB_PATH || './data/qcode.sqlite', encryptionSecret: env.KEY_ENCRYPTION_SECRET,
     adminUsername: env.ADMIN_USERNAME, adminPassword: env.ADMIN_PASSWORD,
+    demoEnabled: env.DEMO_ENABLED === 'true', demoUsername: env.DEMO_USERNAME || 'demo', demoPassword: env.DEMO_PASSWORD || 'qcode-demo-2026',
     ollamaBaseUrl: env.OLLAMA_BASE_URL ? baseUrl(env.OLLAMA_BASE_URL) : null,
     baseUrl: env.UPSTREAM_BASE_URL ? baseUrl(env.UPSTREAM_BASE_URL) : null,
     upstreamModel: env.UPSTREAM_MODEL, publicModel: env.PUBLIC_MODEL || 'qcode-model', upstreamKey: env.UPSTREAM_API_KEY,
@@ -45,7 +47,7 @@ export function createApp(config, database) {
   const db = database || createDatabase(config.dbPath, { vault });
   backupBeforeModelSources(db,vault,config);
   const timezone = config.timezone || 'Asia/Shanghai';
-  config = { timeoutMs: 180000, tokenTtlDays: 7, accessTokenMinutes: 30, refreshTokenDays: 30, loginFailureLimit: 10, adminAddresses: [], ...config, timezone };
+  config = { demoEnabled: false, demoUsername: 'demo', demoPassword: 'qcode-demo-2026', timeoutMs: 180000, tokenTtlDays: 7, accessTokenMinutes: 30, refreshTokenDays: 30, loginFailureLimit: 10, adminAddresses: [], ...config, timezone };
   db.transaction(state => {
     if (!state.users.some(u => u.role === 'admin')) {
       if (!config.adminUsername || !config.adminPassword) throw new Error('Set ADMIN_USERNAME and ADMIN_PASSWORD to create the first administrator');
@@ -73,6 +75,7 @@ export function createApp(config, database) {
     }
     migrateModelSources(state);
   });
+  ensureDemoUser(db, config);
   const app = express();
   if(config.trustedProxies?.length)app.set('trust proxy',config.trustedProxies);
   app.locals.db = db;
@@ -85,6 +88,13 @@ export function createApp(config, database) {
   app.use(express.json({ limit: '4mb' }));
   app.use((req, _res, next) => {
     if (req.body !== undefined && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))) fail(400, 'INVALID_REQUEST', 'Request body must be a JSON object');
+    next();
+  });
+  app.use((req, _res, next) => {
+    if (req.method === 'POST') {
+      req.businessOperation = businessOperation(req.path);
+      if (req.businessOperation?.[3] === 'read') Object.defineProperty(req, 'query', { value: req.body || {}, configurable: true });
+    }
     next();
   });
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
@@ -112,7 +122,7 @@ export function createApp(config, database) {
     if (body.keyId != null && !state.keys.some(k => k.id === body.keyId && k.active)) fail(400, 'INVALID_KEY', 'Choose an enabled key');
     if (body.modelId != null && !state.models.some(m => m.id === body.modelId && m.active)) fail(400, 'INVALID_MODEL', 'Choose an enabled model');
   };
-  app.get('/admin/users', (_req, res) => { const state = db.read(); res.json(state.users.map(u => publicUser(state, u, timezone))); });
+  app.post('/admin/users/list', (_req, res) => { const state = db.read(); res.json(state.users.map(u => publicUser(state, u, timezone))); });
   function createUser(state, body, actor) {
     const username = text(body.username, 'username', 80);
     if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', 'Username contains unsupported characters');
@@ -130,14 +140,15 @@ export function createApp(config, database) {
     state.users.push(user); audit(state, actor, 'user.create', user.id);
     return publicUser(state, user, timezone);
   }
-  app.post('/admin/users', (req, res) => res.status(201).json(db.transaction(state => createUser(state, req.body || {}, req.user))));
+  app.post('/admin/users/create', (req, res) => res.status(201).json(db.transaction(state => createUser(state, req.body || {}, req.user))));
   app.post('/admin/users/import', (req, res) => {
     if (!Array.isArray(req.body?.users) || !req.body.users.length || req.body.users.length > 100) fail(400, 'INVALID_IMPORT', 'Provide 1–100 users');
     res.status(201).json(db.transaction(state => req.body.users.map(body => createUser(state, body, req.user))));
   });
-  app.patch('/admin/users/:id', (req, res) => res.json(db.transaction(state => {
+  app.post('/admin/users/:id/update', (req, res) => res.json(db.transaction(state => {
     const user = getUser(state, req.params.id), body = req.body || {};
     validateAssignment(state, body);
+    if (user.role === 'demo' && 'role' in body && body.role !== 'demo') fail(403, 'DEMO_PROTECTED', '演示账号不能提升为其他角色，请创建独立账号');
     if ('role' in body) {
       if (req.user.role !== 'admin' || !Object.hasOwn(rolePermissions, body.role)) fail(403, 'INVALID_ROLE', '角色配置无效');
       protectAdministrator(state, user, req.user, body.role !== 'admin');
@@ -165,7 +176,7 @@ export function createApp(config, database) {
     audit(state, req.user, 'user.update', user.id);
     return publicUser(state, user, timezone);
   })));
-  app.patch('/admin/users/:id/status', (req, res) => {
+  app.post('/admin/users/:id/status', (req, res) => {
     if (typeof req.body?.isActive !== 'boolean') fail(400, 'INVALID_FIELD', 'isActive must be boolean');
     db.transaction(state => {
       const user = getUser(state, req.params.id);
@@ -196,7 +207,7 @@ export function createApp(config, database) {
       user.quota_reset_at = now(); user.legacy_tokens = 0; audit(state, req.user, 'user.quota.reset', user.id);
     }); res.json({ ok: true });
   });
-  app.delete('/admin/users/:id', (req, res) => {
+  app.post('/admin/users/:id/delete', (req, res) => {
     db.transaction(state => {
       const user = getUser(state, req.params.id);
       if (user.role === 'admin') fail(400, 'ADMIN_PROTECTED', 'Administrator cannot be deleted');
@@ -208,8 +219,8 @@ export function createApp(config, database) {
   const publicKey = (state, key) => ({ id: key.id, name: key.name, suffix: key.suffix, active: key.active, health: key.health,
     checked_at: key.checked_at, created_at: key.created_at, assigned_users: state.users.filter(u => u.key_id === key.id).map(u => u.username),
     requests: state.requests.filter(r => r.key_id === key.id).length });
-  app.get('/admin/keys', (_req, res) => { const state = db.read(); res.json(state.keys.map(k => publicKey(state, k))); });
-  app.post('/admin/keys', (req, res) => {
+  app.post('/admin/keys/list', (_req, res) => { const state = db.read(); res.json(state.keys.map(k => publicKey(state, k))); });
+  app.post('/admin/keys/create', (req, res) => {
     const entries = req.body?.keys || [req.body];
     if (!Array.isArray(entries) || !entries.length || entries.length > 100) fail(400, 'INVALID_IMPORT', 'Provide 1–100 keys');
     res.status(201).json(db.transaction(state => entries.map(entry => {
@@ -220,7 +231,7 @@ export function createApp(config, database) {
       state.keys.push(key); audit(state, req.user, 'key.create', key.id); return publicKey(state, key);
     })));
   });
-  app.patch('/admin/keys/:id', (req, res) => {
+  app.post('/admin/keys/:id/update', (req, res) => {
     if (!req.body) fail(400, 'INVALID_REQUEST', 'Request body is required');
     res.json(db.transaction(state => {
       const key = state.keys.find(k => k.id === req.params.id);
@@ -237,7 +248,7 @@ export function createApp(config, database) {
       audit(state, req.user, 'key.update', key.id); return publicKey(state, key);
     }));
   });
-  app.delete('/admin/keys/:id', (req, res) => {
+  app.post('/admin/keys/:id/delete', (req, res) => {
     db.transaction(state => {
       if (!state.keys.some(k => k.id === req.params.id)) fail(404, 'KEY_NOT_FOUND', 'Key not found');
       if (sourcesFor(state).some(source=>source.key_id===req.params.id) || state.users.some(u => u.key_id === req.params.id) || state.departments.some(d => d.key_id === req.params.id) || state.models.some(m => m.key_id === req.params.id) || state.requests.some(r => r.key_id === req.params.id && r.status === 'pending')) fail(409, 'KEY_IN_USE', '请先回收用户和部门的 Key，并等待进行中的请求完成');
@@ -262,8 +273,8 @@ export function createApp(config, database) {
   });
   app.locals.modelSources=registerModelSources(app,{db,vault,config,saveModel});
   registerModelChecks(app, { db, vault, config, activeRequests });
-  app.get('/admin/models/ollama-preset', (_req,res) => res.json({baseUrl:config.ollamaBaseUrl || 'http://localhost:11434/v1',upstreamModel:'qwen:0.5b',maxOutputTokens:256,contextWindow:32768}));
-  app.get('/admin/models', (_req, res) => res.json(db.read().models));
+  app.post('/admin/models/ollama-preset', (_req,res) => res.json({baseUrl:config.ollamaBaseUrl || 'http://localhost:11434/v1',upstreamModel:'qwen:0.5b',maxOutputTokens:256,contextWindow:32768}));
+  app.post('/admin/models/list', (_req, res) => res.json(db.read().models));
   function saveModel(state, body, existing) {
     for (const price of [body.inputPrice ?? 0, body.outputPrice ?? 0]) if (typeof price !== 'number' || !Number.isFinite(price) || price < 0 || price > 100000) fail(400, 'INVALID_PRICE', '单价必须在 0 到 100000 之间');
     if (!['CNY','USD'].includes(body.currency || 'CNY')) fail(400, 'INVALID_CURRENCY', '币种只支持 CNY 或 USD');
@@ -289,22 +300,22 @@ export function createApp(config, database) {
     if (existing) Object.assign(existing, model); else state.models.push(model);
     return model;
   }
-  app.post('/admin/models', (req, res) => res.status(201).json(db.transaction(state => {
+  app.post('/admin/models/create', (req, res) => res.status(201).json(db.transaction(state => {
     const model = saveModel(state, req.body || {}); audit(state, req.user, 'model.create', model.id); return model;
   })));
-  app.put('/admin/models/:id', (req, res) => res.json(db.transaction(state => {
+  app.post('/admin/models/:id/update', (req, res) => res.json(db.transaction(state => {
     const existing = state.models.find(m => m.id === req.params.id);
     if (!existing) fail(404, 'MODEL_NOT_FOUND', 'Model not found');
     const model = saveModel(state, req.body || {}, existing); audit(state, req.user, 'model.update', model.id); return model;
   })));
-  app.get('/admin/usage', (req, res) => {const state=db.read();state.requests=filterRecords(state.requests,req.query,timezone);res.json(statistics(state, timezone));});
+  app.post('/admin/usage/query', (req, res) => {const state=db.read();state.requests=filterRecords(state.requests,req.query,timezone);res.json(statistics(state, timezone));});
   const page = (items, query) => {
     const offset = integer(Number(query.offset || 0), 'offset'), limit = integer(Number(query.limit || 50), 'limit', 200);
     return { total: items.length, items: items.slice().reverse().slice(offset, offset + limit) };
   };
-  app.get('/admin/requests', (req, res) => res.json(page(filterRecords(db.read().requests,req.query,timezone), req.query)));
-  app.get('/admin/audits', (req, res) => res.json(page(filterRecords(db.read().audits,req.query,timezone), req.query)));
-  app.get('/admin/system', (_req, res) => res.json({ version: '0.3.0', storage: db.kind, timezone,
+  app.post('/admin/requests/list', (req, res) => res.json(page(filterRecords(db.read().requests,req.query,timezone), req.query)));
+  app.post('/admin/audits/list', (req, res) => res.json(page(filterRecords(db.read().audits,req.query,timezone), req.query)));
+  app.post('/admin/system/detail', (_req, res) => res.json({ version: '0.3.0', storage: db.kind, timezone,
     tokenTtlDays: config.tokenTtlDays, requestTimeoutMs: config.timeoutMs, uptimeSeconds: Math.floor(process.uptime()),
     pendingRequests: db.read().requests.filter(r => r.status === 'pending').length }));
   app.use('/v1', auth);
@@ -322,7 +333,10 @@ export function createApp(config, database) {
     auth(req, res, () => {});
     return complete(req, res, { db, vault, config, activeRequests });
   }));
-  app.use((_req, _res) => fail(404, 'NOT_FOUND', 'Endpoint not found'));
+  app.use((req, _res) => {
+    if (obsoleteBusinessRequest(req.method, req.path)) fail(426, 'CLIENT_UPGRADE_REQUIRED', '接口已升级，请刷新管理端或升级 QCode 客户端');
+    fail(404, 'NOT_FOUND', 'Endpoint not found');
+  });
   app.use((error, _req, res, _next) => {
     if (res.headersSent) return res.destroy();
     const status = error.status || 500;

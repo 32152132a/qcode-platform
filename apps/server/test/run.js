@@ -41,3 +41,5 @@ import './web-pages.test.js';
 import './request-queue.test.js';
 
 import './model-presentation.test.js';
+
+import './demo.test.js';

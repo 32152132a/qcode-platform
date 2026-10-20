@@ -41,7 +41,7 @@ try {
   )
   const headers = { Authorization: 'Bearer ' + token }
   for (let i = 0; i < 31; i++) {
-    const response = await page.request.post(origin + '/admin/users', {
+    const response = await page.request.post(origin + '/admin/users/create', {
       headers,
       data: { username: 'component-user-' + i, password: 'fixture-password-123' },
     })
@@ -111,7 +111,7 @@ try {
   await page.goto(origin + '/manage/audits')
   assert.equal(await page.locator('.el-pagination').count(), 1)
   const auditPage = page.waitForResponse((response) =>
-    response.url().includes('/admin/audits?offset=25&limit=25')
+    response.url().endsWith('/admin/audits/list') && Number(response.request().postDataJSON().offset) === 25
   )
   await page.getByRole('button', { name: '下一页', exact: true }).click()
   await auditPage
@@ -120,12 +120,13 @@ try {
   await page.getByPlaceholder('搜索用户、模型或操作').fill('fixture.action')
   const filterPage = page.waitForResponse(
     (response) =>
-      response.url().includes('/admin/audits?offset=0&limit=25') &&
-      response.url().includes('search=fixture.action')
+      response.url().endsWith('/admin/audits/list') &&
+      Number(response.request().postDataJSON().offset) === 0 &&
+      response.request().postDataJSON().search === 'fixture.action'
   )
   await page.getByRole('button', { name: '查询', exact: true }).click()
   await filterPage
-  const sourceResponse = await page.request.post(origin + '/admin/models/sources', {
+  const sourceResponse = await page.request.post(origin + '/admin/models/sources/create', {
     headers,
     data: {
       name: '组件模型服务',
@@ -178,10 +179,10 @@ try {
   await page.goto(origin + '/manage/knowledge')
   const knowledge = page.getByPlaceholder('搜索知识库内容')
   await knowledge.fill('组件检索')
-  let response = page.waitForResponse((item) => item.url().includes('/admin/knowledge/search?q='))
+  let response = page.waitForResponse((item) => item.url().endsWith('/admin/knowledge/search') && item.request().postDataJSON().q === '组件检索')
   await page.getByRole('button', { name: '检索', exact: true }).click()
   await response
-  response = page.waitForResponse((item) => item.url().includes('/admin/knowledge/search?q='))
+  response = page.waitForResponse((item) => item.url().endsWith('/admin/knowledge/search') && item.request().postDataJSON().q === '组件检索')
   await knowledge.press('Enter')
   await response
   await fs.mkdir('.visual-tests', { recursive: true })
