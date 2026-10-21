@@ -6,12 +6,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-if (-not $Source) { $Source = Join-Path $root 'docs/branding/logo-selected-02.png' }
+if (-not $Source) { $Source = Join-Path $root 'docs/branding/qcode-icon.png' }
 if (-not $OpenCodeRepository) { $OpenCodeRepository = Join-Path (Split-Path $root -Parent) 'qcode-opencode' }
 $Source = (Resolve-Path -LiteralPath $Source).Path
 $OpenCodeRepository = (Resolve-Path -LiteralPath $OpenCodeRepository).Path
 
 Add-Type -AssemblyName System.Drawing
+
+# Embed the supplied bitmap so favicon SVGs remain self-contained without redrawing it.
+$encodedSource=[Convert]::ToBase64String([IO.File]::ReadAllBytes($Source))
+$svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><image width="512" height="512" href="data:image/png;base64,'+$encodedSource+'"/></svg>'
+foreach($relative in @('apps/admin/public/brand-logo.svg','apps/server/public/brand-logo.svg')){
+    [IO.File]::WriteAllText((Join-Path $root $relative),$svg,(New-Object Text.UTF8Encoding($false)))
+}
 
 function Export-SquarePng([Drawing.Image]$Image, [int]$Size, [string]$Path) {
     $bitmap = New-Object Drawing.Bitmap $Size, $Size, ([Drawing.Imaging.PixelFormat]::Format32bppArgb)
