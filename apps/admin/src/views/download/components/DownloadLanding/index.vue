@@ -2,7 +2,7 @@
   <div ref="landingRoot" class="landing">
     <header class="navigation wrap">
       <router-link class="brand" to="/" aria-label="QCode 首页">
-        <img src="/branding/qcode-96.png" alt="" /><span>QCode</span>
+        <img src="/brand-logo.svg" alt="" /><span>QCode</span>
       </router-link>
       <nav aria-label="主导航">
         <a
@@ -51,7 +51,7 @@
           <div class="workspace">
             <aside class="workspace-sidebar">
               <div class="mini-brand">
-                <img src="/branding/qcode-96.png" alt="" />QCode
+                <img src="/brand-logo.svg" alt="" />QCode
               </div>
               <div class="new-task"><Plus /> 新建任务</div>
               <span class="sidebar-label">最近的任务</span>

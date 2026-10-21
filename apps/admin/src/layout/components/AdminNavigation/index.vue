@@ -1,7 +1,7 @@
 <template>
   <div class="admin-navigation">
     <router-link class="brand" to="/" aria-label="返回 QCode 首页"
-      ><img src="/branding/qcode-96.png" alt="" /><span
+      ><img src="/brand-logo.svg" alt="" /><span
         >QCode<small>团队 AI 控制台</small></span
       ></router-link
     >
