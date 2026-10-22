@@ -448,6 +448,19 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       })
     )
   )
+  app.post('/admin/models/sources/:id/models/:modelId/delete', (req, res) => {
+    db.transaction((state) => {
+      const source = find(state, req.params.id),
+        model = state.models.find((m) => m.id === req.params.modelId && m.source_id === source.id)
+      if (!model) fail(404, 'MODEL_NOT_FOUND', '模型不存在')
+      state.models = state.models.filter((m) => m.id !== model.id)
+      for (const item of [...state.users, ...state.departments])
+        if (item.model_id === model.id) item.model_id = null
+      // Request records retain their model identity for usage and quota accounting.
+      audit(state, req.user, 'model.delete', model.id)
+    })
+    res.json({ ok: true })
+  })
   app.post('/admin/models/sources/:id/models/:modelId/update', (req, res) =>
     res.json(
       db.transaction((state) => {

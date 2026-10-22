@@ -41,7 +41,10 @@
             >验证</el-button
           ><el-button link type="primary" @click="emit('toggle', row)">{{
             row.active ? '停用' : '启用'
-          }}</el-button>
+          }}</el-button
+          ><el-button link type="danger" :disabled="!!busy" @click="emit('remove', row)"
+            >删除</el-button
+          >
         </div></template
       >
       <template #empty
@@ -68,6 +71,7 @@
     edit: [model: Model]
     check: [model: Model]
     toggle: [model: Model]
+    remove: [model: Model]
   }>()
   const { page, pageSize } = usePage(() => props.models.length)
   const columns = computed(() => [
@@ -75,7 +79,7 @@
     { prop: 'status', label: '状态', width: 160 },
     { prop: 'verification', label: '能力验证', minWidth: 150 },
     ...(props.canWrite
-      ? [{ prop: 'actions', label: '操作', width: 190, fixed: 'right' as const }]
+      ? [{ prop: 'actions', label: '操作', width: 240, fixed: 'right' as const }]
       : []),
   ])
   const pageRows = computed(() =>

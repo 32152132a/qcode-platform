@@ -433,3 +433,57 @@ test('full catalog selection imports beyond thirty, is atomic, idempotent and re
     403
   )
 })
+
+test('model deletion clears assignments, preserves usage and requires explicit reimport after sync', async (t) => {
+  const f = await fixture(t)
+  const model = f.db.read().models[0]
+  await f.create('alice', { modelId: model.id })
+  const token = await f.login()
+  const route = '/admin/models/sources/' + model.source_id + '/models/' + model.id
+  assert.equal((await f.chat(token)).status, 200)
+  const history = f.db.read().requests
+  const usage = (await f.request('/admin/usage', 'GET', undefined, f.admin)).body.totals
+  const department = (
+    await f.request('/admin/departments', 'POST', { name: 'Model deletion team', modelId: model.id }, f.admin)
+  ).body
+  assert(department.id)
+  assert.equal((await f.request(route, 'DELETE', undefined, token)).status, 403)
+  const source = (
+    await f.request('/admin/models/sources', 'POST', {
+      kind: 'local', name: 'Other source', baseUrl: 'http://localhost:11434/v1', autoSync: false,
+    }, f.admin)
+  ).body
+  assert.equal((await f.request('/admin/models/sources/' + source.id + '/models/' + model.id, 'DELETE', undefined, f.admin)).status, 404)
+  assert.equal(f.db.read().models.length, 1)
+  assert.equal((await f.request(route, 'DELETE', undefined, f.admin)).status, 200)
+  const state = f.db.read()
+  assert.equal(state.models.length, 0)
+  assert.equal(state.users.find((user) => user.username === 'alice').model_id, null)
+  assert.equal(state.departments.find((item) => item.id === department.id).model_id, null)
+  assert.deepEqual(state.requests, history)
+  assert.deepEqual((await f.request('/admin/usage', 'GET', undefined, f.admin)).body.totals, usage)
+  assert(state.audits.some((entry) => entry.action === 'model.delete' && entry.target === model.id))
+  assert.deepEqual((await f.request('/client/config', 'GET', undefined, token)).body.models, [])
+  assert.equal((await f.chat(token)).body.error.code, 'MODEL_UNAVAILABLE')
+  assert.equal((await f.request(route, 'DELETE', undefined, f.admin)).status, 404)
+
+  const upstream = http.createServer((_req, res) => res.writeHead(200, { 'content-type': 'application/json' })
+    .end(JSON.stringify({ data: [{ id: model.upstream_model }] })))
+  upstream.listen(0, '127.0.0.1')
+  await once(upstream, 'listening')
+  t.after(() => { upstream.closeAllConnections(); upstream.close() })
+  await f.request('/admin/models/sources/' + model.source_id, 'PUT', {
+    baseUrl: 'http://127.0.0.1:' + upstream.address().port,
+    keyId: f.key.id,
+  }, f.admin)
+  assert.equal((await f.request('/admin/models/sources/' + model.source_id + '/sync', 'POST', {}, f.admin)).status, 200)
+  assert.equal(f.db.read().models.length, 0)
+  assert.equal((await importSelected(f, model.source_id, [model.upstream_model])).status, 200)
+  const imported = f.db.read().models[0]
+  assert.notEqual(imported.id, model.id)
+  assert.equal(imported.active, false)
+  assert.deepEqual(f.db.read().requests, history)
+  assert.equal((await f.request('/admin/models/sources/' + model.source_id + '/models/' + imported.id, 'DELETE', undefined, f.admin)).status, 200)
+  assert.equal((await f.request('/admin/models/sources/' + model.source_id, 'DELETE', undefined, f.admin)).status, 200)
+  assert.deepEqual(f.db.read().requests, history)
+})

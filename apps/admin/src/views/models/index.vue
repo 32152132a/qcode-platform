@@ -72,6 +72,7 @@
           @edit="(model) => modelEditor?.open(model, load)"
           @check="check"
           @toggle="toggleModel"
+          @remove="removeModel"
       /></SourceCard>
     </div>
     <ModelSyncDialog ref="syncDialog" /><EntityDialog ref="editor" /><ModelDialog ref="modelEditor"
@@ -295,6 +296,20 @@
       request('/admin/models/sources/' + model.source_id + '/models/' + model.id, 'PATCH', {
         active: !model.active,
       })
+    )
+  }
+  async function removeModel(model: Model) {
+    try {
+      await ElMessageBox.confirm(
+        '删除模型“' + model.name + '”？员工和部门的默认选择将清除，历史调用与用量保留。再次同步不会自动加回，可手动重新导入。',
+        '删除模型',
+        { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
+    await run(model.id, () =>
+      request('/admin/models/sources/' + model.source_id + '/models/' + model.id, 'DELETE')
     )
   }
   async function removeSource(source: ModelSource) {
