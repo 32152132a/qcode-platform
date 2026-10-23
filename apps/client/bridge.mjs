@@ -37,10 +37,10 @@ export class GatewaySession {
 }
 export async function startBridge(session,{onConfig=async()=>{}}={}) {
   const localToken=randomBytes(32).toString('base64url');
-  let configuration=await session.json('/client/config'), lastConfig=Date.now(), refreshingConfig;
+  let configuration=await session.json('/client/config'), refreshingConfig;
   async function refreshConfig(force=false) {
-    if (!force && Date.now()-lastConfig<60000) return configuration;
-    if (!refreshingConfig) refreshingConfig=(async()=>{configuration=await session.json('/client/config');lastConfig=Date.now();await onConfig(configuration);return configuration;})();
+    if (!force) return configuration;
+    if (!refreshingConfig) refreshingConfig=(async()=>{configuration=await session.json('/client/config');await onConfig(configuration);return configuration;})();
     try { return await refreshingConfig; } finally { refreshingConfig=null; }
   }
   const controllers=new Set();
@@ -53,7 +53,7 @@ export async function startBridge(session,{onConfig=async()=>{}}={}) {
     const timeout=setTimeout(()=>controller.abort(),190000);
     const closed=()=>{if(!res.writableFinished)controller.abort();};res.on('close',closed);
     try {
-      if(req.method==='GET' && req.url==='/v1/models') {const config=await refreshConfig(true);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({object:'list',data:clientModels(config).map(model=>({id:model.id,object:'model',owned_by:'qcode'}))}));return;}
+      if(req.method==='GET' && req.url==='/v1/models') {const config=await refreshConfig();res.setHeader('Content-Type','application/json');res.end(JSON.stringify({object:'list',data:clientModels(config).map(model=>({id:model.id,object:'model',owned_by:'qcode'}))}));return;}
       if(req.method!=='POST' || req.url!=='/v1/chat/completions') {res.writeHead(404).end();return;}
       let length=0;const chunks=[];
       for await(const chunk of req){length+=chunk.length;if(length>4*1024*1024)throw Object.assign(new Error('请求超过 4 MB'),{status:413});chunks.push(chunk);}
@@ -63,8 +63,18 @@ export async function startBridge(session,{onConfig=async()=>{}}={}) {
       if(!models.length)throw Object.assign(new Error('后台尚未启用模型，请联系管理员'),{status:503,code:'MODEL_UNAVAILABLE'});
       const selected=models.find(model=>model.id===body.model)||(body.model==='qcode-model'?models.find(model=>model.id===config.model)||models[0]:null);
       if(!selected)throw Object.assign(new Error('所选模型不可用，请刷新模型列表或重新打开工作台'),{status:400,code:'INVALID_MODEL'});
+      if(configuration.expiredModels?.includes(selected.id))throw Object.assign(new Error('模型已过期，请重新选择模型，或重新打开 QCode'),{status:410,code:'MODEL_EXPIRED'});
       for(const key of ['max_tokens','max_completion_tokens']) if(Number.isInteger(body[key]) && body[key]>selected.maxOutputTokens)body[key]=selected.maxOutputTokens;
       const response=await session.fetch('/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,model:selected.upstreamId||selected.id}),signal:controller.signal});
+      if ([400,404,503].includes(response.status)) {
+        const failure = await response.clone().json().catch(() => null);
+        if (['INVALID_MODEL','MODEL_UNAVAILABLE'].includes(failure?.error?.code)) {
+          configuration = {...configuration, expiredModels:[...new Set([...(configuration.expiredModels || []),selected.id])]};
+          await onConfig(configuration);
+          await response.body?.cancel();
+          throw Object.assign(new Error('当前对话的模型已过期，请重新选择模型，或重新打开 QCode'),{status:410,code:'MODEL_EXPIRED'});
+        }
+      }
       res.statusCode=response.status;res.setHeader('Content-Type',response.headers.get('content-type') || 'application/json');
       if(!response.body){res.end();return;}
       await pipeline(Readable.fromWeb(response.body),res);
