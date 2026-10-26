@@ -96,7 +96,7 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         const tokens=result.usage;
         if(Number.isSafeInteger(tokens?.total_tokens)&&tokens.total_tokens>=0){usage={input_tokens:tokens.prompt_tokens??null,output_tokens:tokens.completion_tokens??null,total_tokens:Math.max(tokens.total_tokens,(tokens.prompt_tokens||0)+(tokens.completion_tokens||0))};}
         status='success';return result;
-      }catch(error){errorCode=controller.signal.aborted?'UPSTREAM_TIMEOUT':error.code||'UPSTREAM_UNAVAILABLE';if(error.status)throw error;fail(502,errorCode,'模型测试未完成，请检查网络或超时设置');}
+      }catch(error){errorCode=controller.signal.aborted?'UPSTREAM_TIMEOUT':error.code||'UPSTREAM_UNAVAILABLE';if(error.status)throw error;fail(502,errorCode,errorCode === 'UPSTREAM_TIMEOUT' ? '模型生成超时；服务可能已连接，请检查推理负载和模型设置' : '模型测试未完成，请检查服务状态');}
       finally{
         clearTimeout(timer);res.off('close',cancel);activeRequests.delete(requestId);
         db.transaction(state=>{
@@ -111,7 +111,7 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
     try {
       if(model.provider==='ollama'){
         const result=await perform({messages:[{role:'user',content:'Reply briefly with OK.'}],stream:true});
-        if(!result.choices[0]?.message?.content?.trim())fail(502,'EMPTY_MODEL_RESPONSE','模型未返回文本');
+        if(!result.choices[0]?.message?.content?.trim())fail(502,'EMPTY_MODEL_RESPONSE','模型未返回正文，可能输出额度已用于思考；请检查思考模式和输出上限');
         verification.stream=true;verification.status='connected';verification.message='本地模型聊天连通，工具调用未验证。';
       }else{
       // DeepSeek defaults to thinking mode, where named tool_choice returns HTTP 400.

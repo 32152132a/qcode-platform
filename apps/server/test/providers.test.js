@@ -110,3 +110,12 @@ test('diagnostic requests honor quotas and unsupported request parameters never 
   const failed=await f.request('/v1/chat/completions','POST',{model:model.public_name,messages:[{role:'user',content:'hello'}],stop:['end']},login.body.token);
   assert.equal(failed.status,400);assert.equal(f.db.read().requests.filter(r=>r.user_id===user.body.id).length,0);
 });
+
+test('tiny Qwen defaults to no thinking and respects explicit choices', () => {
+ const model = { provider: 'ollama', upstream_model: 'qwen3:0.6b', base_url: 'http://local/v1' };
+ const request = body => providerRequest({ messages: [], ...body }, model, undefined, 32).payload;
+ assert.equal(request({}).reasoning_effort, 'none');
+ assert.equal(request({reasoning_effort:'high'}).reasoning_effort,'high');
+ assert.equal(request({reasoning:{effort:'low'}}).reasoning_effort,undefined);
+ for(const other of [{...model,upstream_model:'qwen3:8b'},{...model,provider:'custom'}]) assert.equal(providerRequest({messages:[]},other,'test',32).payload.reasoning_effort,undefined);
+});

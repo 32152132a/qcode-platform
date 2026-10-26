@@ -7,6 +7,8 @@ export function providerRequest(body, model, secret, outputLimit) {
   const headers = { 'Content-Type': 'application/json', ...(model.provider === 'ollama' ? {} : { Authorization: `Bearer ${secret}` }) };
   if (protocol === 'chat-completions') {
     const payload = { ...body, model: model.upstream_model, n: 1 };
+    // Tiny Qwen otherwise spends the short output budget on reasoning alone.
+    if (model.provider === 'ollama' && /^qwen3:0\.6b$/i.test(model.upstream_model) && body.reasoning_effort == null && body.reasoning?.effort == null) payload.reasoning_effort = 'none';
     delete payload.max_tokens; delete payload.max_completion_tokens;
     payload[model.max_tokens_field || 'max_tokens'] = outputLimit;
     if (body.stream && model.stream_usage) payload.stream_options = { ...(body.stream_options || {}), include_usage: true };
