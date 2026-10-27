@@ -43,3 +43,5 @@ import './request-queue.test.js';
 import './model-presentation.test.js';
 
 import './demo.test.js';
+
+import './images.test.js';

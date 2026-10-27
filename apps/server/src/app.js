@@ -1,3 +1,4 @@
+import { registerImages } from './images.js';
 import { businessOperation, obsoleteBusinessRequest } from '../../client/api-contract.mjs';
 import { createAccountRequestQueue } from './request-queue.js';
 import { registerWebPages } from './web-pages.js';
@@ -329,6 +330,7 @@ export function createApp(config, database) {
       return !user || state.requests.filter(item => item.user_id === userId && item.status === 'pending').length < (user.max_concurrent_requests || 1);
     },
   });
+  registerImages(app, { db, vault, config, auth, activeRequests, queueRequest });
   app.post('/v1/chat/completions', (req, res) => queueRequest(req, res, () => {
     auth(req, res, () => {});
     return complete(req, res, { db, vault, config, activeRequests });

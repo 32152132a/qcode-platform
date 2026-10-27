@@ -9,7 +9,7 @@
       ><el-button v-if="auth.can('models:write')" type="primary" @click="editSource()">{{
         addSourceLabel
       }}</el-button></template
-    ><el-tabs v-model="kind"
+    ><ImageGenerationSettings :sources="sources" /><el-tabs v-model="kind"
       ><el-tab-pane v-for="item in categories" :key="item.id" :name="item.id"
         ><template #label>
           <span class="source-tab-label">
@@ -87,6 +87,7 @@
   import ModelSyncDialog from './components/ModelSyncDialog/index.vue'
   import SourceModelTable from './components/SourceModelTable/index.vue'
   import SourceCard from './components/SourceCard/index.vue'
+  import ImageGenerationSettings from './components/ImageGenerationSettings/index.vue'
   import { verificationLabel as verification } from './model-status'
   import { request } from '@/api/request'
   import { useAuthStore } from '@/stores/auth'

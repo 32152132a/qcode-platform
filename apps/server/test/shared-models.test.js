@@ -11,6 +11,8 @@ test('all enabled models are shared, preferences are defaults, and selected mode
  const created=await f.request('/admin/models','POST',{name:'Second model',publicName:'second-model',upstreamModel:'private-second',baseUrl:first.base_url,keyId:key.id,active:true,maxOutputTokens:32},f.admin);assert.equal(created.status,201);const second=created.body;
  const config=(await f.request('/client/config','GET',undefined,login.token)).body;assert.equal(config.model,first.public_name);assert.deepEqual(config.models.map(m=>m.id),[first.public_name,'second-model']);assert.doesNotMatch(JSON.stringify(config.models),/second-provider-secret|private-second|base_url/);
  const headers={Authorization:`Bearer ${bridge.token}`,'Content-Type':'application/json'};
+ const cached=await(await fetch(bridge.baseUrl+'/models',{headers})).json();assert.equal(cached.data.length,1,'startup catalog stays cached until explicit refresh');
+ await bridge.refreshConfig(true);
  const catalog=await(await fetch(bridge.baseUrl+'/models',{headers})).json();assert.equal(catalog.data.length,2,'new models appear without reinstalling the bridge');
  const response=await fetch(bridge.baseUrl+'/chat/completions',{method:'POST',headers,body:JSON.stringify({model:'second-model',messages:[{role:'user',content:'hello'}],max_tokens:999})});assert.equal(response.status,200);await response.text();
  assert.equal(f.received().body.model,'private-second');assert.equal(f.received().body.max_tokens,32);assert.equal(f.received().auth,'Bearer second-provider-secret');

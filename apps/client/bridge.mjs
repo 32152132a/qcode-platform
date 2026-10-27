@@ -53,6 +53,17 @@ export async function startBridge(session,{onConfig=async()=>{}}={}) {
     const timeout=setTimeout(()=>controller.abort(),190000);
     const closed=()=>{if(!res.writableFinished)controller.abort();};res.on('close',closed);
     try {
+      if (req.method === 'GET' && req.url === '/v1/images/status') {
+        res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(await session.json('/client/images/status'))); return;
+      }
+      if (req.method === 'POST' && req.url === '/v1/images/generations') {
+        let size=0; const chunks=[];
+        for await(const chunk of req) { size+=chunk.length; if(size>32768)throw Object.assign(new Error('图片描述过长'),{status:413}); chunks.push(chunk); }
+        let body; try { body=JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw Object.assign(new Error('Invalid JSON'),{status:400}); }
+        const response=await session.fetch('/v1/images/generations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:controller.signal});
+        res.statusCode=response.status; res.setHeader('Content-Type','application/json');
+        if(response.body)await pipeline(Readable.fromWeb(response.body),res);else res.end(); return;
+      }
       if(req.method==='GET' && req.url==='/v1/models') {const config=await refreshConfig();res.setHeader('Content-Type','application/json');res.end(JSON.stringify({object:'list',data:clientModels(config).map(model=>({id:model.id,object:'model',owned_by:'qcode'}))}));return;}
       if(req.method!=='POST' || req.url!=='/v1/chat/completions') {res.writeHead(404).end();return;}
       let length=0;const chunks=[];
