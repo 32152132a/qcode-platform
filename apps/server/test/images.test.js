@@ -92,3 +92,16 @@ test('image timeouts release concurrency, retain a failed audit and do not retry
   assert.equal(f.received.length, 1); assert.equal(f.db.read().requests[0].status, 'failed');
   f.mode('ok'); assert.equal((await f.post('/v1/images/generations', { prompt: 'after timeout' }, f.session.token)).status, 200);
 });
+
+
+test('image settings need no enable switch; clearing both fields stops generation and rejects half-filled settings',async t=>{
+ const f=await fixture(t);
+ const route='/admin/models/images/settings/update';
+ assert.equal((await f.post(route,{sourceId:f.source.id,model:'gpt-image-2'},f.session.token)).status,200);
+ assert.equal((await f.post('/client/images/status',{},f.session.token)).body.enabled,true);
+ assert.deepEqual((await f.post('/client/images/status',{},f.session.token)).body,{enabled:true});
+ assert.equal((await f.post(route,{sourceId:f.source.id,model:''},f.session.token)).status,400);
+ assert.equal((await f.post(route,{sourceId:'',model:''},f.session.token)).status,200);
+ assert.equal((await f.post('/client/images/status',{},f.session.token)).body.enabled,false);
+ assert.equal((await f.post('/v1/images/generations',{prompt:'test'},f.session.token)).body.error.code,'IMAGE_GENERATION_DISABLED');
+});

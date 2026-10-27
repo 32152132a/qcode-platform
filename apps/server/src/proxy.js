@@ -4,6 +4,7 @@ import { now, id, fail, availableModels, consumption, period, integer } from './
 import { effectiveKey, effectiveQuotas, departmentFor, departmentConsumption, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
 import { providerRequest, chatResponse, responseStream } from './providers.js';
+import { configuredVisionModel } from './model-sources.js';
 
 function parseUsage(value) {
   if (!value || !Number.isSafeInteger(value.total_tokens) || value.total_tokens < 0) return null;
@@ -14,16 +15,23 @@ function parseUsage(value) {
 
 export async function complete(req, res, { db, vault, config, activeRequests = new Map() }) {
   const body = req.body;
-  const state = db.read(), models = availableModels(state), model = models.find(item => item.public_name === body?.model), department = departmentFor(state, req.user);
-  const key = model?.provider === 'ollama' ? null : effectiveKey(state, req.user, model);
+  const state = db.read(), models = availableModels(state), selectedModel = models.find(item => item.public_name === body?.model), department = departmentFor(state, req.user);
+  let model = selectedModel;
   if (department && !department.active) fail(403, 'DEPARTMENT_DISABLED', '所在部门已被停用');
   if (!models.length) fail(503, 'MODEL_UNAVAILABLE', '后台尚未启用模型，请联系管理员');
   if (!model) fail(400, 'INVALID_MODEL', '请选择 /v1/models 中已启用的模型');
-  if (model.provider !== 'ollama' && !key?.active) fail(503, 'KEY_UNAVAILABLE', 'No enabled key assigned');
   if (!Array.isArray(body.messages) || !body.messages.length || body.messages.some(m => !m || typeof m !== 'object')) fail(400, 'INVALID_MESSAGES', 'messages must be a non-empty array');
+  const hasImages = body.messages.some(message => Array.isArray(message.content) && message.content.some(part => part?.type === 'image_url'));
+  if (hasImages) {
+    model = configuredVisionModel(state);
+    if (!model) fail(503, 'VISION_UNAVAILABLE', '图片识别暂不可用，请联系管理员配置默认识图模型；文字对话仍可使用');
+  }
+  const key = model.provider === 'ollama' ? null : effectiveKey(state, req.user, model);
+  if (model.provider !== 'ollama' && !key?.active) fail(503, 'KEY_UNAVAILABLE', '模型服务暂不可用，请联系管理员');
   if (body.stream !== undefined && typeof body.stream !== 'boolean') fail(400, 'INVALID_STREAM', 'stream must be boolean');
   if (body.n !== undefined && body.n !== 1) fail(400, 'INVALID_N', 'Only one completion per request is supported');
-  const outputLimit = body.max_completion_tokens ?? body.max_tokens ?? model.max_output_tokens;
+  const requestedOutput = body.max_completion_tokens ?? body.max_tokens ?? model.max_output_tokens;
+  const outputLimit = hasImages && Number.isSafeInteger(requestedOutput) ? Math.min(requestedOutput, model.max_output_tokens) : requestedOutput;
   integer(outputLimit, 'max_tokens', model.max_output_tokens);
   if (!outputLimit) fail(400, 'INVALID_FIELD', 'Output token limit must be positive');
   // UTF-8 bytes plus message/tool overhead is a conservative estimate, not a provider tokenizer.
@@ -36,7 +44,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
     if (next.requests.filter(r => r.user_id === user.id && r.status === 'pending').length >= (user.max_concurrent_requests || 1)) fail(429, 'REQUEST_IN_PROGRESS', '账号同时请求数量已达到上限');
     checkQuota(effectiveQuotas(next, user), used, reserved, '用户 ');
     if (department) checkQuota(department.quotas, departmentConsumption(next, department, config.timezone, startedAt), reserved, '部门 ');
-    next.requests.push({ id: requestId, user_id: user.id, username: user.username, model: model.public_name, model_id: model.id,
+    next.requests.push({ id: requestId, user_id: user.id, username: user.username, model: model.public_name, model_id: model.id, purpose: hasImages ? 'image_understanding' : 'chat',
       department_id: department?.id || null, department_name: department?.name || '', key_id: key?.id || null, started_at: startedAt, status: 'pending', reserved_tokens: reserved, input_tokens: null, output_tokens: null, total_tokens: null });
   });
   const controller = new AbortController();
@@ -105,7 +113,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
       result = chatResponse(result, model);
       if (!Array.isArray(result.choices) || result.error) fail(502, 'INVALID_UPSTREAM_RESPONSE', 'Model response is missing choices');
       usage = parseUsage(result.usage);
-      result.model = model.public_name;
+      result.model = selectedModel.public_name;
       res.json(result);
     }
     status = 'success';

@@ -45,3 +45,5 @@ import './model-presentation.test.js';
 import './demo.test.js';
 
 import './images.test.js';
+
+import './vision.test.js';

@@ -9,7 +9,7 @@
       ><el-button v-if="auth.can('models:write')" type="primary" @click="editSource()">{{
         addSourceLabel
       }}</el-button></template
-    ><ImageGenerationSettings :sources="sources" /><el-tabs v-model="kind"
+    ><ImageGenerationSettings :sources="sources" :models="models" /><el-tabs v-model="kind"
       ><el-tab-pane v-for="item in categories" :key="item.id" :name="item.id"
         ><template #label>
           <span class="source-tab-label">

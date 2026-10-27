@@ -2,8 +2,11 @@ import fs from 'node:fs'
 import { catalogDisplayFields } from './model-presentation.js'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { id, now, text, baseUrl, fail, audit } from './domain.js'
+import { id, now, text, baseUrl, fail, audit, availableModels } from './domain.js'
 
+export function configuredVisionModel(state) {
+  return availableModels(state).find(model => model.id === state.settings.imageGeneration?.visionModelId);
+}
 export const sourceKinds = ['local', 'official', 'relay']
 export const sourcesFor = (state) => state.settings.modelSources || []
 export function migrateModelSources(state) {

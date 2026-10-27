@@ -1,9 +1,9 @@
-import { now, id, text, integer, fail, audit, consumption, period } from './domain.js';
+import { now, id, text, integer, fail, audit, consumption, period, availableModels } from './domain.js';
 import { effectiveQuotas, checkQuota, departmentFor, departmentConsumption } from './policy.js';
 import { settingsFor } from './enterprise.js';
 import { sourcesFor } from './model-sources.js';
 
-const defaults = { enabled: false, sourceId: '', model: '', dailyImagesPerUser: 10 };
+const defaults = { enabled: false, sourceId: '', model: '', dailyImagesPerUser: 10, visionModelId: '' };
 const settings = state => ({ ...defaults, ...state.settings.imageGeneration });
 function configuredSource(state, value) {
   const source = sourcesFor(state).find(item => item.id === value.sourceId && item.active);
@@ -33,8 +33,12 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
   app.post('/admin/models/images/settings/detail', (_req, res) => res.json(settings(db.read())));
   app.post('/admin/models/images/settings/update', (req, res) => res.json(db.transaction(state => {
     const body = req.body || {}, current = settings(state);
-    if (typeof body.enabled !== 'boolean') fail(400, 'INVALID_FIELD', '生图开关必须为布尔值');
-    const value = { enabled: body.enabled, sourceId: body.sourceId || '', model: body.model === undefined || body.model === '' ? '' : text(body.model, '生图模型', 120), dailyImagesPerUser: integer(body.dailyImagesPerUser ?? current.dailyImagesPerUser, '每日生图上限', 1000) };
+    if (body.enabled !== undefined && typeof body.enabled !== 'boolean') fail(400, 'INVALID_FIELD', '无效的图片配置');
+    const value = { sourceId: body.sourceId || '', model: body.model === undefined || body.model === '' ? '' : text(body.model, '生图模型', 120), dailyImagesPerUser: integer(body.dailyImagesPerUser ?? current.dailyImagesPerUser, '每日生图上限', 1000), visionModelId: body.visionModelId ?? current.visionModelId };
+    if (typeof value.visionModelId !== 'string') fail(400, 'INVALID_FIELD', '请选择默认识图模型');
+    if (value.visionModelId && !availableModels(state).some(model => model.id === value.visionModelId)) fail(400, 'INVALID_VISION_MODEL', '默认识图模型不存在或已停用，请重新选择');
+    if (body.enabled === undefined && Boolean(value.sourceId) !== Boolean(value.model)) fail(400, 'INVALID_FIELD', '生图站点和模型需一起填写，或一起清空');
+    value.enabled = body.enabled ?? Boolean(value.sourceId && value.model);
     if (!value.dailyImagesPerUser) fail(400, 'INVALID_FIELD', '每日生图上限至少为 1');
     if (typeof value.sourceId !== 'string') fail(400, 'INVALID_FIELD', '请选择服务站点');
     if (value.enabled) { value.model = text(value.model, '生图模型', 120); configuredSource(state, value); }
@@ -43,7 +47,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
   app.post('/client/images/status', auth, (_req, res) => {
     const state = db.read(), value = settings(state); let enabled = false;
     if (value.enabled) { try { configuredSource(state, value); enabled = true; } catch {} }
-    res.json({ enabled, model: enabled ? value.model : null });
+    res.json({ enabled });
   });
   app.post('/v1/images/generations', (req, res) => queueRequest(req, res, async () => {
     auth(req, res, () => {});

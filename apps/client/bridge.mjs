@@ -74,7 +74,7 @@ export async function startBridge(session,{onConfig=async()=>{}}={}) {
       if(!models.length)throw Object.assign(new Error('后台尚未启用模型，请联系管理员'),{status:503,code:'MODEL_UNAVAILABLE'});
       const selected=models.find(model=>model.id===body.model)||(body.model==='qcode-model'?models.find(model=>model.id===config.model)||models[0]:null);
       if(!selected)throw Object.assign(new Error('所选模型不可用，请刷新模型列表或重新打开工作台'),{status:400,code:'INVALID_MODEL'});
-      if(configuration.expiredModels?.includes(selected.id))throw Object.assign(new Error('模型已过期，请重新选择模型，或重新打开 QCode'),{status:410,code:'MODEL_EXPIRED'});
+      if(configuration.expiredModels?.includes(selected.id))throw Object.assign(new Error('模型已下架，请重新选择'),{status:410,code:'MODEL_EXPIRED'});
       for(const key of ['max_tokens','max_completion_tokens']) if(Number.isInteger(body[key]) && body[key]>selected.maxOutputTokens)body[key]=selected.maxOutputTokens;
       const response=await session.fetch('/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,model:selected.upstreamId||selected.id}),signal:controller.signal});
       if ([400,404,503].includes(response.status)) {
@@ -83,7 +83,7 @@ export async function startBridge(session,{onConfig=async()=>{}}={}) {
           configuration = {...configuration, expiredModels:[...new Set([...(configuration.expiredModels || []),selected.id])]};
           await onConfig(configuration);
           await response.body?.cancel();
-          throw Object.assign(new Error('当前对话的模型已过期，请重新选择模型，或重新打开 QCode'),{status:410,code:'MODEL_EXPIRED'});
+          throw Object.assign(new Error('当前对话的模型已下架，请重新选择'),{status:410,code:'MODEL_EXPIRED'});
         }
       }
       res.statusCode=response.status;res.setHeader('Content-Type',response.headers.get('content-type') || 'application/json');
