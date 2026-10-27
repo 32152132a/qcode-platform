@@ -10,6 +10,11 @@ const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwM
 async function fixture(t, extraConfig = {}) {
   const received = []; let mode = 'ok';
   const upstream = http.createServer(async (req, res) => {
+    if (req.method === 'GET') return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({data: [
+      {id: 'gpt-image-2', output_modalities: ['image']},
+      {id: 'vision-test', input_modalities: ['text', 'image']},
+      {id: 'text-embedding-3'},
+    ]}));
     let raw = ''; for await (const chunk of req) raw += chunk;
     received.push({ path: req.url, auth: req.headers.authorization, body: JSON.parse(raw) });
     if (mode === 'stall') return;
@@ -104,4 +109,80 @@ test('image settings need no enable switch; clearing both fields stops generatio
  assert.equal((await f.post(route,{sourceId:'',model:''},f.session.token)).status,200);
  assert.equal((await f.post('/client/images/status',{},f.session.token)).body.enabled,false);
  assert.equal((await f.post('/v1/images/generations',{prompt:'test'},f.session.token)).body.error.code,'IMAGE_GENERATION_DISABLED');
+});
+
+test('model purposes import image candidates, replace globally and never expose image models as chat', async t => {
+  const f = await fixture(t);
+  const sync = await f.post('/admin/models/sources/' + f.source.id + '/sync', {}, f.session.token);
+  assert.equal(sync.status, 200);
+  const catalog = sync.body.source.catalog;
+  assert.deepEqual(catalog.find(m => m.id === 'gpt-image-2').capabilities, ['image_generation']);
+  assert.equal(catalog.find(m => m.id === 'gpt-image-2').unavailable_reason, null);
+  assert(catalog.find(m => m.id === 'text-embedding-3').unavailable_reason);
+  assert.equal((await f.post('/admin/models/sources/' + f.source.id + '/import', {modelIds: ['gpt-image-2','vision-test'], catalogRevision: sync.body.source.catalog_revision}, f.session.token)).status, 200);
+  let models = (await f.post('/admin/models/list', {}, f.session.token)).body;
+  const image = models.find(m => m.upstream_model === 'gpt-image-2'), vision = models.find(m => m.upstream_model === 'vision-test');
+  assert.equal(image.model_type, 'image'); assert.equal(image.active, false);
+  const assign = (model, purpose, extra = {}) => f.post('/admin/models/' + model.id + '/purpose', {purpose, ...extra}, f.session.token);
+  assert.equal((await assign(image, 'image_generation', {dailyImagesPerUser: 3})).status, 200);
+  assert.equal((await assign(vision, 'vision')).status, 200);
+  const client = (await f.post('/client/config', {}, f.session.token)).body;
+  assert.equal(client.models.length, 1); assert.equal(client.models[0].id, vision.public_name);
+  assert.equal((await assign(image, 'vision')).body.error.code, 'INVALID_VISION_MODEL');
+  models = (await f.post('/admin/models/list', {}, f.session.token)).body;
+  assert.deepEqual(models.find(m => m.id === image.id).purposes, ['image_generation']);
+  assert.deepEqual(models.find(m => m.id === vision.id).purposes, ['vision']);
+  assert.equal((await f.post('/v1/images/generations', {prompt: 'test'}, f.session.token)).status, 200);
+  assert.equal(f.received.at(-1).path, '/v1/images/generations');
+  assert.equal(f.db.read().requests.at(-1).model_id, image.id);
+  const second = (await f.post('/admin/models/sources/' + f.source.id + '/models', {upstreamModel: 'gpt-image-next'}, f.session.token)).body;
+  assert.equal((await assign(second, 'image_generation')).status, 200);
+  assert.equal(f.db.read().settings.imageGeneration.modelId, second.id);
+  assert.equal(f.db.read().settings.imageGeneration.visionModelId, vision.id);
+  assert.equal(f.db.read().settings.imageGeneration.dailyImagesPerUser, 3);
+  assert.equal((await assign(image, 'none')).status, 200);
+  assert.equal(f.db.read().settings.imageGeneration.enabled, true);
+  await f.post('/admin/models/sources/' + f.source.id + '/models/' + second.id + '/update', {active: false}, f.session.token);
+  assert.equal((await f.post('/client/images/status', {}, f.session.token)).body.enabled, false);
+  await assign(second, 'image_generation');
+  await f.post('/admin/models/sources/' + f.source.id + '/models/' + second.id + '/delete', {}, f.session.token);
+  assert.equal((await f.post('/client/images/status', {}, f.session.token)).body.enabled, false);
+  assert.equal(f.db.read().settings.imageGeneration.modelId, '');
+  await assign(vision, 'none');
+  assert.equal(f.db.read().settings.imageGeneration.visionModelId, '');
+});
+
+test('purpose assignment enforces permissions, demo restrictions, model availability and local keyless images', async t => {
+  const f = await fixture(t);
+  const image = (await f.post('/admin/models/sources/' + f.source.id + '/models', {upstreamModel: 'gpt-image-2'}, f.session.token)).body;
+  const route = '/admin/models/' + image.id + '/purpose';
+  assert.equal((await f.post(route, {purpose: 'image_generation'})).status, 401);
+  await f.post('/admin/users/create', {username: 'employee', password: 'employee-password'}, f.session.token);
+  const user = (await f.post('/auth/login', {username:'employee',password:'employee-password'})).body;
+  assert.equal((await f.post(route, {purpose:'image_generation'}, user.token)).status, 403);
+  const demo = (await f.post('/auth/demo')).body;
+  const demoSession = (await f.post('/auth/login', demo)).body;
+  assert.equal((await f.post(route, {purpose:'image_generation'}, demoSession.token)).body.error.code, 'DEMO_READ_ONLY');
+  assert.equal((await f.post(route, {purpose:'invalid'}, f.session.token)).status, 400);
+  assert.equal((await f.post(route, {purpose:'image_generation', dailyImagesPerUser:0}, f.session.token)).status, 400);
+  f.db.transaction(state => {state.settings.modelSources.find(s => s.id === f.source.id).active = false;});
+  assert.equal((await f.post(route, {purpose:'image_generation'}, f.session.token)).status, 409);
+  f.db.transaction(state => {const source = state.settings.modelSources.find(s => s.id === f.source.id); source.active = true; source.kind = 'local'; source.key_id = null; state.models.find(m => m.id === image.id).key_id = null;});
+  assert.equal((await f.post(route, {purpose:'image_generation'}, f.session.token)).status, 200);
+  assert.equal((await f.post('/v1/images/generations', {prompt:'local'}, f.session.token)).status, 200);
+  assert.equal(f.received.at(-1).auth, undefined);
+  assert.equal(f.db.read().requests.at(-1).key_id, null);
+});
+
+test('legacy image configuration migrates once without changing its source, limits or vision assignment', async t => {
+  const f = await fixture(t); await f.configure({visionModelId: ''});
+  createApp({encryptionSecret:'a'.repeat(64)}, f.db);
+  const state = f.db.read(), value = state.settings.imageGeneration;
+  const model = state.models.find(item => item.id === value.modelId);
+  assert(model); assert.equal(model.model_type, 'image'); assert.equal(model.source_id, f.source.id);
+  assert.equal(value.dailyImagesPerUser, 2); assert.equal(value.enabled, true);
+  assert.equal((await f.post('/client/config', {}, f.session.token)).body.models.length, 0);
+  createApp({encryptionSecret:'a'.repeat(64)}, f.db);
+  assert.equal(f.db.read().models.length, 1);
+  assert.equal((await f.post('/v1/images/generations', {prompt:'legacy'}, f.session.token)).status, 200);
 });

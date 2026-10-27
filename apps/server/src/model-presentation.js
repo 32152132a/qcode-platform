@@ -31,7 +31,12 @@ export function catalogDisplayFields(raw) {
   const capabilities = new Set(Array.isArray(raw.capabilities) ? raw.capabilities : [])
   if (raw.reasoning === true) capabilities.add('thinking')
   if (Array.isArray(raw.input_modalities) && raw.input_modalities.includes('image')) capabilities.add('vision')
-  const supported = ['chat', 'vision', 'thinking'].filter(value => capabilities.has(value))
+  const identity = String(raw.id || raw.upstream_model || '')
+  const endpoints = (Array.isArray(raw.supported_endpoint_types) ? raw.supported_endpoint_types : []).map(value => String(value).toLowerCase())
+  if (endpoints.some(value => ['image', 'images', 'images/generations', 'image-generation'].includes(value))
+      || (Array.isArray(raw.output_modalities) && raw.output_modalities.includes('image'))
+      || /(?:gpt-image|dall-e|seedream|flux|stable-diffusion|sdxl|imagen)/i.test(identity)) capabilities.add('image_generation')
+  const supported = ['chat', 'vision', 'thinking', 'image_generation'].filter(value => capabilities.has(value))
   if (supported.length) result.capabilities = supported
   return result
 }

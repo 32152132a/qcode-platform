@@ -11,7 +11,10 @@
     >
       <template #name-cell="{ row }"
         ><strong>{{ row.name }}</strong
-        ><small class="model-id">{{ row.upstream_model }}</small></template
+        ><small class="model-id">{{ row.upstream_model }}</small>
+        <el-tag v-if="row.model_type === 'image'" size="small" type="info">生图能力</el-tag>
+        <el-tag v-if="row.purposes?.includes('image_generation')" size="small">生图模型</el-tag>
+        <el-tag v-if="row.purposes?.includes('vision')" size="small">识图模型</el-tag></template
       >
       <template #status-cell="{ row }"
         ><el-tag
@@ -33,11 +36,12 @@
           }}</el-tag
         ><el-tag v-if="row.is_default" class="default-tag">默认</el-tag></template
       >
-      <template #verification-cell="{ row }">{{ verification(row) }}</template>
+      <template #verification-cell="{ row }">{{ row.model_type === 'image' ? '请通过生图功能试用' : verification(row) }}</template>
       <template #actions-cell="{ row }"
         ><div class="row-actions">
           <el-button link type="primary" @click="emit('edit', row)">编辑</el-button
-          ><el-button link type="primary" :loading="busy === row.id" @click="emit('check', row)"
+          ><el-button link type="primary" @click="emit('purpose', row)">设置用途</el-button
+          ><el-button v-if="row.model_type !== 'image'" link type="primary" :loading="busy === row.id" @click="emit('check', row)"
             >验证</el-button
           ><el-button link type="primary" @click="emit('toggle', row)">{{
             row.active ? '停用' : '启用'
@@ -70,6 +74,7 @@
   const emit = defineEmits<{
     edit: [model: Model]
     check: [model: Model]
+    purpose: [model: Model]
     toggle: [model: Model]
     remove: [model: Model]
   }>()
@@ -79,7 +84,7 @@
     { prop: 'status', label: '状态', width: 160 },
     { prop: 'verification', label: '能力验证', minWidth: 150 },
     ...(props.canWrite
-      ? [{ prop: 'actions', label: '操作', width: 240, fixed: 'right' as const }]
+      ? [{ prop: 'actions', label: '操作', width: 310, fixed: 'right' as const }]
       : []),
   ])
   const pageRows = computed(() =>

@@ -55,6 +55,12 @@
             >
               <span class="model-name" :title="model.id">{{ model.id }}</span>
             </el-checkbox>
+            <el-space :size="4" wrap>
+              <el-tag v-for="capability in model.capabilities?.length ? model.capabilities : ['chat']"
+                :key="capability" size="small" :type="capability === 'image_generation' ? 'warning' : 'info'">
+                {{ capability === 'image_generation' ? '生图' : capability === 'vision' ? '识图' : capability === 'thinking' ? '思考' : '对话' }}
+              </el-tag>
+            </el-space>
             <span class="model-state">{{
               existingIds.has(model.id)
                 ? '已导入 · 保留原配置'

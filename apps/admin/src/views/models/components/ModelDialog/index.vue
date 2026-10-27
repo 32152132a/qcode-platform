@@ -15,13 +15,13 @@
       v-model="form"
       :columns="1"
       :show-btn="false"
-      :form-options="basicFields"
+      :form-options="model?.model_type === 'image' ? basicFields.filter(field => field.prop !== 'isDefault') : basicFields"
       :disabled="busy"
     >
       <template #active><el-switch v-model="form.active" aria-label="启用模型" /></template>
       <template #isDefault><el-switch v-model="form.isDefault" aria-label="设为默认" /></template>
     </QyqForm>
-    <el-collapse
+    <el-collapse v-if="model?.model_type !== 'image'"
       ><el-collapse-item title="高级配置" name="advanced">
         <QyqForm
           @submit.prevent

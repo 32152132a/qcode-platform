@@ -112,7 +112,7 @@ test('manual catalog selection keeps versions and variants but marks unsupported
   ])
     assert.equal(catalogModelIssue({ id }, 'relay'), null)
   assert(catalogModelIssue({ id: 'text-embedding-3' }, 'relay'))
-  assert(catalogModelIssue({ id: 'non-chat', supported_endpoint_types: ['image'] }, 'relay'))
+  assert.equal(catalogModelIssue({ id: 'non-chat', supported_endpoint_types: ['image'] }, 'relay'), null)
   assert.equal(
     catalogModelIssue({ id: 'claude-opus-5-5', supported_endpoint_types: ['openai'] }, 'relay'),
     null

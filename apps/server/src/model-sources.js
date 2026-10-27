@@ -66,10 +66,11 @@ function family(value) {
               : null
 }
 export function catalogModelIssue(model, kind) {
-  if (/(embedding|rerank|image|video|audio|tts|whisper|dall-e)/i.test(model.id))
+  const image = catalogDisplayFields(model).capabilities?.includes('image_generation')
+  if (/(embedding|rerank|video|audio|tts|whisper)/i.test(model.id))
     return '暂不支持该类模型'
   if (
-    kind !== 'local' &&
+    !image && kind !== 'local' &&
     model.supported_endpoint_types?.length &&
     !model.supported_endpoint_types.some((value) =>
       ['openai', 'chat-completions', 'openai-response', 'responses', 'openai-compatible'].includes(
@@ -411,6 +412,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
             active: false,
           })
           Object.assign(model, catalogDisplayFields(candidate))
+          model.model_type = model.capabilities?.includes('image_generation') ? 'image' : 'chat'
           model.source_id = sourceId
           model.catalog_available = true
           model.recommended = true
@@ -444,6 +446,9 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           contextWindow: body.contextWindow ?? (source.kind === 'local' ? 32768 : 131072),
           active: body.active ?? false,
         })
+        const candidate = source.catalog?.find(item => item.id === upstream) || { id: upstream }
+        Object.assign(model, catalogDisplayFields(candidate))
+        model.model_type = model.capabilities?.includes('image_generation') ? 'image' : 'chat'
         model.source_id = source.id
         model.catalog_available = true
         audit(state, req.user, 'model.create', model.id)
@@ -456,6 +461,11 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       const source = find(state, req.params.id),
         model = state.models.find((m) => m.id === req.params.modelId && m.source_id === source.id)
       if (!model) fail(404, 'MODEL_NOT_FOUND', '模型不存在')
+      const images = state.settings.imageGeneration
+      if (images?.visionModelId === model.id) images.visionModelId = ''
+      if (images && images.sourceId === model.source_id && images.model === model.upstream_model) {
+        Object.assign(images, { enabled: false, modelId: '', sourceId: '', model: '' })
+      }
       state.models = state.models.filter((m) => m.id !== model.id)
       for (const item of [...state.users, ...state.departments])
         if (item.model_id === model.id) item.model_id = null

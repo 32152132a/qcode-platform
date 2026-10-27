@@ -3,12 +3,31 @@ import { effectiveQuotas, checkQuota, departmentFor, departmentConsumption } fro
 import { settingsFor } from './enterprise.js';
 import { sourcesFor } from './model-sources.js';
 
-const defaults = { enabled: false, sourceId: '', model: '', dailyImagesPerUser: 10, visionModelId: '' };
+const defaults = { enabled: false, sourceId: '', model: '', modelId: '', dailyImagesPerUser: 10, visionModelId: '' };
 const settings = state => ({ ...defaults, ...state.settings.imageGeneration });
+// Bring the former standalone image configuration into the unified model list once.
+export function migrateImageSettings(state, saveModel) {
+  const value = state.settings.imageGeneration;
+  if (!value?.enabled || !value.sourceId || !value.model || value.modelId) return;
+  const source = sourcesFor(state).find(item => item.id === value.sourceId);
+  if (!source) return;
+  let name = value.model + '（生图）', suffix = 2;
+  while (state.models.some(item => item.name.normalize('NFKC').toLowerCase() === name.normalize('NFKC').toLowerCase())) name = value.model + '（生图 ' + suffix++ + '）';
+  const model = state.models.find(item => item.source_id === source.id && item.upstream_model === value.model)
+    || saveModel(state, {name, publicName: 'qcode-image-' + id().slice(0, 20), upstreamModel: value.model,
+      baseUrl: source.base_url, provider: source.kind === 'local' ? 'ollama' : 'custom'});
+  model.key_id = source.key_id;
+  model.source_id = source.id;
+  model.model_type = 'image'; model.capabilities = ['image_generation']; model.is_default = false;
+  value.modelId = model.id;
+  if (value.visionModelId === model.id) value.visionModelId = '';
+  for (const item of [...state.users, ...state.departments]) if (item.model_id === model.id) item.model_id = null;
+}
 function configuredSource(state, value) {
   const source = sourcesFor(state).find(item => item.id === value.sourceId && item.active);
   const key = source && state.keys.find(item => item.id === source.key_id && item.active);
-  if (!source || source.kind === 'local' || !key) fail(503, 'IMAGE_SERVICE_UNAVAILABLE', '生图服务未配置或已停用，请联系管理员');
+  const model = value.modelId && state.models.find(item => item.id === value.modelId && item.source_id === value.sourceId && item.upstream_model === value.model);
+  if (!source || (source.kind !== 'local' && !key) || (value.modelId && (!model?.active || model.catalog_available === false))) fail(503, 'IMAGE_SERVICE_UNAVAILABLE', '生图服务未配置或已停用，请联系管理员');
   return { source, key };
 }
 export async function readImageResponse(response) {
@@ -30,6 +49,39 @@ export async function readImageResponse(response) {
   return { data: [{ b64_json: encoded }], created: Math.floor(Date.now() / 1000) };
 }
 export function registerImages(app, { db, vault, config, auth, activeRequests, queueRequest }) {
+  app.post('/admin/models/:id/purpose', (req, res) => res.json(db.transaction(state => {
+    const model = state.models.find(item => item.id === req.params.id);
+    if (!model) fail(404, 'MODEL_NOT_FOUND', '模型不存在');
+    const purpose = req.body?.purpose;
+    if (!['image_generation', 'vision', 'none'].includes(purpose)) fail(400, 'INVALID_PURPOSE', '请选择生图或识图用途');
+    const value = settings(state);
+    if (purpose === 'none') {
+      if (value.visionModelId === model.id) value.visionModelId = '';
+      if (value.sourceId === model.source_id && value.model === model.upstream_model) Object.assign(value, {enabled: false, modelId: '', sourceId: '', model: ''});
+    } else {
+      const source = sourcesFor(state).find(item => item.id === model.source_id);
+      if (!source?.active || model.catalog_available === false) fail(409, 'MODEL_UNAVAILABLE', '请先启用服务来源，并确认模型未下架');
+      if (source.kind !== 'local' && !state.keys.some(item => item.id === source.key_id && item.active)) fail(400, 'INVALID_KEY', '请先配置有效的服务 Key');
+      if (purpose === 'vision') {
+        if (model.model_type === 'image') fail(400, 'INVALID_VISION_MODEL', '生图模型不能用作识图对话模型');
+        value.visionModelId = model.id;
+        model.capabilities = [...new Set([...(model.capabilities || ['chat']), 'vision'])];
+      } else {
+        if (req.body.dailyImagesPerUser !== undefined) {
+          value.dailyImagesPerUser = integer(req.body.dailyImagesPerUser, '每日生图上限', 1000);
+          if (!value.dailyImagesPerUser) fail(400, 'INVALID_FIELD', '每日生图上限至少为 1');
+        }
+        Object.assign(value, {enabled: true, sourceId: source.id, model: model.upstream_model, modelId: model.id});
+        if (value.visionModelId === model.id) value.visionModelId = '';
+        model.model_type = 'image'; model.capabilities = ['image_generation']; model.is_default = false;
+        for (const item of [...state.users, ...state.departments]) if (item.model_id === model.id) item.model_id = null;
+      }
+      model.active = true;
+    }
+    state.settings.imageGeneration = value;
+    audit(state, req.user, 'model.purpose.update', model.id);
+    return value;
+  })));
   app.post('/admin/models/images/settings/detail', (_req, res) => res.json(settings(db.read())));
   app.post('/admin/models/images/settings/update', (req, res) => res.json(db.transaction(state => {
     const body = req.body || {}, current = settings(state);
@@ -66,7 +118,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
       checkQuota(effectiveQuotas(state, user), consumption(state, user, config.timezone, startedAt), 0, '用户 ');
       if (department) checkQuota(department.quotas, departmentConsumption(state, department, config.timezone, startedAt), 0, '部门 ');
       selected = { model: value.model, source: structuredClone(source), key: structuredClone(key) };
-      state.requests.push({ id: requestId, user_id: user.id, username: user.username, model: value.model, model_id: null, key_id: key.id, department_id: department?.id || null, department_name: department?.name || '', started_at: startedAt, status: 'pending', purpose: 'image_generation', reserved_tokens: 0, charged_tokens: 0, total_tokens: null, input_tokens: null, output_tokens: null });
+      state.requests.push({ id: requestId, user_id: user.id, username: user.username, model: value.model, model_id: value.modelId || null, key_id: key?.id || null, department_id: department?.id || null, department_name: department?.name || '', started_at: startedAt, status: 'pending', purpose: 'image_generation', reserved_tokens: 0, charged_tokens: 0, total_tokens: null, input_tokens: null, output_tokens: null });
     });
     const controller = new AbortController(), active = { userId: req.user.id, sessionId: req.session.id, controller, reason: null };
     activeRequests.set(requestId, active);
@@ -75,7 +127,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
     const close = () => { if (!res.writableFinished) controller.abort(); }; res.on('close', close);
     try {
       const payload = { model: selected.model, prompt, n: 1, ...(/^gpt-image-/i.test(selected.model) ? { output_format: 'png' } : { response_format: 'b64_json' }) };
-      const response = await fetch(selected.source.base_url + '/images/generations', { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + vault.decrypt(selected.key.secret) }, body: JSON.stringify(payload), signal: controller.signal });
+      const response = await fetch(selected.source.base_url + '/images/generations', { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', ...(selected.key ? {Authorization: 'Bearer ' + vault.decrypt(selected.key.secret)} : {}) }, body: JSON.stringify(payload), signal: controller.signal });
       upstreamStatus = response.status;
       if (!response.ok) { await response.body?.cancel(); fail(response.status === 429 ? 429 : 502, 'IMAGE_UPSTREAM_ERROR', '生图服务返回 HTTP ' + response.status + '，请检查生图模型、Key 权限和余额'); }
       const result = await readImageResponse(response); status = 'success'; res.json(result);

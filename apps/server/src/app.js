@@ -1,4 +1,4 @@
-import { registerImages } from './images.js';
+import { registerImages, migrateImageSettings } from './images.js';
 import { businessOperation, obsoleteBusinessRequest } from '../../client/api-contract.mjs';
 import { createAccountRequestQueue } from './request-queue.js';
 import { registerWebPages } from './web-pages.js';
@@ -75,6 +75,7 @@ export function createApp(config, database) {
       state.settings.ollamaModelProvisioned = true;
     }
     migrateModelSources(state);
+    migrateImageSettings(state, saveModel);
   });
   ensureDemoUser(db, config);
   const app = express();
@@ -275,7 +276,13 @@ export function createApp(config, database) {
   app.locals.modelSources=registerModelSources(app,{db,vault,config,saveModel});
   registerModelChecks(app, { db, vault, config, activeRequests });
   app.post('/admin/models/ollama-preset', (_req,res) => res.json({baseUrl:config.ollamaBaseUrl || 'http://localhost:11434/v1',upstreamModel:'qwen:0.5b',maxOutputTokens:256,contextWindow:32768}));
-  app.post('/admin/models/list', (_req, res) => res.json(db.read().models));
+  app.post('/admin/models/list', (_req, res) => {
+    const state = db.read(), images = state.settings.imageGeneration;
+    res.json(state.models.map(model => ({...model, purposes: [
+      ...(images?.enabled && images.sourceId === model.source_id && images.model === model.upstream_model ? ['image_generation'] : []),
+      ...(images?.visionModelId === model.id ? ['vision'] : [])
+    ]})));
+  });
   function saveModel(state, body, existing) {
     for (const price of [body.inputPrice ?? 0, body.outputPrice ?? 0]) if (typeof price !== 'number' || !Number.isFinite(price) || price < 0 || price > 100000) fail(400, 'INVALID_PRICE', '单价必须在 0 到 100000 之间');
     if (!['CNY','USD'].includes(body.currency || 'CNY')) fail(400, 'INVALID_CURRENCY', '币种只支持 CNY 或 USD');
@@ -296,6 +303,7 @@ export function createApp(config, database) {
     const nameKey = model.name.normalize('NFKC').toLowerCase();
     if ((!existing || nameKey !== existing.name.trim().normalize('NFKC').toLowerCase()) && state.models.some(m => m.id !== model.id && m.name.trim().normalize('NFKC').toLowerCase() === nameKey)) fail(409, 'MODEL_NAME_EXISTS', '模型显示名称已存在，请使用其他名称');
     if (state.models.some(m => m.id !== model.id && m.public_name === model.public_name)) fail(409, 'MODEL_EXISTS', 'Public model name already exists');
+    if (model.model_type === 'image' && model.is_default) fail(400, 'INVALID_MODEL', '生图模型不能设为默认对话模型');
     if (model.is_default) for (const m of state.models) m.is_default = false;
     if (existing && ['provider','base_url','upstream_model','protocol','key_id','max_tokens_field','stream_usage','max_output_tokens'].some(field => existing[field] !== model[field])) model.verification = null;
     if (existing) Object.assign(existing, model); else state.models.push(model);

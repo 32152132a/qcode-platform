@@ -14,10 +14,14 @@ export interface ModelSource {
   catalog?: {
     id: string
     supported_endpoint_types?: string[]
+    capabilities?: string[]
     unavailable_reason?: string | null
   }[]
 }
 export interface Model {
+  model_type?: 'chat' | 'image'
+  capabilities?: string[]
+  purposes?: ('image_generation' | 'vision')[]
   id: string
   source_id: string
   name: string

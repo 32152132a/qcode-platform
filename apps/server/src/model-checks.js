@@ -64,7 +64,9 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
   app.post('/admin/models/catalog',catalog);
   app.post('/admin/models/:id/catalog',catalog);
   app.post('/admin/models/:id/check', async (req,res) => {
-    const { model,key } = select(req); const outputLimit = Math.min(model.max_output_tokens,model.provider==='ollama'?32:256);
+    const { model,key } = select(req);
+    if (model.model_type === 'image') fail(400, 'IMAGE_CHECK_REQUIRED', '生图模型请在员工端通过生成图片试用，不执行对话工具验证');
+    const outputLimit = Math.min(model.max_output_tokens,model.provider==='ollama'?32:256);
     async function perform(body) {
       const current=db.read(),currentKey=key&&current.keys.find(k=>k.id===key.id),currentModel=current.models.find(m=>m.id===model.id);
       if((key&&(!currentKey?.active||currentKey.secret!==key.secret))||JSON.stringify(currentModel)!==JSON.stringify(model))fail(409,'MODEL_CHECK_STALE','模型或 Key 已变化，测试已停止');
