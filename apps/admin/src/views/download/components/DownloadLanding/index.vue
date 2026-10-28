@@ -31,6 +31,7 @@
             ><Download /> 下载 Windows 版 <ArrowRight
           /></a>
           <p data-reveal class="requirements">Windows 10 / 11 · 64 位 · 内置运行环境</p>
+          <ClientTrialHint data-reveal />
           <div data-reveal class="hero-notes">
             <span><Check /> 团队账号登录</span
             ><span><Check /> 多模型自由选择</span>
@@ -137,6 +138,7 @@
             ><small>尚未发布，敬请期待。</small>
           </article>
         </div>
+        <ClientTrialHint />
         <ol class="steps">
           <li data-reveal v-for="(step, index) in steps" :key="step.title">
             <span class="step-number">0{{ index + 1 }}</span>
@@ -158,6 +160,7 @@
 <script setup lang="ts">
 import PlatformIntro from "../PlatformIntro/index.vue";
 import TeamResources from "../TeamResources/index.vue";
+import ClientTrialHint from "../ClientTrialHint/index.vue";
 import { ref } from "vue";
 import { useLandingMotion } from "./useLandingMotion";
 import {
