@@ -12,7 +12,10 @@ export function readSnapshot(filename,vault){
     const {DatabaseSync}=require('node:sqlite'),sql=new DatabaseSync(filename,{readOnly:true});
     try{
       sql.exec('BEGIN');state=emptyState();Object.assign(state,JSON.parse(sql.prepare('SELECT data FROM metadata WHERE id=1').get().data));
-      for(const key of Object.keys(state).filter(k=>Array.isArray(state[k])))state[key]=sql.prepare(`SELECT data FROM "${key}" ORDER BY rowid`).all().map(row=>JSON.parse(row.data));
+      for(const key of Object.keys(state).filter(k=>Array.isArray(state[k]))) {
+        if (!sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(key)) continue;
+        state[key]=sql.prepare(`SELECT data FROM "${key}" ORDER BY rowid`).all().map(row=>JSON.parse(row.data));
+      }
       sql.exec('COMMIT');
     }finally{sql.close();}
   }else state=JSON.parse(fs.readFileSync(filename,'utf8').replace(/^\uFEFF/,''));

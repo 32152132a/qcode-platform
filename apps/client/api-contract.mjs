@@ -1,5 +1,11 @@
 // Business request contract: operation, resource, POST endpoint, demo access.
 export const businessApi = [
+  ["GET","/client/feedback","/client/feedback/list","read"],
+  ["POST","/client/feedback","/client/feedback/create","write"],
+  ["GET","/admin/feedback","/admin/feedback/list","read"],
+  ["GET","/admin/feedback/:id","/admin/feedback/:id/detail","read"],
+  ["PUT","/admin/feedback/:id","/admin/feedback/:id/update","write"],
+  ["DELETE","/admin/feedback/:id","/admin/feedback/:id/delete","write"],
   ["POST","/admin/models/:id/purpose","/admin/models/:id/purpose","write"],
   ["GET","/admin/models/images/settings","/admin/models/images/settings/detail","read"],
   ["PUT","/admin/models/images/settings","/admin/models/images/settings/update","write"],

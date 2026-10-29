@@ -47,3 +47,5 @@ import './demo.test.js';
 import './images.test.js';
 
 import './vision.test.js';
+
+import './feedback.test.js';

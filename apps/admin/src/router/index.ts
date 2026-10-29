@@ -7,6 +7,7 @@ const pages = {
   keys: () => import('@/views/keys/index.vue'),
   departments: () => import('@/views/departments/index.vue'),
   skills: () => import('@/views/skills/index.vue'),
+  feedback: () => import('@/views/feedback/index.vue'),
   knowledge: () => import('@/views/knowledge/index.vue'),
   usage: () => import('@/views/usage/index.vue'),
   requests: () => import('@/views/requests/index.vue'),

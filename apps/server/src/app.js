@@ -1,3 +1,4 @@
+import { registerFeedback } from './feedback.js';
 import { registerImages, migrateImageSettings } from './images.js';
 import { businessOperation, obsoleteBusinessRequest } from '../../client/api-contract.mjs';
 import { createAccountRequestQueue } from './request-queue.js';
@@ -113,6 +114,7 @@ export function createApp(config, database) {
   app.use('/admin', auth, adminPermission(db, config));
   registerEnterpriseRoutes(app, { db, config, auth, cancelRequests });
   registerKnowledge(app, { db, auth });
+  registerFeedback(app, { db, auth, config });
   registerReports(app, {db, config});
   const getUser = (state, userId) => {
     const user = state.users.find(u => u.id === Number(userId));

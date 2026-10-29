@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { emptyState, normalizeState } from './state.js';
 const require = createRequire(import.meta.url);
-const tables = ['users', 'tokens', 'keys', 'models', 'departments', 'skills', 'requests', 'audits', 'loginFailures'];
+const tables = ['users', 'tokens', 'keys', 'models', 'departments', 'skills', 'feedback', 'requests', 'audits', 'loginFailures'];
 const primary = (table, row) => table === 'tokens' ? row.token_hash : String(row.id);
 
 // The gateway owns one connection. SQLite supplies ACID transactions and incremental row persistence.

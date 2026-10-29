@@ -1,11 +1,11 @@
 import { fail, quotaNames, now, period, resolveModel } from './domain.js';
 export const rolePermissions = {
-  admin: ['knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
+  admin: ['feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
   operator: ['users:read','users:write','models:read','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','system:read'],
   auditor: ['users:read','departments:read','usage:read','requests:read','audits:read','system:read'],
   user: [],
 };
-rolePermissions.demo = rolePermissions.admin.filter(permission => permission.endsWith(':read'));
+rolePermissions.demo = rolePermissions.admin.filter(permission => permission.endsWith(':read') && !permission.startsWith('feedback:'));
 export const permissions = user => Object.hasOwn(rolePermissions, user.role) ? rolePermissions[user.role] : [];
 export const departmentFor = (state, user) => state.departments.find(d => d.id === user.department_id);
 export function effectiveQuotas(state, user) {
