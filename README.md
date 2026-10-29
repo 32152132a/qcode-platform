@@ -1,5 +1,18 @@
 # QCode 团队 AI 工作平台
 
+## 项目与作者：QCode 平台集成与定制
+
+曲永庆（quyongqing）基于 OpenCode / OpenWork 开源底座开展 QCode 平台集成与定制开发。本仓库负责 Vue 3 管理端、Node.js 网关、账号权限、模型访问控制、用量配额及共享 Skill 与知识资料分发；Electron 桌面客户端定制与打包位于配套 qcode-openwork 仓库。
+
+作者负责需求梳理、平台功能开发、集成和部署维护。OpenCode / OpenWork 原始能力及上游作者贡献独立归属，保留各项目许可与署名。本项目的知识资料分发不等同于向量数据库 RAG。
+
+曲永庆有 7 年前端开发经验，目前主要从事 AI 应用与 AI Agent 平台开发，具备前端、Node.js 后端和部署交付实践。
+
+- [在线项目](https://code.quyongqing.cn/)
+- [作者介绍](https://quyongqing.cn/about.html)
+- [组件与项目文档](https://docs.quyongqing.cn/)
+- [Gitee 仓库](https://gitee.com/quyongqing/qcode-platform)
+
 当前主线是 **QCode 管理网关 + QCode Desktop**。管理员统一管理账号、模型、Key、配额、共享 Skill 和知识库；员工安装桌面客户端后登录使用。供应商 Key 只在网关加密保存。
 
 ## 许可
