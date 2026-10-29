@@ -49,3 +49,5 @@ import './images.test.js';
 import './vision.test.js';
 
 import './feedback.test.js';
+
+import './plans.test.js';

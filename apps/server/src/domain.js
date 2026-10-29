@@ -1,5 +1,6 @@
+import { subscriptionFor, modelAllowed } from './entitlements.js';
 import { randomBytes } from 'node:crypto';
-import { effectiveQuotas, effectiveKey, permissions } from './policy.js';
+import { effectiveQuotas, effectiveKey, permissions, effectiveConcurrency } from './policy.js';
 export const now = () => new Date().toISOString();
 export const id = () => randomBytes(16).toString('hex');
 export function fail(status, code, message) { throw Object.assign(new Error(message), { status, code }); }
@@ -34,9 +35,11 @@ export function period(timestamp, timezone) {
 }
 export function consumption(state, user, timezone, timestamp = now()) {
   const day = period(timestamp, timezone), used = Object.fromEntries(quotaNames.map(k => [k, 0]));
-  used.totalTokens = user.legacy_tokens || 0;
+  const subscription = subscriptionFor(state, user);
+  const startsAt = [user.quota_reset_at, subscription?.started_at].filter(Boolean).sort().at(-1);
+  used.totalTokens = subscription ? 0 : user.legacy_tokens || 0;
   for (const r of state.requests) {
-    if (r.user_id !== user.id || (user.quota_reset_at && r.started_at < user.quota_reset_at)) continue;
+    if (r.user_id !== user.id || (subscription && r.subscription_id !== subscription.id) || (startsAt && r.started_at < startsAt)) continue;
     const tokens = r.charged_tokens ?? r.reserved_tokens ?? 0;
     used.totalTokens += tokens;
     used.totalRequests++;
@@ -54,15 +57,15 @@ export function publicUser(state, user, timezone) {
     created_at: user.created_at, last_login_at: user.last_login_at || null,
     model_id: user.model_id, key_id: user.key_id, key_suffix: effectiveKey(state, user)?.suffix || null,
     session_limit: user.session_limit, active_sessions: state.tokens.filter(t => t.user_id === user.id && (t.refresh_expires_at || t.expires_at) > now()).length,
-    permissions: permissions(user), max_concurrent_requests: user.max_concurrent_requests || 1, quota_mode: user.quota_mode || 'custom',
+    permissions: permissions(user), max_concurrent_requests: effectiveConcurrency(state, user), quota_mode: user.quota_mode || 'custom',
     quotas: user.quotas, effective_quotas: limits, used, remaining: Object.fromEntries(quotaNames.map(k => [k, limits[k] ? Math.max(0, limits[k] - used[k]) : null])) };
 }
 export function audit(state, actor, action, target) {
   state.audits.push({ id: id(), actor_id: actor.id, actor: actor.username, action, target: String(target), time: now() });
 }
-export const availableModels = state => state.models.filter(model => model.model_type !== 'image' && model.active && model.catalog_available !== false && (!model.source_id || (state.settings.modelSources || []).some(source => source.id === model.source_id && source.active)));
+export const availableModels = (state, user) => state.models.filter(model => model.model_type !== 'image' && (!user || modelAllowed(state, user, model)) && model.active && model.catalog_available !== false && (!model.source_id || (state.settings.modelSources || []).some(source => source.id === model.source_id && source.active)));
 export function resolveModel(state, user) {
-  const models = availableModels(state);
+  const models = availableModels(state, user);
   const department = state.departments.find(d => d.id === user.department_id);
   return models.find(model => model.id === user.model_id) || models.find(model => model.id === department?.model_id) || models.find(model => model.is_default) || models[0];
 }

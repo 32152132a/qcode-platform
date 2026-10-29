@@ -1,3 +1,4 @@
+import { subscriptionFor } from './entitlements.js';
 import { now, id, text, integer, fail, audit, consumption, period, availableModels } from './domain.js';
 import { effectiveQuotas, checkQuota, departmentFor, departmentConsumption } from './policy.js';
 import { settingsFor } from './enterprise.js';
@@ -108,6 +109,8 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
     const started = Date.now(), startedAt = now(), requestId = id();
     let selected;
     db.transaction(state => {
+      const subscription = subscriptionFor(state, req.user);
+      if (subscription && subscription.expires_at <= now()) fail(403, 'SUBSCRIPTION_EXPIRED', '套餐已到期，请申请重新开通或联系管理员');
       const value = settings(state);
       if (!value.enabled) fail(503, 'IMAGE_GENERATION_DISABLED', '管理员尚未启用生图服务');
       const { source, key } = configuredSource(state, value), user = state.users.find(item => item.id === req.user.id), department = departmentFor(state, user);
@@ -118,7 +121,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
       checkQuota(effectiveQuotas(state, user), consumption(state, user, config.timezone, startedAt), 0, '用户 ');
       if (department) checkQuota(department.quotas, departmentConsumption(state, department, config.timezone, startedAt), 0, '部门 ');
       selected = { model: value.model, source: structuredClone(source), key: structuredClone(key) };
-      state.requests.push({ id: requestId, user_id: user.id, username: user.username, model: value.model, model_id: value.modelId || null, key_id: key?.id || null, department_id: department?.id || null, department_name: department?.name || '', started_at: startedAt, status: 'pending', purpose: 'image_generation', reserved_tokens: 0, charged_tokens: 0, total_tokens: null, input_tokens: null, output_tokens: null });
+      state.requests.push({ id: requestId, subscription_id: subscription?.id || null, user_id: user.id, username: user.username, model: value.model, model_id: value.modelId || null, key_id: key?.id || null, department_id: department?.id || null, department_name: department?.name || '', started_at: startedAt, status: 'pending', purpose: 'image_generation', reserved_tokens: 0, charged_tokens: 0, total_tokens: null, input_tokens: null, output_tokens: null });
     });
     const controller = new AbortController(), active = { userId: req.user.id, sessionId: req.session.id, controller, reason: null };
     activeRequests.set(requestId, active);

@@ -1,3 +1,4 @@
+import { registerPlans } from './plans.js';
 import { registerFeedback } from './feedback.js';
 import { registerImages, migrateImageSettings } from './images.js';
 import { businessOperation, obsoleteBusinessRequest } from '../../client/api-contract.mjs';
@@ -14,7 +15,7 @@ import { createDatabase, createVault, hashPassword } from './database.js';
 import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, audit, availableModels, resolveModel } from './domain.js';
 import { complete, statistics } from './proxy.js';
 import { registerAuth, ensureDemoUser } from './auth.js';
-import { adminPermission, rolePermissions, protectAdministrator } from './policy.js';
+import { adminPermission, rolePermissions, protectAdministrator, effectiveConcurrency } from './policy.js';
 import { registerEnterpriseRoutes } from './enterprise.js';
 import { registerDistribution } from './distribution.js';
 import { registerReports, filterRecords } from './reports.js';
@@ -115,6 +116,7 @@ export function createApp(config, database) {
   registerEnterpriseRoutes(app, { db, config, auth, cancelRequests });
   registerKnowledge(app, { db, auth });
   registerFeedback(app, { db, auth, config });
+  registerPlans(app, { db, auth, config });
   registerReports(app, {db, config});
   const getUser = (state, userId) => {
     const user = state.users.find(u => u.id === Number(userId));
@@ -331,13 +333,13 @@ export function createApp(config, database) {
     pendingRequests: db.read().requests.filter(r => r.status === 'pending').length }));
   app.use('/v1', auth);
   app.get('/v1/models', (req, res) => {
-    res.json({ object: 'list', data: availableModels(db.read()).map(model => ({ id: model.public_name, object: 'model', created: 0, owned_by: 'qcode' })) });
+    res.json({ object: 'list', data: availableModels(db.read(), req.user).map(model => ({ id: model.public_name, object: 'model', created: 0, owned_by: 'qcode' })) });
   });
   const queueRequest = createAccountRequestQueue({
     waitMs: config.requestQueueWaitMs ?? 15000,
     canStart: userId => {
       const state = db.read(), user = state.users.find(item => item.id === userId);
-      return !user || state.requests.filter(item => item.user_id === userId && item.status === 'pending').length < (user.max_concurrent_requests || 1);
+      return !user || state.requests.filter(item => item.user_id === userId && item.status === 'pending').length < effectiveConcurrency(state, user);
     },
   });
   registerImages(app, { db, vault, config, auth, activeRequests, queueRequest });

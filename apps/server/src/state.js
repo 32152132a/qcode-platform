@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
 export function emptyState() {
-  return { version: 3, users: [], tokens: [], keys: [], models: [], departments: [], skills: [], feedback: [], requests: [], audits: [], loginFailures: [], settings: {}, nextUserId: 1 };
+  return { version: 3, users: [], tokens: [], keys: [], models: [], departments: [], skills: [], feedback: [], plans: [], planOrders: [], subscriptions: [], requests: [], audits: [], loginFailures: [], settings: {}, nextUserId: 1 };
 }
 export function normalizeState(state, vault) {
   if (state.version > 3) throw new Error('Database was created by a newer QCode version');
   for (const [name, value] of Object.entries(emptyState())) state[name] ??= structuredClone(value);
-  for (const name of ['users','tokens','keys','models','departments','skills','feedback','requests','audits','loginFailures']) {
+  for (const name of ['users','tokens','keys','models','departments','skills','feedback','plans','planOrders','subscriptions','requests','audits','loginFailures']) {
     if (!Array.isArray(state[name])) throw new Error(`Invalid database collection: ${name}`);
   }
   state.nextUserId = state.users.reduce((max, user) => Math.max(max, user.id + 1), state.nextUserId);

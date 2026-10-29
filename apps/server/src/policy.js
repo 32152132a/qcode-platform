@@ -1,6 +1,8 @@
+import { subscriptionFor } from './entitlements.js';
+export { effectiveConcurrency } from './entitlements.js';
 import { fail, quotaNames, now, period, resolveModel } from './domain.js';
 export const rolePermissions = {
-  admin: ['feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
+  admin: ['plans:read','plans:write','feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
   operator: ['users:read','users:write','models:read','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','system:read'],
   auditor: ['users:read','departments:read','usage:read','requests:read','audits:read','system:read'],
   user: [],
@@ -9,6 +11,8 @@ rolePermissions.demo = rolePermissions.admin.filter(permission => permission.end
 export const permissions = user => Object.hasOwn(rolePermissions, user.role) ? rolePermissions[user.role] : [];
 export const departmentFor = (state, user) => state.departments.find(d => d.id === user.department_id);
 export function effectiveQuotas(state, user) {
+  const subscription = subscriptionFor(state, user);
+  if (subscription) return subscription.terms.quotas;
   return user.quota_mode === 'department' ? departmentFor(state, user)?.user_quotas || user.quotas : user.quotas;
 }
 export function effectiveKey(state, user, model = resolveModel(state, user)) {

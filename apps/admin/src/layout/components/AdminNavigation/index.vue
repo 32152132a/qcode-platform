@@ -43,6 +43,7 @@
   const props = defineProps<{ items: NavigationItem[] }>()
   const emit = defineEmits<{ select: [] }>()
   const icons = {
+    plans: Collection,
     feedback: Tickets,
     overview: Grid,
     users: User,

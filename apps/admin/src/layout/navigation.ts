@@ -7,6 +7,7 @@ export const navigationEntries = [
   ['skills', '共享 Skill', 'skills', 'AI 资源'],
   ['knowledge', '知识库', 'knowledge', 'AI 资源'],
   ['usage', '用量统计', 'usage', '运行与管理'],
+  ['plans', '套餐管理', 'plans', '组织与访问'],
   ['feedback', '问题反馈', 'feedback', '运行与管理'],
   ['requests', '请求日志', 'requests', '运行与管理'],
   ['audits', '操作审计', 'audits', '运行与管理'],
