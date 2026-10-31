@@ -207,7 +207,7 @@ function approve(row: Row) {
       value: { transactionId: "" },
       fields:
         Number((row.terms as Row).price_cents) > 0
-          ? [{ prop: "transactionId", label: "支付宝交易号", required: true }]
+          ? [{ prop: "transactionId", label: "支付宝交易号（选填）" }]
           : [],
       save: (value) =>
         request("/admin/plans/orders/" + row.id + "/approve", "POST", {

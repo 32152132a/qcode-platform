@@ -259,17 +259,11 @@ export function registerPlans(app, { db, auth, config }) {
         )
           fail(400, "PAYMENT_REFERENCE_REQUIRED", "支付平台交易号格式不正确");
         const transactionId = req.body.transactionId?.trim();
-        if (
-          (transactionId !== undefined &&
-            !/^[A-Za-z0-9_-]{8,100}$/.test(transactionId)) ||
-          (state.paymentSettings[0]?.enabled &&
-            order.terms.price_cents > 0 &&
-            !transactionId)
-        )
+        if (transactionId && !/^[A-Za-z0-9_-]{8,100}$/.test(transactionId))
           fail(
             400,
             "PAYMENT_REFERENCE_REQUIRED",
-            "请核对实际到账并填写有效的支付平台交易号",
+            "支付平台交易号格式不正确，留空可直接确认开通",
           );
         if (
           transactionId &&

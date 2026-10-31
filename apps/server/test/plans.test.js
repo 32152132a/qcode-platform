@@ -583,7 +583,7 @@ test("manual payment is private, never grants by client claims, and rejects reus
     (
       await f.call(
         "/admin/plans/orders/" + order.id + "/approve",
-        { confirmed: true },
+        { confirmed: true, transactionId: "265" },
         f.admin,
       )
     ).status,
@@ -897,4 +897,19 @@ test("free plans activate immediately, cannot be replayed to refill quota, and P
     ).status,
     409,
   );
+});
+
+test("manual approvals allow omitted, empty and whitespace-only payment references", async (t) => {
+  for (const reference of [undefined, "", "   "]) {
+    const f = await fixture(t);
+    const p = (await f.call("/admin/plans/create", plan(), f.admin)).body;
+    f.db.transaction(state => { state.paymentSettings = [{enabled:true}]; });
+    const order = (await f.call("/client/billing/apply", {planId:p.id, phone:"13800000000"}, f.user.token)).body;
+    const route = "/admin/plans/orders/" + order.id + "/approve";
+    assert.equal((await f.call(route, {}, f.admin)).status, 400);
+    const result = await f.call(route, {confirmed:true, ...(reference === undefined ? {} : {transactionId:reference})}, f.admin);
+    assert.equal(result.status, 200);
+    assert.equal(f.db.read().planOrders.find(item => item.id === order.id).verified_transaction_id, null);
+    assert.equal(f.db.read().subscriptions.length, 1);
+  }
 });
