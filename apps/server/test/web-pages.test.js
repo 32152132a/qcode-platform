@@ -13,7 +13,9 @@ test('history page routes refresh correctly without swallowing API or asset erro
   fs.mkdirSync(path.join(directory, 'assets'));
   fs.writeFileSync(path.join(directory, 'index.html'), '<!doctype html><div id="app">QCode shell</div>');
   fs.writeFileSync(path.join(directory, 'assets', 'app.js'), 'window.qcode=true;');
+  fs.writeFileSync(path.join(directory, 'assets', 'chart-Abcd1234.js'), 'window.chart=true;');
   const app = express();
+  app.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   registerWebPages(app, { directory });
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
   app.use('/admin', (_req, res) => res.status(401).json({ error: 'AUTH_REQUIRED' }));
@@ -31,6 +33,11 @@ test('history page routes refresh correctly without swallowing API or asset erro
   for (const route of ['/assets/app.js']) {
     assert.equal(await (await fetch(base + route)).text(), 'window.qcode=true;');
   }
+  const cached = await fetch(base + '/assets/chart-Abcd1234.js');
+  assert.equal(cached.status, 200);
+  assert.equal(cached.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+  for (const route of ['/', '/health', '/assets/app.js', '/assets/missing-Abcd1234.js', '/admin/users'])
+    assert.equal((await fetch(base + route)).headers.get('cache-control'), 'no-store', route);
   const unknownPage = await fetch(base + '/missing-page', { headers: { Accept: 'text/html' } });
   assert.equal(unknownPage.status, 200);
   assert.match(await unknownPage.text(), /QCode shell/);

@@ -1,15 +1,19 @@
 <template>
   <div class="usage-trend">
+    <el-alert v-if="loadError" title="图表加载失败" type="warning" :closable="false">
+      <el-button link type="primary" @click="renderChart">重新加载</el-button>
+    </el-alert>
     <div v-if="days.length" ref="element" class="chart" role="img" :aria-label="description"></div>
     <el-empty v-else description="暂无请求记录，开始使用后将在这里展示趋势" :image-size="76" />
   </div>
 </template>
 <script setup lang="ts">
   import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-  import * as echarts from 'echarts'
+  import type { EChartsType } from 'echarts/core'
   import type { UsageGroup } from '@/types/usage'
   const props = defineProps<{ days: UsageGroup[] }>()
   const element = ref<HTMLDivElement>()
+  const loadError = ref(false)
   const days = computed(() =>
     [...props.days].sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-366),
   )
@@ -17,10 +21,11 @@
     () =>
       `每日 Token 趋势，${days.value.length} 个有记录日期；实际 ${days.value.reduce((sum, day) => sum + day.tokens, 0).toLocaleString()} Token。详细数据可在用量统计页面查看。`,
   )
-  let chart: echarts.ECharts | undefined
+  let chart: EChartsType | undefined
   let observer: ResizeObserver | undefined
   let disposed = false
   async function renderChart() {
+    loadError.value = false
     await nextTick()
     if (disposed) return
     if (!element.value) {
@@ -29,6 +34,10 @@
       chart = undefined
       return
     }
+    const echarts = await import('./chart').catch(() => {
+      loadError.value = true
+    })
+    if (!echarts || disposed || !element.value) return
     if (!chart) {
       chart = echarts.init(element.value, undefined, { renderer: 'svg' })
       observer = new ResizeObserver(() => chart?.resize())
