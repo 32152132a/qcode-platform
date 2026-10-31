@@ -20,6 +20,13 @@ export function createSqliteDatabase(filename, { vault } = {}) {
   };
   try {
     sql = new DatabaseSync(file);
+    const existing = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+    if (existing.length) {
+      const names = new Set(existing.map(row => row.name));
+      if (sql.prepare('PRAGMA user_version').get().user_version !== 4 || !['metadata', ...tables].every(name => names.has(name))) throw new Error('Unsupported database version; confirm a test-data reset before initializing the current format.');
+      const metadata = sql.prepare('SELECT data FROM metadata WHERE id=1').get();
+      if (!metadata || JSON.parse(metadata.data).version !== 4) throw new Error('Invalid database metadata');
+    }
     // SQLite's OS lock is released even after a hard process crash; no stale PID file blocks restart.
     sql.exec('PRAGMA busy_timeout=100; PRAGMA locking_mode=EXCLUSIVE; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; BEGIN EXCLUSIVE; COMMIT;');
     sql.exec('CREATE TABLE IF NOT EXISTS metadata (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL CHECK(json_valid(data)))');
@@ -29,7 +36,7 @@ export function createSqliteDatabase(filename, { vault } = {}) {
       CREATE INDEX IF NOT EXISTS request_department ON requests(json_extract(data, '$.department_id'));
       CREATE INDEX IF NOT EXISTS session_user ON tokens(json_extract(data, '$.user_id'));
       CREATE UNIQUE INDEX IF NOT EXISTS session_refresh ON tokens(json_extract(data, '$.refresh_hash'));
-      PRAGMA user_version=3;`);
+      PRAGMA user_version=4;`);
     if (sql.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw new Error('SQLite integrity check failed');
     let state = emptyState();
     const metadata = sql.prepare('SELECT data FROM metadata WHERE id=1').get();

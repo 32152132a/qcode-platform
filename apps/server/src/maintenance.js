@@ -4,53 +4,50 @@ import { createRequire } from 'node:module';
 import { createDatabase, createVault } from './database.js';
 import { emptyState, normalizeState } from './state.js';
 const require=createRequire(import.meta.url);
-export function requireStopped(filename){if(fs.existsSync(filename+'.lock'))throw new Error('请先停止网关。若曾异常退出，确认进程已停止后再处理遗留锁文件。');}
 export function readSnapshot(filename,vault){
-  requireStopped(filename);
+
+  if (!/\.(sqlite|db)$/i.test(filename)) throw new Error('Only SQLite database files are supported');
   let state;
-  if(/\.(sqlite|db)$/i.test(filename)){
+  {
     const {DatabaseSync}=require('node:sqlite'),sql=new DatabaseSync(filename,{readOnly:true});
     try{
-      sql.exec('BEGIN');state=emptyState();Object.assign(state,JSON.parse(sql.prepare('SELECT data FROM metadata WHERE id=1').get().data));
+      sql.exec('BEGIN');
+      if (sql.prepare('PRAGMA user_version').get().user_version !== 4) throw new Error('Unsupported database version');
+      const metadata = sql.prepare('SELECT data FROM metadata WHERE id=1').get();
+      if (!metadata) throw new Error('Invalid database metadata');
+      state=JSON.parse(metadata.data);
+      for (const [key,value] of Object.entries(emptyState())) if (Array.isArray(value)) state[key]=[];
       for(const key of Object.keys(state).filter(k=>Array.isArray(state[k]))) {
-        if (!sql.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(key)) continue;
         state[key]=sql.prepare(`SELECT data FROM "${key}" ORDER BY rowid`).all().map(row=>JSON.parse(row.data));
       }
       sql.exec('COMMIT');
     }finally{sql.close();}
-  }else state=JSON.parse(fs.readFileSync(filename,'utf8').replace(/^\uFEFF/,''));
-  state={...emptyState(),...state};normalizeState(state,vault);return state;
+  }
+  normalizeState(state,vault);return state;
 }
 export function backupDatabase(filename,output,secret){
   const vault=createVault(secret),state=readSnapshot(filename,vault);
-  const payload={format:'qcode-backup-v3',createdAt:new Date().toISOString(),state};
+  const payload={format:'qcode-backup-v4',createdAt:new Date().toISOString(),state};
   fs.mkdirSync(path.dirname(output),{recursive:true,mode:0o700});
   fs.writeFileSync(output,JSON.stringify({format:'qcode-encrypted-backup-v1',ciphertext:vault.encrypt(JSON.stringify(payload))}),{flag:'wx',mode:0o600});
   return {users:state.users.length,requests:state.requests.length};
 }
 export function restoreDatabase(input,target,secret){
-  requireStopped(target);if(fs.existsSync(target))throw new Error('恢复目标已存在；请选择一个新文件，验证后再切换 DB_PATH');
+  if(fs.existsSync(target))throw new Error('恢复目标已存在；请选择一个新文件，验证后再切换 DB_PATH');
   const vault=createVault(secret),wrapper=JSON.parse(fs.readFileSync(input,'utf8'));
   if(wrapper.format!=='qcode-encrypted-backup-v1')throw new Error('未知备份格式');
   const payload=JSON.parse(vault.decrypt(wrapper.ciphertext));
-  if(payload.format!=='qcode-backup-v3')throw new Error('未知数据库快照格式');
-  const state={...emptyState(),...payload.state};normalizeState(state,vault);
+  if(payload.format!=='qcode-backup-v4')throw new Error('未知数据库快照格式');
+  const state=payload.state;normalizeState(state,vault);
   // A restored database never resurrects old employee or administrator sessions.
   state.tokens=[];state.loginFailures=[];
   const db=createDatabase(target,{vault});
   try{db.transaction(next=>{for(const key of Object.keys(next))delete next[key];Object.assign(next,state);});}finally{db.close();}
   return {users:state.users.length,requests:state.requests.length};
 }
-export function migrateDatabase(source,target,secret){
-  if(path.resolve(source)===path.resolve(target))throw new Error('迁移必须使用新的目标文件');
-  requireStopped(source);requireStopped(target);if(fs.existsSync(target))throw new Error('迁移目标已存在');
-  const vault=createVault(secret),state=readSnapshot(source,vault),db=createDatabase(target,{vault});
-  try{db.transaction(next=>{for(const key of Object.keys(next))delete next[key];Object.assign(next,state);});}finally{db.close();}
-  return {users:state.users.length,requests:state.requests.length};
-}
 export function archiveAudits(filename,output,secret,days){
   if(days!==undefined && (!Number.isInteger(days)||days<0))throw new Error('审计保留天数必须为非负整数；0 表示不归档');
-  requireStopped(filename);const vault=createVault(secret),db=createDatabase(filename,{vault});
+  const vault=createVault(secret),db=createDatabase(filename,{vault});
   try{
     days ??= db.read().settings.auditRetentionDays ?? 180;
     if(days===0)return {archived:0};

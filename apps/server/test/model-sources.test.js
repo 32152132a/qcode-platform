@@ -119,31 +119,6 @@ test('manual catalog selection keeps versions and variants but marks unsupported
   )
 })
 
-test('source migration snapshot is encrypted and compatible with the existing restore tool', async (t) => {
-  const fs = await import('node:fs')
-  const os = await import('node:os')
-  const path = await import('node:path')
-  const { createVault } = await import('../src/database.js')
-  const { backupBeforeModelSources } = await import('../src/model-sources.js')
-  const { restoreDatabase } = await import('../src/maintenance.js')
-  const f = await fixture(t),
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'qcode-source-backup-'))
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-  const state = f.db.read()
-  delete state.settings.modelSources
-  for (const model of state.models) delete model.source_id
-  const vault = createVault('a'.repeat(64))
-  const backup = backupBeforeModelSources(
-    { kind: 'sqlite-wal', read: () => state, export: () => state },
-    vault,
-    { dbPath: path.join(root, 'old.sqlite') }
-  )
-  const raw = fs.readFileSync(backup, 'utf8')
-  assert.doesNotMatch(raw, /secret-provider-key|admin-password/)
-  const restored = restoreDatabase(backup, path.join(root, 'restored.sqlite'), 'a'.repeat(64))
-  assert.equal(restored.users, 1)
-  assert.equal(restored.requests, 0)
-})
 
 test('resync only refreshes catalog and availability without importing models or resetting choices', async (t) => {
   const f = await fixture(t)

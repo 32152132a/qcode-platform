@@ -101,3 +101,14 @@ test('SQLite commits atomically, survives reopen and encrypts secrets', () => {
     assert.equal(fs.readFileSync(filename).includes(Buffer.from('hidden-provider-secret')),false);
   } finally { db?.close(); fs.rmSync(dir,{recursive:true,force:true}); }
 });
+
+test('old SQLite schemas are rejected without modifying the file', async () => {
+  const {DatabaseSync} = await import('node:sqlite');
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-old-schema-')),filename=path.join(directory,'old.sqlite');
+  try {
+    const sql=new DatabaseSync(filename);sql.exec(`CREATE TABLE original(value TEXT); INSERT INTO original VALUES ('keep'); PRAGMA user_version=3;`);sql.close();
+    const original=fs.readFileSync(filename);
+    assert.throws(()=>createDatabase(filename),/Unsupported database version/);
+    assert.deepEqual(fs.readFileSync(filename),original);
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});

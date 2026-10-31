@@ -3,7 +3,7 @@ import { modelPresentation } from './model-presentation.js';
 import { now, id, text, integer, quotas, fail, audit, resolveModel, availableModels, publicUser } from './domain.js';
 import { departmentConsumption, permissions } from './policy.js';
 export const clientVersion = '0.3.0';
-const defaults = { organizationName: 'QCode', supportMessage: '遇到问题请联系管理员', minimumClientVersion: '0.3.0', autoUpdate: false, maxActiveRequests: 64, auditRetentionDays: 180 };
+const defaults = { organizationName: 'QCode', supportMessage: '遇到问题请联系管理员', minimumClientVersion: '0.3.0', maxActiveRequests: 64, auditRetentionDays: 180 };
 export const settingsFor = state => ({ ...defaults, ...state.settings });
 export const assignedSkills = (state, user) => state.skills.filter(s => s.active && (!s.department_ids.length || s.department_ids.includes(user.department_id)));
 function validateDepartmentReferences(state, body) {
@@ -17,7 +17,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       models: availableModels(state, req.user).map(item => ({ id: item.public_name, name: item.name, ...modelPresentation(item), contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
       contextWindow: model?.context_window || 131072, maxOutputTokens: model?.max_output_tokens || 8192,
       maxTokensField: model?.max_tokens_field || 'max_tokens', minimumClientVersion: settings.minimumClientVersion,
-      organizationName: settings.organizationName, supportMessage: settings.supportMessage, autoUpdate: settings.autoUpdate,
+      organizationName: settings.organizationName, supportMessage: settings.supportMessage,
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state, req.user).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
   });
   app.post('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read(), req.user).map(s => ({ id: s.id, name: s.name, kind: s.kind === 'knowledge' ? 'knowledge' : 'skill', title: s.knowledge?.title || s.name, description: s.description, revision: s.revision, files: s.files })) }));
@@ -102,7 +102,6 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       if (!/^\d+\.\d+\.\d+$/.test(body.minimumClientVersion)) fail(400, 'INVALID_VERSION', '客户端版本必须为 x.y.z');
       current.minimumClientVersion = body.minimumClientVersion;
     }
-    if (body.autoUpdate !== undefined) { if (typeof body.autoUpdate !== 'boolean') fail(400, 'INVALID_FIELD', 'autoUpdate 必须为布尔值'); current.autoUpdate = body.autoUpdate; }
     if (body.maxActiveRequests !== undefined) { current.maxActiveRequests = integer(body.maxActiveRequests, '并发请求数', 1000); if (!current.maxActiveRequests) fail(400, 'INVALID_FIELD', '并发数至少为 1'); }
     if (body.auditRetentionDays !== undefined) current.auditRetentionDays = integer(body.auditRetentionDays, '日志保留天数', 3650);
     state.settings = current; audit(state, req.user, 'settings.update', 'system'); return current;
@@ -111,10 +110,10 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
     const state = db.read(), user = state.users.find(u => u.id === Number(req.params.id));
     if (!user) fail(404, 'USER_NOT_FOUND', '用户不存在');
     if (user.role === 'admin' && req.user.role !== 'admin') fail(403, 'ADMIN_PROTECTED', '仅管理员可以查看管理员会话');
-    res.json(state.tokens.filter(t => t.user_id === user.id && (t.refresh_expires_at || t.expires_at) > now()).map(t => ({ id: t.id || t.token_hash.slice(0,12), device: t.device || '旧客户端', created_at: t.created_at, expires_at: t.refresh_expires_at || t.expires_at })));
+    res.json(state.tokens.filter(t => t.user_id === user.id && t.refresh_expires_at > now()).map(t => ({ id: t.id, device: t.device || '未命名设备', created_at: t.created_at, expires_at: t.refresh_expires_at })));
   });
   app.post('/admin/users/:id/sessions/:sessionId/delete', (req, res) => {
-    db.transaction(state => { state.tokens = state.tokens.filter(t => !(t.user_id === Number(req.params.id) && (t.id || t.token_hash.slice(0,12)) === req.params.sessionId)); audit(state, req.user, 'session.revoke', req.params.sessionId); });
+    db.transaction(state => { state.tokens = state.tokens.filter(t => !(t.user_id === Number(req.params.id) && t.id === req.params.sessionId)); audit(state, req.user, 'session.revoke', req.params.sessionId); });
     cancelRequests(Number(req.params.id), 'SESSION_REVOKED', req.params.sessionId); res.json({ ok: true });
   });
 }

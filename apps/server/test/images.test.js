@@ -173,16 +173,3 @@ test('purpose assignment enforces permissions, demo restrictions, model availabi
   assert.equal(f.received.at(-1).auth, undefined);
   assert.equal(f.db.read().requests.at(-1).key_id, null);
 });
-
-test('legacy image configuration migrates once without changing its source, limits or vision assignment', async t => {
-  const f = await fixture(t); await f.configure({visionModelId: ''});
-  createApp({encryptionSecret:'a'.repeat(64)}, f.db);
-  const state = f.db.read(), value = state.settings.imageGeneration;
-  const model = state.models.find(item => item.id === value.modelId);
-  assert(model); assert.equal(model.model_type, 'image'); assert.equal(model.source_id, f.source.id);
-  assert.equal(value.dailyImagesPerUser, 2); assert.equal(value.enabled, true);
-  assert.equal((await f.post('/client/config', {}, f.session.token)).body.models.length, 0);
-  createApp({encryptionSecret:'a'.repeat(64)}, f.db);
-  assert.equal(f.db.read().models.length, 1);
-  assert.equal((await f.post('/v1/images/generations', {prompt:'legacy'}, f.session.token)).status, 200);
-});

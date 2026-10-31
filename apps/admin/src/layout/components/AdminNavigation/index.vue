@@ -36,7 +36,6 @@
     Setting,
     Tickets,
     User,
-    View,
   } from '@element-plus/icons-vue'
   import type { NavigationItem } from '../../types'
   const route = useRoute()
@@ -54,7 +53,6 @@
     knowledge: Collection,
     usage: DataAnalysis,
     requests: Tickets,
-    audits: View,
     settings: Setting,
     system: Monitor,
   } as Record<string, typeof Grid>

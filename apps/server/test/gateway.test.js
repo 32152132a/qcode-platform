@@ -81,7 +81,9 @@ test('user lifecycle, safe projections, permissions, uniqueness and revocation',
 
 test('refresh rotates token, expiry and logout revoke access', async t => {
   const f = await fixture(t); await f.create(); const token = await f.login();
-  const refreshed = await f.request('/auth/refresh', 'POST', {}, token); assert.equal(refreshed.status, 200);
+  assert.equal((await f.request('/auth/refresh', 'POST', {}, token)).status, 400);
+  const login = (await f.request('/auth/login', 'POST', {username:'alice',password:'user-password'})).body;
+  const refreshed = await f.request('/auth/refresh', 'POST', {refreshToken:login.refreshToken}); assert.equal(refreshed.status, 200);
   assert.equal((await f.chat(token)).status, 401);
   await f.request('/auth/logout', 'POST', {}, refreshed.body.token);
   assert.equal((await f.chat(refreshed.body.token)).status, 401);
@@ -113,10 +115,10 @@ test('quotas reserve concurrent requests, reject exhaustion and support reset', 
   assert.equal((await f.chat(token)).status, 429);
 });
 
-test('missing usage charged conservatively and timeout audited', async t => {
+test('missing usage releases token reservations and timeout is recorded', async t => {
   const f = await fixture(t, { timeoutMs: 100 }); await f.create(); const token = await f.login();
   assert.equal((await f.chat(token, { testCase: 'missing-usage' })).status, 200);
-  const record = f.db.read().requests[0]; assert.equal(record.total_tokens, null); assert.equal(record.charged_tokens, record.reserved_tokens);
+  const record = f.db.read().requests[0]; assert.equal(record.total_tokens, null); assert.equal(record.charged_tokens, 0);
   assert.equal((await f.chat(token, { testCase: 'timeout' })).status, 504);
   assert.equal(f.db.read().requests[1].error_code, 'UPSTREAM_TIMEOUT');
 });
@@ -130,7 +132,7 @@ test('key import atomicity, encryption, replacement and model reassignment', asy
   await f.chat(token); assert.equal(f.received().auth, 'Bearer replacement-key');
   assert.equal((await f.request(`/admin/keys/${f.key.id}/check`, 'POST', {}, f.admin)).body.health, 'reachable');
   await f.request(`/admin/users/${user.id}`, 'PATCH', { keyId: null }, f.admin);
-  assert.equal((await f.chat(token)).body.error.code, 'KEY_UNAVAILABLE');
+  assert.equal((await f.chat(token)).status, 200); // A model-bound provider key is independent of the user's default key.
   const model = f.db.read().models[0];
   await f.request(`/admin/models/${model.id}`, 'PUT', { name: 'Changed', publicName: 'qcode-model', upstreamModel: 'changed-model', baseUrl: model.base_url, isDefault: true }, f.admin);
   await f.request(`/admin/users/${user.id}`, 'PATCH', { keyId: f.key.id }, f.admin);
@@ -152,17 +154,13 @@ test('login rate limit and administrator source restriction', async t => {
   assert.equal((await f.request('/auth/login', 'POST', { username: 'no', password: 'wrong' })).status, 429);
 });
 
-test('legacy migration encrypts keys; persistence, lock and transaction rollback', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qcode-test-')), filename = path.join(dir, 'data.json'), vault = createVault(encryptionSecret);
+test('retired JSON databases are rejected without changing their contents', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qcode-format-')), filename = path.join(dir, 'data.json');
   try {
-    fs.writeFileSync(filename, JSON.stringify({ users: [{ id: 4, username: 'old', password_hash: hashPassword('old-password'), role: 'user', api_key: 'legacy-secret', quota_limit: 20, quota_used: 3 }], tokens: [] }));
-    const db = createDatabase(filename, { vault });
-    assert.doesNotMatch(fs.readFileSync(filename, 'utf8'), /legacy-secret/); assert.equal(vault.decrypt(db.read().keys[0].secret), 'legacy-secret');
-    assert.throws(() => createDatabase(filename, { vault }), /locked/);
-    assert.throws(() => db.transaction(s => { s.users = []; throw new Error('rollback'); })); assert.equal(db.read().users.length, 1); db.close();
-    const reopened = createDatabase(filename, { vault }); assert.equal(reopened.read().users[0].legacy_tokens, 3); reopened.close();
-    assert.throws(() => createDatabase(filename, { vault: createVault('b'.repeat(64)) })); assert.equal(fs.existsSync(filename + '.lock'), false);
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    const original = JSON.stringify({users: [], tokens: []}); fs.writeFileSync(filename, original);
+    assert.throws(() => createDatabase(filename), /Only SQLite/);
+    assert.equal(fs.readFileSync(filename, 'utf8'), original);
+  } finally { fs.rmSync(dir, {recursive:true, force:true}); }
 });
 
 test('configuration validates encryption, URLs and numeric values', () => {
@@ -172,17 +170,17 @@ test('configuration validates encryption, URLs and numeric values', () => {
 });
 
 test('calendar boundaries use configured timezone and reset preserves history', () => {
-  const user = { id: 1, legacy_tokens: 2, quotas: quotas() };
+  const user = { id: 1, quotas: quotas() };
   const state = { requests: [
-    { user_id: 1, started_at: '2026-09-30T15:59:59Z', charged_tokens: 3 },
-    { user_id: 1, started_at: '2026-09-30T16:00:00Z', charged_tokens: 5 },
-    { user_id: 1, started_at: '2026-10-01T16:00:00Z', reserved_tokens: 7 },
-    { user_id: 2, started_at: '2026-10-01T16:00:00Z', charged_tokens: 100 },
+    { user_id: 1, started_at: '2026-09-30T15:59:59Z', status: 'success', total_tokens: 3 },
+    { user_id: 1, started_at: '2026-09-30T16:00:00Z', status: 'success', total_tokens: 5 },
+    { user_id: 1, started_at: '2026-10-01T16:00:00Z', status: 'pending', reserved_tokens: 7 },
+    { user_id: 2, started_at: '2026-10-01T16:00:00Z', status: 'success', total_tokens: 100 },
   ] };
   assert.deepEqual(consumption(state, user, 'Asia/Shanghai', '2026-10-01T17:00:00Z'), {
-    totalTokens: 17, totalRequests: 3, monthlyTokens: 12, monthlyRequests: 2, dailyTokens: 7, dailyRequests: 1,
+    totalTokens: 15, totalRequests: 3, monthlyTokens: 12, monthlyRequests: 2, dailyTokens: 7, dailyRequests: 1,
   });
-  user.quota_reset_at = '2026-10-01T00:00:00Z'; user.legacy_tokens = 0;
+  user.quota_reset_at = '2026-10-01T00:00:00Z';
   assert.equal(consumption(state, user, 'Asia/Shanghai', '2026-10-01T17:00:00Z').totalTokens, 7);
   assert.equal(state.requests.length, 4);
 });
@@ -199,13 +197,13 @@ test('truncated streams fail and do not leave an in-flight request', async t => 
   assert.equal((await f.chat(token)).status, 200);
 });
 
-test('restart marks interrupted requests and preserves their reservations', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qcode-restart-')), filename = path.join(dir, 'db.json');
+test('restart marks interrupted requests and releases their reservations', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qcode-restart-')), filename = path.join(dir, 'db.sqlite');
   try {
     const db = createDatabase(filename);
     db.transaction(s => s.requests.push({ id: 'request', status: 'pending', reserved_tokens: 999 })); db.close();
     const reopened = createDatabase(filename);
     assert.equal(reopened.read().requests[0].status, 'interrupted');
-    assert.equal(reopened.read().requests[0].charged_tokens, 999); reopened.close();
+    assert.equal(reopened.read().requests[0].charged_tokens, 0); reopened.close();
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

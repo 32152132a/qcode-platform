@@ -1,6 +1,4 @@
-import fs from 'node:fs'
 import { catalogDisplayFields } from './model-presentation.js'
-import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { id, now, text, baseUrl, fail, audit, availableModels } from './domain.js'
 
@@ -9,46 +7,6 @@ export function configuredVisionModel(state) {
 }
 export const sourceKinds = ['local', 'official', 'relay']
 export const sourcesFor = (state) => state.settings.modelSources || []
-export function migrateModelSources(state) {
-  state.settings.modelSources ||= []
-  for (const model of state.models) {
-    if (model.source_id) continue
-    const kind =
-      model.provider === 'ollama'
-        ? 'local'
-        : /^https:\/\/api\.deepseek\.com(?:\/|$)/.test(model.base_url)
-          ? 'official'
-          : 'relay'
-    let source = sourcesFor(state).find(
-      (s) =>
-        s.kind === kind &&
-        s.base_url === model.base_url &&
-        s.key_id === (model.key_id || null) &&
-        s.protocol === (model.protocol || 'chat-completions')
-    )
-    if (!source) {
-      source = {
-        id: id(),
-        kind,
-        name:
-          kind === 'local'
-            ? '本地 Ollama'
-            : kind === 'official'
-              ? 'DeepSeek 官方'
-              : '中转服务 ' + (sourcesFor(state).filter((s) => s.kind === 'relay').length + 1),
-        base_url: model.base_url,
-        key_id: model.key_id || null,
-        protocol: model.protocol || 'chat-completions',
-        active: true,
-        auto_sync: !!model.key_id || kind === 'local',
-        created_at: now(),
-        revision: 1,
-      }
-      sourcesFor(state).push(source)
-    }
-    model.source_id = source.id
-  }
-}
 function family(value) {
   value = value.replace(/^(openai|anthropic|google|x-ai|xai|deepseek)\//i, '')
   return /^deepseek/i.test(value)
@@ -510,29 +468,4 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       }
     },
   }
-}
-
-export function backupBeforeModelSources(db, vault, config) {
-  const state = db.read()
-  if (
-    db.kind !== 'sqlite-wal' ||
-    !config.dbPath ||
-    !state.models.length ||
-    state.settings.modelSources !== undefined
-  )
-    return null
-  const filename = path.join(
-    path.dirname(path.resolve(config.dbPath)),
-    'before-model-sources-' + id() + '.qcode-backup'
-  )
-  const snapshot = { format: 'qcode-backup-v3', createdAt: now(), state: db.export() }
-  fs.writeFileSync(
-    filename,
-    JSON.stringify({
-      format: 'qcode-encrypted-backup-v1',
-      ciphertext: vault.encrypt(JSON.stringify(snapshot)),
-    }),
-    { flag: 'wx', mode: 0o600 }
-  )
-  return filename
 }

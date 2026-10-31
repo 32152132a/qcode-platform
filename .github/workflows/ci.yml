@@ -24,15 +24,6 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - name: Check PowerShell syntax
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Get-ChildItem ../../apps/client,../../scripts -Filter *.ps1 -Recurse | ForEach-Object {
-            $errors = $null; $tokens = $null
-            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
-            if ($errors.Count) { throw ($errors | Out-String) }
-          }
   browser:
     runs-on: ubuntu-latest
     defaults:

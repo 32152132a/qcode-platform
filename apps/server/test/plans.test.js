@@ -62,6 +62,7 @@ const plan = (overrides = {}) => ({
   name: "Pro",
   price: 19.99,
   durationDays: 30,
+  level: 0,
   maxConcurrentRequests: 2,
   modelIds: [],
   quotas: { totalTokens: 100000, totalRequests: 100 },
@@ -798,5 +799,102 @@ test("default plans apply only to new users; upgrades and ended-order deletion a
   assert.equal(
     f.db.read().subscriptions.findLast((x) => x.user_id === fresh.id).plan_id,
     pro.id,
+  );
+});
+
+test("free plans activate immediately, cannot be replayed to refill quota, and Plus can only upgrade to Pro", async (t) => {
+  const f = await fixture(t);
+  const create = async (fields) =>
+    (await f.call("/admin/plans/create", plan(fields), f.admin)).body;
+  const basic = await create({ name: "Basic", price: 0, level: 0 });
+  const plus = await create({ name: "Plus", level: 1 });
+  const pro = await create({ name: "Premium", level: 2 });
+  const invalid = plan({ name: "Missing level" });
+  delete invalid.level;
+  assert.equal(
+    (await f.call("/admin/plans/create", invalid, f.admin)).status,
+    400,
+  );
+  const free = await f.call(
+    "/client/billing/apply",
+    { planId: basic.id },
+    f.user.token,
+  );
+  assert.equal(free.status, 201);
+  assert.equal(free.body.status, "approved");
+  assert.equal(f.db.read().subscriptions.length, 1);
+  assert.equal(
+    (await f.call("/client/billing/detail", {}, f.user.token)).body.status,
+    "active",
+  );
+  assert.equal(
+    (await f.call("/client/billing/apply", { planId: basic.id }, f.user.token))
+      .status,
+    409,
+  );
+  assert.equal(f.db.read().subscriptions.length, 1);
+  await f.call(
+    "/admin/plans/grants/create",
+    { userId: f.user.id, planId: plus.id, confirmed: true },
+    f.admin,
+  );
+  assert.equal(
+    (await f.call("/client/billing/apply", { planId: basic.id }, f.user.token))
+      .status,
+    409,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "/client/billing/apply",
+        { planId: plus.id, phone: "13800000000" },
+        f.user.token,
+      )
+    ).status,
+    409,
+  );
+  const upgrade = await f.call(
+    "/client/billing/apply",
+    { planId: pro.id, phone: "13800000000" },
+    f.user.token,
+  );
+  assert.equal(upgrade.status, 201);
+  assert.equal(upgrade.body.status, "pending");
+  assert.equal(
+    (await f.call("/client/billing/detail", {}, f.user.token)).body.subscription
+      .terms.id,
+    plus.id,
+    "paid plans still require confirmation",
+  );
+  // Editing the upgrade hierarchy applies to current users without rewriting their purchased quota terms.
+  await f.call(
+    "/admin/plans/" + plus.id + "/update",
+    plan({ name: "Plus", level: 3 }),
+    f.admin,
+  );
+  assert.equal(
+    (await f.call("/client/billing/detail", {}, f.user.token)).body.subscription
+      .terms.level,
+    3,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/orders/" + upgrade.body.id + "/approve",
+        { confirmed: true },
+        f.admin,
+      )
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "/client/billing/apply",
+        { planId: pro.id, phone: "13800000000" },
+        f.user.token,
+      )
+    ).status,
+    409,
   );
 });

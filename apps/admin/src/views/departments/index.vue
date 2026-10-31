@@ -32,7 +32,7 @@
     { prop: 'active', label: '状态', render: (r) => (r.active ? '启用' : '停用') },
     {
       prop: 'used',
-      label: '已计费 Token',
+      label: '已用 Token',
       render: (r) => String((r.used as Row)?.totalTokens || 0),
     },
   ]

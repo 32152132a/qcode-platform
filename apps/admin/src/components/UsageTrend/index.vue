@@ -7,15 +7,15 @@
 <script setup lang="ts">
   import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
   import * as echarts from 'echarts'
-  import type { UsageGroup } from '../types'
+  import type { UsageGroup } from '@/types/usage'
   const props = defineProps<{ days: UsageGroup[] }>()
   const element = ref<HTMLDivElement>()
   const days = computed(() =>
-    [...props.days].sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-366)
+    [...props.days].sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-366),
   )
   const description = computed(
     () =>
-      `每日 Token 趋势，${days.value.length} 个有记录日期；实际 ${days.value.reduce((sum, day) => sum + day.tokens, 0).toLocaleString()} Token，保守计费 ${days.value.reduce((sum, day) => sum + day.conservativeTokens, 0).toLocaleString()} Token。详细数据可在用量统计页面查看。`
+      `每日 Token 趋势，${days.value.length} 个有记录日期；实际 ${days.value.reduce((sum, day) => sum + day.tokens, 0).toLocaleString()} Token。详细数据可在用量统计页面查看。`,
   )
   let chart: echarts.ECharts | undefined
   let observer: ResizeObserver | undefined
@@ -38,7 +38,7 @@
       {
         animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
         textStyle: { fontFamily: 'Inter, Microsoft YaHei, sans-serif' },
-        color: ['#409eff', '#b4bdcf'],
+        color: ['#409eff'],
         tooltip: {
           trigger: 'axis',
           renderMode: 'richText',
@@ -93,17 +93,9 @@
               ]),
             },
           },
-          {
-            name: '保守计费 Token',
-            type: 'line',
-            data: days.value.map((day) => day.conservativeTokens),
-            showSymbol: days.value.length === 1,
-            symbolSize: 6,
-            lineStyle: { width: 1.5, type: 'dashed' },
-          },
         ],
       },
-      { notMerge: true }
+      { notMerge: true },
     )
   }
   watch(() => props.days, renderChart, { immediate: true })

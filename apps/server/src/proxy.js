@@ -133,10 +133,10 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
     activeRequests.delete(requestId);
     db.transaction(next => {
       const record = next.requests.find(r => r.id === requestId);
-      // Unknown consumption stays reserved, including disconnects; never silently bill it as zero.
+      // Release the reservation even when upstream usage is unavailable.
       Object.assign(record, { ...usage, status, error_code: errorCode, upstream_status: upstreamStatus,
-        duration_ms: Date.now() - started, finished_at: now(), usage_source: usage ? 'provider' : 'reservation',
-        charged_tokens: usage?.total_tokens ?? reserved });
+        duration_ms: Date.now() - started, finished_at: now(), usage_source: usage ? 'provider' : 'unknown',
+        charged_tokens: usage?.total_tokens ?? 0 });
       const cost = model.pricing_known !== false && usage?.input_tokens != null && usage?.output_tokens != null ? Math.round(usage.input_tokens * (model.input_price || 0) + usage.output_tokens * (model.output_price || 0)) : null;
       record.cost_micros = Number.isSafeInteger(cost) ? cost : null;
       record.currency = model.currency || 'CNY';
@@ -151,24 +151,31 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
 }
 
 export function statistics(state, timezone) {
-  const totals = { requests: 0, success: 0, failed: 0, pending: 0, tokens: 0, chargedTokens: 0, conservativeTokens: 0, unknownUsage: 0, costs: {}, unknownCost: 0 };
-  const users = new Map(), days = new Map(), departments = new Map(), models = new Map();
-  for (const r of state.requests) {
-    const charged = r.charged_tokens ?? r.reserved_tokens ?? 0;
-    const conservative = r.total_tokens == null ? charged : 0;
-    totals.requests++; totals.tokens += r.total_tokens || 0; totals.chargedTokens += charged; totals.conservativeTokens += conservative;
-    if (r.status === 'success') totals.success++; else if (r.status === 'pending') totals.pending++; else totals.failed++;
-    if (r.total_tokens == null) totals.unknownUsage++;
-    if (r.cost_micros == null) totals.unknownCost++;
-    else totals.costs[r.currency || 'CNY'] = (totals.costs[r.currency || 'CNY'] || 0) + r.cost_micros / 1000000;
-    const day = period(r.started_at, timezone);
-    for (const [map, key, initial] of [[users, r.user_id, { userId: r.user_id, username: r.username }], [days, day, { date: day }], [models, r.model_id ?? r.model ?? '', { modelId: r.model_id, name: r.model || '未知模型' }], [departments, r.department_id || '', { departmentId: r.department_id, name: r.department_name || '未分组' }]]) {
-      const row = map.get(key) || { ...initial, requests: 0, tokens: 0, chargedTokens: 0, conservativeTokens: 0, success: 0, failed: 0, pending: 0, costs: {} };
-      if (r.cost_micros != null) row.costs[r.currency || 'CNY'] = (row.costs[r.currency || 'CNY'] || 0) + r.cost_micros / 1000000;
-      row.requests++; row.tokens += r.total_tokens || 0; row.chargedTokens += charged; row.conservativeTokens += conservative;
-      if (r.status === 'success') row.success++; else if (r.status === 'pending') row.pending++; else row.failed++;
-      map.set(key, row);
+  const empty = () => ({ requests: 0, success: 0, failed: 0, pending: 0, tokens: 0, inputTokens: 0, outputTokens: 0, unknownUsage: 0, costs: {}, unknownCost: 0 });
+  const totals = empty(), users = new Map(), days = new Map(), models = new Map();
+  function add(target, row) {
+    target.requests++;
+    target.tokens += row.total_tokens ?? 0;
+    target.inputTokens += row.input_tokens ?? 0;
+    target.outputTokens += row.output_tokens ?? 0;
+    if (row.status === 'success') target.success++;
+    else if (row.status === 'pending') target.pending++;
+    else target.failed++;
+    if (row.total_tokens == null && row.status !== 'pending') target.unknownUsage++;
+    if (row.cost_micros == null) target.unknownCost++;
+    else target.costs[row.currency || 'CNY'] = (target.costs[row.currency || 'CNY'] || 0) + row.cost_micros / 1000000;
+  }
+  for (const row of state.requests) {
+    add(totals, row);
+    for (const [map, key, identity] of [
+      [users, row.user_id, { userId: row.user_id, username: row.username }],
+      [days, period(row.started_at, timezone), { date: period(row.started_at, timezone) }],
+      [models, row.model_id ?? row.model ?? '', { modelId: row.model_id, name: row.model || '未知模型' }],
+    ]) {
+      if (!map.has(key)) map.set(key, { ...identity, ...empty() });
+      add(map.get(key), row);
     }
   }
-  return { totals, models: [...models.values()].sort((a,b) => b.chargedTokens-a.chargedTokens), users: [...users.values()].sort((a, b) => b.chargedTokens - a.chargedTokens), departments: [...departments.values()].sort((a,b) => b.chargedTokens - a.chargedTokens), days: [...days.values()].sort((a, b) => b.date.localeCompare(a.date)), timezone };
+  const ranked = map => [...map.values()].sort((a, b) => b.tokens - a.tokens || b.requests - a.requests);
+  return { totals, users: ranked(users), models: ranked(models), days: [...days.values()].sort((a,b) => b.date.localeCompare(a.date)), timezone };
 }

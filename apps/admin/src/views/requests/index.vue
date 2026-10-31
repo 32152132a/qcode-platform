@@ -1,4 +1,4 @@
-<template><LogPage kind="requests" /></template>
+<template><LogPage /></template>
 <script setup lang="ts">
-  import LogPage from '@/components/LogPage/index.vue'
+import LogPage from '@/components/LogPage/index.vue'
 </script>

@@ -9,8 +9,7 @@ export const navigationEntries = [
   ['usage', '用量统计', 'usage', '运行与管理'],
   ['plans', '套餐管理', 'plans', '组织与访问'],
   ['feedback', '问题反馈', 'feedback', '运行与管理'],
-  ['requests', '请求日志', 'requests', '运行与管理'],
-  ['audits', '操作审计', 'audits', '运行与管理'],
+  ['requests', '系统记录', 'requests', '运行与管理'],
   ['settings', '系统设置', 'settings', '运行与管理'],
   ['system', '系统状态', 'system', '运行与管理'],
 ]

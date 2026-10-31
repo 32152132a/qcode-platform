@@ -47,10 +47,7 @@
             <div class="panel-heading">
               <div>
                 <h2>用量趋势</h2>
-                <p>每日实际用量与保守计费情况</p>
-              </div>
-              <div class="legend">
-                <span><i></i>实际 Token</span><span><i class="conservative"></i>保守计费</span>
+                <p>上游返回的每日实际 Token</p>
               </div>
             </div>
             <UsageTrend :days="data.days" />
@@ -86,9 +83,9 @@
             </article>
             <article class="panel cost-panel">
               <div class="panel-heading">
-                <h2>估算成本</h2>
+                <h2>模型调用成本</h2>
                 <el-tooltip
-                  content="按请求发生时的模型单价估算，不同币种分别统计，不等同于供应商账单。"
+                  content="按真实 Token 和请求时配置的单价计算，未配置单价时显示未知，不等同于供应商账单。"
                   ><span class="help" tabindex="0" aria-label="成本统计说明"><InfoFilled /></span
                 ></el-tooltip>
               </div>
@@ -99,7 +96,7 @@
                 </div>
               </div>
               <p v-else class="no-cost">暂无可计算成本</p>
-              <p class="cost-note">
+              <p v-if="data.totals.unknownCost" class="cost-note">
                 <Warning />{{ number(data.totals.unknownCost) }}
                 个请求成本未知，未按零成本计算。
               </p>
@@ -138,18 +135,8 @@
             </div>
           </article>
         </div>
-        <div class="accounting-note">
-          <InfoFilled />
-          <p>
-            实际 Token 来自上游返回的用量；无法取得用量时采用保守计费。计费 Token 合计
-            <b>{{ number(data.totals.chargedTokens) }}</b
-            >，其中保守计费 <b>{{ number(data.totals.conservativeTokens) }}</b
-            >。
-          </p>
-        </div>
-      </template>
-    </section></PagePanel
-  >
+      </template></section
+  ></PagePanel>
 </template>
 <script setup lang="ts">
   import { computed, ref } from 'vue'
@@ -165,16 +152,16 @@
   } from '@element-plus/icons-vue'
   import { useResource } from '@/hooks/useResource'
   import PagePanel from '@/components/PagePanel/index.vue'
-  import UsageTrend from '../UsageTrend/index.vue'
-  import type { OverviewUsage, UsageGroup } from '../types'
+  import UsageTrend from '@/components/UsageTrend/index.vue'
+  import type { OverviewUsage, UsageGroup } from '@/types/usage'
   const dates = ref<[string, string] | null>(null)
   const query = ref('')
   const appliedDates = ref<[string, string] | null>(null)
   const { data, loading, error, load } = useResource<OverviewUsage>(
-    () => '/admin/usage' + query.value
+    () => '/admin/usage' + query.value,
   )
   const rangeLabel = computed(() =>
-    appliedDates.value ? appliedDates.value.join(' — ') : '全部时间'
+    appliedDates.value ? appliedDates.value.join(' — ') : '全部时间',
   )
   const metrics = computed(() => {
     if (!data.value) return []
@@ -221,7 +208,7 @@
           },
           { label: '进行中', value: data.value.totals.pending, tone: 'pending' },
         ]
-      : []
+      : [],
   )
   const costs = computed(() =>
     Object.entries(data.value?.totals.costs || {}).map(([currency, amount]) => ({
@@ -230,7 +217,7 @@
         minimumFractionDigits: 2,
         maximumFractionDigits: 6,
       }),
-    }))
+    })),
   )
   const rankings = computed(() =>
     data.value
@@ -250,7 +237,7 @@
             unit: '个模型',
           },
         ]
-      : []
+      : [],
   )
   function number(value: number) {
     return value.toLocaleString('zh-CN')
@@ -425,27 +412,6 @@
     .subtle {
       color: #96a0b1;
       font-size: 10px;
-    }
-    .legend {
-      display: flex;
-      gap: 13px;
-      font-size: 10px;
-      color: #8790a2;
-      flex-wrap: wrap;
-      span {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      i {
-        width: 14px;
-        height: 3px;
-        border-radius: 3px;
-        background: var(--el-color-primary);
-        &.conservative {
-          background: #b4bdcf;
-        }
-      }
     }
     .panel-footnote {
       display: flex;
@@ -634,23 +600,6 @@
     }
     .ranking-panel:nth-child(2) .ranking-track > span {
       background: #b3c9d9;
-    }
-    .accounting-note {
-      display: flex;
-      gap: 9px;
-      color: var(--el-text-color-secondary);
-      font-size: 11px;
-      line-height: 1.9;
-      padding: 0 4px;
-      svg {
-        width: 13px;
-        height: 13px;
-        margin-top: 4px;
-      }
-      b {
-        font-weight: 500;
-        color: var(--el-text-color-regular);
-      }
     }
     .initial-loading {
       padding: 30px;

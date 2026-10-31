@@ -1,6 +1,6 @@
 import { subscriptionFor } from './entitlements.js';
 export { effectiveConcurrency } from './entitlements.js';
-import { fail, quotaNames, now, period, resolveModel } from './domain.js';
+import { fail, quotaNames, now, period, resolveModel, quotaTokens } from './domain.js';
 export const rolePermissions = {
   admin: ['plans:read','plans:write','feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
   operator: ['users:read','users:write','models:read','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','system:read'],
@@ -25,7 +25,7 @@ export function departmentConsumption(state, department, timezone, timestamp = n
   const day = period(timestamp, timezone), used = Object.fromEntries(quotaNames.map(name => [name, 0]));
   for (const row of state.requests) {
     if (row.department_id !== department.id || (department.quota_reset_at && row.started_at < department.quota_reset_at)) continue;
-    const tokens = row.charged_tokens ?? row.reserved_tokens ?? 0;
+    const tokens = quotaTokens(row);
     used.totalTokens += tokens; used.totalRequests++;
     const requestDay = period(row.started_at, timezone);
     if (requestDay === day) { used.dailyTokens += tokens; used.dailyRequests++; }

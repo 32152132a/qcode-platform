@@ -33,14 +33,19 @@ export function period(timestamp, timezone) {
   const part = name => parts.find(p => p.type === name).value;
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
+// Reservations protect in-flight quotas; completed requests use provider usage only.
+export function quotaTokens(request) {
+  const value = request.status === 'pending' ? request.reserved_tokens : request.total_tokens;
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
 export function consumption(state, user, timezone, timestamp = now()) {
   const day = period(timestamp, timezone), used = Object.fromEntries(quotaNames.map(k => [k, 0]));
   const subscription = subscriptionFor(state, user);
   const startsAt = [user.quota_reset_at, subscription?.started_at].filter(Boolean).sort().at(-1);
-  used.totalTokens = subscription ? 0 : user.legacy_tokens || 0;
+  used.totalTokens = 0;
   for (const r of state.requests) {
     if (r.user_id !== user.id || (subscription && r.subscription_id !== subscription.id) || (startsAt && r.started_at < startsAt)) continue;
-    const tokens = r.charged_tokens ?? r.reserved_tokens ?? 0;
+    const tokens = quotaTokens(r);
     used.totalTokens += tokens;
     used.totalRequests++;
     const requestDay = period(r.started_at, timezone);
@@ -56,7 +61,7 @@ export function publicUser(state, user, timezone) {
     department: state.departments.find(d => d.id === user.department_id)?.name || user.department, department_id: user.department_id,
     created_at: user.created_at, last_login_at: user.last_login_at || null,
     model_id: user.model_id, key_id: user.key_id, key_suffix: effectiveKey(state, user)?.suffix || null,
-    session_limit: user.session_limit, active_sessions: state.tokens.filter(t => t.user_id === user.id && (t.refresh_expires_at || t.expires_at) > now()).length,
+    session_limit: user.session_limit, active_sessions: state.tokens.filter(t => t.user_id === user.id && t.refresh_expires_at > now()).length,
     permissions: permissions(user), max_concurrent_requests: effectiveConcurrency(state, user), quota_mode: user.quota_mode || 'custom',
     quotas: user.quotas, effective_quotas: limits, used, remaining: Object.fromEntries(quotaNames.map(k => [k, limits[k] ? Math.max(0, limits[k] - used[k]) : null])) };
 }

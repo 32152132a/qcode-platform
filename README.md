@@ -34,7 +34,7 @@
 - **更新管理端或网关**：提交并推送本仓库，再执行现有服务器部署脚本。不需要重新打包员工客户端。
 - **更新桌面或终端**：在 qcode-openwork 双击 release-desktop.bat，构建、验收后上传安装包；仅构建使用 -BuildOnly。
 - 当前桌面更新地址为 /downloads/desktop/latest.yml；首页安装包入口为 /downloads/installer。
-- apps/client、scripts/release-client.ps1 和 /downloads/manifest.json 属于旧客户端兼容链路，不是当前 Desktop 发布入口。旧发布脚本必须显式提供 -LegacyClient 才会执行。
+- apps/client 仅保留当前桌面端共享的接口契约、桥接、模型目录及技能同步模块；旧安装器与旧更新链路已删除。
 
 详见 [当前架构和发布入口](docs/CURRENT-ARCHITECTURE.md)。桌面构建、真实安装和更新仍需员工环境验收，模拟模型通过不等于所有供应商均兼容。
 
@@ -42,7 +42,7 @@
 
 需要 Node.js 24。进入 apps/admin 执行 npm ci、npm run build；进入 apps/server 执行 npm ci，按其 README 配置私有 .env 后启动。也可使用仓库中的 Docker Compose。
 
-隔离演示与服务端检查仍可运行 Start-QCode.ps1 demo、Start-QCode.ps1 test、Start-QCode.ps1 check；它们不是桌面安装包发布命令。
+服务端检查在 apps/server 运行 npm run check 和 npm test；隔离演示运行 npm run demo。
 
 ## 数据与安全边界
 
@@ -51,7 +51,6 @@ SQLite 的 .db/.sqlite 文件是一个数据库，可含多张表。生产数据
 这是面向单实例、小团队试用的版本。知识库当前支持 TXT/Markdown，作为参考文档同步并由 AI 按需读取，不是向量数据库 RAG。当前不调整数据库和知识库实现。
 
 - [服务端运行与维护](apps/server/README.md)
-- [旧客户端发布说明（仅兼容维护）](docs/CUSTOM-CLIENT.md)
 
 
 ### 业务接口与演示入口

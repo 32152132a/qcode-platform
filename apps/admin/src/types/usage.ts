@@ -1,4 +1,4 @@
-export interface UsageGroup {
+export interface UsageGroup extends Record<string, unknown> {
   userId?: number
   modelId?: string
   username?: string
@@ -6,15 +6,17 @@ export interface UsageGroup {
   date?: string
   requests: number
   tokens: number
-  conservativeTokens: number
-  chargedTokens: number
+  inputTokens: number
+  outputTokens: number
+  unknownUsage: number
+  unknownCost: number
   success: number
   failed: number
   pending: number
   costs: Record<string, number>
 }
 export interface OverviewUsage {
-  totals: UsageGroup & { unknownCost: number; unknownUsage: number }
+  totals: UsageGroup
   users: UsageGroup[]
   models: UsageGroup[]
   days: UsageGroup[]

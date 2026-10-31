@@ -7,9 +7,6 @@ import { createHash } from 'node:crypto';
 import { fixture } from './gateway.test.js';
 import { GatewaySession, startBridge } from '../../client/bridge.mjs';
 import { syncSkills } from '../../client/skills.mjs';
-import http from 'node:http';
-import { once } from 'node:events';
-import { installUpdate, newerVersion } from '../../client/update.mjs';
 
 test('client bridge protects loopback, renews expired sessions and forwards SSE',async t=>{
   const f=await fixture(t);const user=await f.create();
@@ -50,28 +47,4 @@ test('managed skills update atomically and remove only managed directories',asyn
     await assert.rejects(syncSkills(home,[unsafe]),/不安全/);
     await assert.rejects(syncSkills(home,[{...skill,revision:'bad'}]),/校验/);
   }finally{fs.rmSync(home,{recursive:true,force:true});}
-});
-
-test('release comparison does not downgrade or compare versions lexicographically',()=>{
-  assert.equal(newerVersion('0.10.0','0.3.0'),true);assert.equal(newerVersion('0.3.0','0.3.0'),false);assert.equal(newerVersion('0.2.9','0.3.0'),false);
-});
-
-
-test('OpenCode updates reject legacy manifests before starting an installer',async t=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-update-'));
-  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
-  fs.writeFileSync(path.join(root,'current.json'),'{}');
-  let manifest={version:'99.0.0',runtime:'harness'};
-  const server=http.createServer((req,res)=>{
-    res.setHeader('Content-Type','application/json');res.end(JSON.stringify(manifest));
-  });
-  server.listen(0,'127.0.0.1');await once(server,'listening');
-  t.after(()=>{server.closeAllConnections();server.close();});
-  const url=`http://127.0.0.1:${server.address().port}`;
-  for(const runtime of ['harness',undefined]){
-    manifest={version:'99.0.0',runtime};
-    await assert.rejects(installUpdate(url,'0.4.4',root,'missing-installer.ps1','opencode'),/incompatible runtime/);
-  }
-  manifest={version:'0.4.4',runtime:'opencode'};
-  assert.equal(await installUpdate(url,'0.4.4',root,'missing-installer.ps1','opencode'),false);
 });

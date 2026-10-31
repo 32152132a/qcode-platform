@@ -1,259 +1,181 @@
 <template>
   <PagePanel
     class="usage-dashboard"
-    :title="title || '用量统计'"
-    description="实际用量与保守计费分开展示。成本由请求时配置单价估算，各币种独立统计。"
+    title="用量统计"
+    description="按真实 Token 统计消耗；调用成本按配置单价计算，不等同于供应商账单。"
     :loading="loading"
     :error="error"
-    ><template #actions
-      ><el-date-picker
-        v-model="dates"
-        type="daterange"
-        value-format="YYYY-MM-DD"
-        start-placeholder="开始日期"
-        end-placeholder="结束日期"
-      /><el-button @click="apply">查询</el-button
-      ><el-button @click="reset">全部日期</el-button></template
-    ><template v-if="data"
-      ><div class="metrics">
-        <el-card v-for="item in metrics" :key="item.label" shadow="never"
-          ><span>{{ item.label }}</span
-          ><strong>{{ item.value }}</strong></el-card
-        >
+  >
+    <template #actions><el-button @click="load">刷新</el-button></template>
+    <QyqForm
+      v-model="filters"
+      :columns="3"
+      :form-options="fields"
+      :show-btn="false"
+      @submit.prevent
+    >
+      <template #dates
+        ><el-date-picker
+          v-model="dates"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+      /></template>
+    </QyqForm>
+    <el-space
+      ><el-button type="primary" @click="apply">查询</el-button
+      ><el-button @click="reset">重置</el-button></el-space
+    >
+    <template v-if="data">
+      <div class="metrics">
+        <el-statistic title="实际 Token" :value="data.totals.tokens" /><el-statistic
+          title="请求数"
+          :value="data.totals.requests"
+        />
+        <div>
+          <el-text type="info" size="small">模型调用成本</el-text>
+          <p>{{ cost(data.totals.costs, data.totals.unknownCost) }}</p>
+        </div>
       </div>
-      <el-alert
-        :title="
-          '成功 ' +
-          data.totals.success +
-          ' · 失败/中断 ' +
-          data.totals.failed +
-          ' · 进行中 ' +
-          data.totals.pending +
-          ' · 统计时区 ' +
-          data.timezone
-        "
-        type="info"
-        :closable="false" /><el-card shadow="never"
-        ><h3>每日 Token 趋势</h3>
-        <div
-          v-show="data.days.length"
-          ref="chart"
-          class="chart"
-          role="img"
-          aria-label="每日实际 Token 和保守计费 Token 趋势" />
-        <el-empty v-if="!data.days.length" description="所选日期暂无请求" /></el-card
-      ><el-card shadow="never"
-        ><h3>估算成本</h3>
-        <p v-if="!Object.keys(data.totals.costs).length">暂无可计算成本</p>
-        <p v-for="(amount, currency) in data.totals.costs" :key="currency">
-          {{ currency }} {{ Number(amount).toFixed(6) }}
-        </p>
-        <el-text type="info"
-          >{{ data.totals.unknownCost }} 个请求成本未知，不按零成本计算。</el-text
-        ></el-card
-      ><el-tabs
-        ><el-tab-pane label="用户用量排行"
-          ><DataTable :rows="data.users" :columns="userColumns" /></el-tab-pane
-        ><el-tab-pane label="模型用量"
-          ><DataTable :rows="data.models" :columns="groupColumns" /></el-tab-pane
-        ><el-tab-pane label="部门用量"
-          ><DataTable :rows="data.departments" :columns="groupColumns" /></el-tab-pane
-        ><el-tab-pane label="每日数据"
-          ><DataTable :rows="data.days" :columns="dayColumns" /></el-tab-pane></el-tabs></template
-  ></PagePanel>
+      <el-text v-if="data.totals.unknownUsage || data.totals.unknownCost" type="info" size="small"
+        >{{ data.totals.unknownUsage }} 个已结束请求未返回用量，{{
+          data.totals.unknownCost
+        }}
+        个请求成本未知；未知部分不按零消耗计算。</el-text
+      >
+      <el-card class="trend-panel" shadow="never"><UsageTrend :days="data.days" /></el-card>
+      <el-tabs v-model="tab" class="usage-tabs"
+        ><el-tab-pane label="按用户" name="users" /><el-tab-pane
+          label="按模型"
+          name="models" /><el-tab-pane label="每日明细" name="days"
+      /></el-tabs>
+      <DataTable :rows="data[tab]" :columns="columns" />
+    </template>
+  </PagePanel>
 </template>
 <script setup lang="ts">
-  import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
-  import * as echarts from 'echarts'
+  import { computed, ref, watch } from 'vue'
   import PagePanel from '@/components/PagePanel/index.vue'
   import DataTable from '@/components/DataTable/index.vue'
+  import QyqForm from '@/components/qyq-form/index.vue'
+  import UsageTrend from '@/components/UsageTrend/index.vue'
   import { useResource } from '@/hooks/useResource'
-  import type { Row, Column } from '@/types'
-  defineProps<{ title?: string }>()
-  interface Totals {
-    requests: number
-    success: number
-    failed: number
-    pending: number
-    tokens: number
-    chargedTokens: number
-    conservativeTokens: number
-    unknownCost: number
-    costs: Record<string, number>
-  }
-  interface Usage {
-    totals: Totals
-    users: Row[]
-    models: Row[]
-    departments: Row[]
-    days: Row[]
-    timezone: string
-  }
+  import type { OverviewUsage } from '@/types/usage'
+  import type { Column } from '@/types'
+  import type { FormItemProp } from '@/components/qyq-form/types'
   const query = ref(''),
     dates = ref<string[]>([]),
-    chart = ref<HTMLDivElement>(),
-    { data, loading, error, load } = useResource<Usage>(() => '/admin/usage' + query.value)
-  let instance: echarts.ECharts | undefined, observer: ResizeObserver | undefined
-  const metrics = computed(() =>
-    data.value
-      ? [
-          { label: '请求数', value: data.value.totals.requests.toLocaleString() },
-          {
-            label: '成功率',
-            value:
-              data.value.totals.success + data.value.totals.failed
-                ? (
-                    (100 * data.value.totals.success) /
-                    (data.value.totals.success + data.value.totals.failed)
-                  ).toFixed(1) + '%'
-                : '—',
-          },
-          { label: '实际 Token', value: data.value.totals.tokens.toLocaleString() },
-          { label: '保守计费 Token', value: data.value.totals.conservativeTokens.toLocaleString() },
-          { label: '计费 Token 合计', value: data.value.totals.chargedTokens.toLocaleString() },
-        ]
-      : []
+    filters = ref({ userId: '', modelId: '' }),
+    tab = ref<'users' | 'models' | 'days'>('users')
+  const options = ref<OverviewUsage>()
+  const { data, loading, error, load } = useResource<OverviewUsage>(
+    () => '/admin/usage' + query.value,
   )
-  const values: Column[] = [
+  const fields = computed<FormItemProp[]>(() => [
+    { prop: 'dates', label: '日期范围', type: 'custom' },
+    {
+      prop: 'userId',
+      label: '用户',
+      type: 'select',
+      clearable: true,
+      filterable: true,
+      placeholder: '全部用户',
+      options: (options.value?.users || []).map((row) => ({
+        label: row.username || '未知用户',
+        value: String(row.userId),
+      })),
+    },
+    {
+      prop: 'modelId',
+      label: '模型',
+      type: 'select',
+      clearable: true,
+      filterable: true,
+      placeholder: '全部模型',
+      options: (options.value?.models || [])
+        .filter((row) => row.modelId)
+        .map((row) => ({ label: row.name || '未知模型', value: String(row.modelId) })),
+    },
+  ])
+  const columns = computed<Column[]>(() => [
+    tab.value === 'users'
+      ? { prop: 'username', label: '用户' }
+      : tab.value === 'models'
+        ? { prop: 'name', label: '模型', minWidth: 180 }
+        : { prop: 'date', label: '日期', minWidth: 130 },
+    { prop: 'inputTokens', label: '输入 Token', minWidth: 125 },
+    { prop: 'outputTokens', label: '输出 Token', minWidth: 125 },
+    { prop: 'tokens', label: '总 Token', minWidth: 125 },
+    {
+      prop: 'costs',
+      label: '调用成本',
+      minWidth: 160,
+      render: (row) => cost(row.costs, row.unknownCost),
+    },
     { prop: 'requests', label: '请求数' },
-    { prop: 'tokens', label: '实际 Token' },
-    { prop: 'conservativeTokens', label: '保守计费 Token' },
-    { prop: 'chargedTokens', label: '计费 Token 合计' },
-    { prop: 'success', label: '成功' },
-    { prop: 'failed', label: '失败/中断' },
-  ]
-  const userColumns = [{ prop: 'username', label: '用户' }, ...values],
-    groupColumns = [{ prop: 'name', label: '名称' }, ...values],
-    dayColumns = [{ prop: 'date', label: '日期' }, ...values]
+    { prop: 'unknownUsage', label: '用量未知', minWidth: 120 },
+  ])
+  function cost(amounts: unknown, unknownCount: unknown) {
+    const values = Object.entries(amounts && typeof amounts === 'object' ? amounts : {}).map(
+      ([currency, value]) =>
+        currency + ' ' + Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 6 }),
+    )
+    return values.length
+      ? values.join(' / ') + (unknownCount ? '（部分未知）' : '')
+      : unknownCount
+        ? '未知'
+        : '—'
+  }
   function apply() {
-    query.value =
-      dates.value?.length === 2
-        ? '?' + new URLSearchParams({ from: dates.value[0], to: dates.value[1] })
-        : ''
-    void load()
+    const params = new URLSearchParams()
+    if (dates.value?.length === 2) {
+      params.set('from', dates.value[0])
+      params.set('to', dates.value[1])
+    }
+    if (filters.value.userId) params.set('userId', filters.value.userId)
+    if (filters.value.modelId) params.set('modelId', filters.value.modelId)
+    const next = params.size ? '?' + params : ''
+    if (query.value === next) void load()
+    else query.value = next
   }
   function reset() {
+    filters.value = { userId: '', modelId: '' }
     dates.value = []
-    query.value = ''
-    void load()
+    apply()
   }
-  watch(data, async () => {
-    await nextTick()
-    if (!chart.value || !data.value) return
-    if (!data.value.days.length) {
-      instance?.clear()
-      return
-    }
-    if (!instance) {
-      instance = echarts.init(chart.value)
-      observer = new ResizeObserver(() => instance?.resize())
-      observer.observe(chart.value)
-    }
-    const days = [...data.value.days]
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-      .slice(-366)
-    instance.resize()
-    instance.setOption({
-      animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-      textStyle: { fontFamily: 'Inter, Microsoft YaHei, sans-serif' },
-      tooltip: {
-        trigger: 'axis',
-        renderMode: 'richText',
-        backgroundColor: '#fff',
-        borderColor: '#ebeef5',
-        textStyle: { fontSize: 12, color: '#606266' },
-      },
-      legend: {
-        left: 10,
-        top: 0,
-        icon: 'roundRect',
-        itemWidth: 10,
-        itemHeight: 7,
-        itemGap: 20,
-        textStyle: { color: '#909399', fontSize: 11 },
-        data: ['实际 Token', '保守计费 Token'],
-      },
-      grid: { left: 12, right: 16, bottom: 12, top: 45, containLabel: true },
-      xAxis: {
-        type: 'category',
-        data: days.map((d) => d.date),
-        axisLine: { show: false },
-        axisTick: { show: false },
-        axisLabel: { color: '#909399', fontSize: 11, hideOverlap: true },
-      },
-      yAxis: {
-        type: 'value',
-        minInterval: 1,
-        splitNumber: 4,
-        axisLabel: {
-          color: '#909399',
-          fontSize: 10,
-          formatter: (value: number) =>
-            Intl.NumberFormat('en', { notation: 'compact' }).format(value),
-        },
-        splitLine: { lineStyle: { color: '#ebeef5', type: 'dashed' } },
-      },
-      series: [
-        {
-          name: '实际 Token',
-          type: 'bar',
-          stack: 'tokens',
-          barMaxWidth: 24,
-          data: days.map((d) => d.tokens),
-          itemStyle: { color: '#409eff' },
-        },
-        {
-          name: '保守计费 Token',
-          type: 'bar',
-          stack: 'tokens',
-          data: days.map((d) => d.conservativeTokens),
-          itemStyle: { color: '#c6e2ff' },
-        },
-      ],
-    })
-  })
-  onBeforeUnmount(() => {
-    observer?.disconnect()
-    instance?.dispose()
+  watch(data, (value) => {
+    if (value && !query.value) options.value = value
   })
 </script>
 <style scoped lang="scss">
   .usage-dashboard {
-    h3 {
-      font-size: 14px;
-      font-weight: 600;
-      margin: 0 0 20px;
-      color: var(--el-text-color-primary);
+    :deep(.data-table) {
+      min-height: 420px;
+      flex-shrink: 0;
     }
     .metrics {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 16px;
-      .el-card {
-        border-radius: var(--admin-radius);
-        min-width: 0;
-      }
-      span {
-        color: var(--el-text-color-secondary);
-        font-size: 12px;
-      }
-      strong {
-        display: block;
-        margin-top: 18px;
-        font-size: 24px;
+      flex-shrink: 0;
+      p {
+        margin: 8px 0 0;
+        font-size: 22px;
         font-weight: 600;
         overflow-wrap: anywhere;
-        font-variant-numeric: tabular-nums;
       }
     }
-    .chart {
-      height: 300px;
-      width: 100%;
+    .trend-panel {
+      flex-shrink: 0;
     }
-    @media (max-width: 1000px) {
+    .usage-tabs {
+      flex-shrink: 0;
+    }
+    @media (max-width: 650px) {
       .metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        > .el-card:last-child {
+        > :last-child {
           grid-column: 1/-1;
         }
       }

@@ -103,8 +103,8 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         clearTimeout(timer);res.off('close',cancel);activeRequests.delete(requestId);
         db.transaction(state=>{
           const record=state.requests.find(r=>r.id===requestId);
-          Object.assign(record,{...usage,status,error_code:errorCode||null,upstream_status:upstreamStatus??null,duration_ms:Date.now()-started,finished_at:now(),charged_tokens:usage?.total_tokens??reserved,usage_source:usage?'provider':'reservation',currency:model.currency||'CNY',input_price:model.input_price||0,output_price:model.output_price||0});
-          record.cost_micros=usage?.input_tokens!=null&&usage?.output_tokens!=null?Math.round(usage.input_tokens*(model.input_price||0)+usage.output_tokens*(model.output_price||0)):null;
+          Object.assign(record,{...usage,status,error_code:errorCode||null,upstream_status:upstreamStatus??null,duration_ms:Date.now()-started,finished_at:now(),charged_tokens:usage?.total_tokens??0,usage_source:usage?'provider':'unknown',currency:model.currency||'CNY',input_price:model.input_price||0,output_price:model.output_price||0});
+          record.cost_micros=model.pricing_known!==false&&usage?.input_tokens!=null&&usage?.output_tokens!=null?Math.round(usage.input_tokens*(model.input_price||0)+usage.output_tokens*(model.output_price||0)):null;
         });
       }
     }

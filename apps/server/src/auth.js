@@ -18,11 +18,11 @@ export function ensureDemoUser(db, config) {
     }
     state.users.push({ id: state.nextUserId++, username, role: 'demo', password_hash: hashPassword(config.demoPassword),
       is_active: 1, department: '', department_id: null, created_at: now(), session_limit: 20,
-      model_id: null, key_id: null, quota_mode: 'custom', quotas: {}, max_concurrent_requests: 1, legacy_tokens: 0 });
+      model_id: null, key_id: null, quota_mode: 'custom', quotas: {}, max_concurrent_requests: 1 });
   });
 }
 export function registerAuth(app, { db, config, cancelRequests }) {
-  const sessionAlive = session => (session.refresh_expires_at || session.expires_at) > now();
+  const sessionAlive = session => session.refresh_expires_at > now();
   function issue(state, user, previous) {
     const token = randomBytes(32).toString('base64url'), refreshToken = randomBytes(48).toString('base64url');
     const expiresAt = new Date(Date.now() + config.accessTokenMinutes * 60000).toISOString();
@@ -74,7 +74,7 @@ export function registerAuth(app, { db, config, cancelRequests }) {
       next.tokens = next.tokens.filter(session => !removed.has(session.token_hash));
       const saved = next.users.find(u => u.id === user.id); saved.last_login_at = now();
       audit(next, saved, 'login', saved.id);
-      for (const session of replaced) audit(next, saved, 'session.replaced', session.id || session.token_hash.slice(0,12));
+      for (const session of replaced) audit(next, saved, 'session.replaced', session.id);
       return { result: issue(next, saved, { device: typeof device === 'string' ? device.slice(0,100) : '' }), replaced };
     });
     // Cancel only after the new session and revocations have committed together.
@@ -82,12 +82,10 @@ export function registerAuth(app, { db, config, cancelRequests }) {
     res.json(result);
   });
   app.post('/auth/refresh', (req, res) => {
-    const bearer = (req.get('authorization') || '').match(/^Bearer (\S+)$/i)?.[1];
     const refresh = req.body?.refreshToken;
-    if (refresh !== undefined && (typeof refresh !== 'string' || refresh.length > 256)) fail(400, 'INVALID_REFRESH', '无效的续期凭据');
+    if (typeof refresh !== 'string' || !refresh || refresh.length > 256) fail(400, 'INVALID_REFRESH', '无效的续期凭据');
     const state = db.read();
-    const session = refresh ? state.tokens.find(s => s.refresh_hash === tokenHash(refresh) && s.refresh_expires_at > now())
-      : bearer && state.tokens.find(s => s.token_hash === tokenHash(bearer) && s.expires_at > now());
+    const session = state.tokens.find(s => s.refresh_hash === tokenHash(refresh) && s.refresh_expires_at > now());
     const user = session && state.users.find(u => u.id === session.user_id);
     if (!user) fail(401, 'INVALID_TOKEN', '会话已过期或已被撤销');
     if (!user.is_active) fail(403, 'USER_DISABLED', '账号已被禁用');
@@ -98,7 +96,7 @@ export function registerAuth(app, { db, config, cancelRequests }) {
   });
   app.post('/auth/me', auth, (req, res) => res.json(publicUser(db.read(), req.user, config.timezone)));
   app.post('/auth/sessions/list', auth, (req, res) => res.json(db.read().tokens.filter(s => s.user_id === req.user.id && sessionAlive(s)).map(s => ({
-    id: s.id || s.token_hash.slice(0,12), device: s.device, created_at: s.created_at, expires_at: s.refresh_expires_at || s.expires_at, current: s.token_hash === req.session.token_hash,
+    id: s.id, device: s.device, created_at: s.created_at, expires_at: s.refresh_expires_at, current: s.token_hash === req.session.token_hash,
   }))));
   app.post('/auth/logout', auth, (req, res) => {
     db.transaction(state => { state.tokens = state.tokens.filter(s => s.token_hash !== req.session.token_hash); audit(state, req.user, 'logout', req.user.id); });

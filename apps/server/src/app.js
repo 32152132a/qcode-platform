@@ -1,10 +1,10 @@
 import { registerPlans, assignDefaultPlan } from './plans.js';
 import { registerFeedback } from './feedback.js';
-import { registerImages, migrateImageSettings } from './images.js';
+import { registerImages } from './images.js';
 import { businessOperation, obsoleteBusinessRequest } from '../../client/api-contract.mjs';
 import { createAccountRequestQueue } from './request-queue.js';
 import { registerWebPages } from './web-pages.js';
-import {migrateModelSources,registerModelSources,sourcesFor,backupBeforeModelSources} from './model-sources.js';
+import {registerModelSources,sourcesFor} from './model-sources.js';
 import { registerKnowledge } from './knowledge.js';
 import { protocols } from './providers.js';
 import { registerModelChecks } from './model-checks.js';
@@ -33,7 +33,7 @@ export function readConfig(env) {
   for(const value of trustedProxies){const [address,prefix]=value.split('/'),family=isIP(address);if(!family||(prefix!==undefined&&(!/^\d+$/.test(prefix)||Number(prefix)>(family===4?32:128))))throw new Error('Invalid TRUST_PROXY_CIDRS');}
   return { host: env.HOST || '127.0.0.1', port: number('PORT', 3100, 1, 65535),
     timeoutMs: number('REQUEST_TIMEOUT_MS', 180000, 10, 3600000),
-    tokenTtlDays: number('AUTH_TOKEN_TTL_DAYS', 7, 1, 90), timezone,
+    timezone,
     accessTokenMinutes: number('ACCESS_TOKEN_MINUTES', 30, 1, 1440), refreshTokenDays: number('REFRESH_TOKEN_DAYS', 30, 1, 365),
     loginFailureLimit: number('LOGIN_FAILURE_LIMIT', 10, 1, 100), trustedProxies,
     dbPath: env.DB_PATH || './data/qcode.sqlite', encryptionSecret: env.KEY_ENCRYPTION_SECRET,
@@ -48,9 +48,8 @@ export function readConfig(env) {
 export function createApp(config, database) {
   const vault = createVault(config.encryptionSecret);
   const db = database || createDatabase(config.dbPath, { vault });
-  backupBeforeModelSources(db,vault,config);
   const timezone = config.timezone || 'Asia/Shanghai';
-  config = { demoEnabled: false, demoUsername: 'demo', demoPassword: 'qcode-demo-2026', timeoutMs: 180000, tokenTtlDays: 7, accessTokenMinutes: 30, refreshTokenDays: 30, loginFailureLimit: 10, adminAddresses: [], ...config, timezone };
+  config = { demoEnabled: false, demoUsername: 'demo', demoPassword: 'qcode-demo-2026', timeoutMs: 180000, accessTokenMinutes: 30, refreshTokenDays: 30, loginFailureLimit: 10, adminAddresses: [], ...config, timezone };
   db.transaction(state => {
     if (!state.users.some(u => u.role === 'admin')) {
       if (!config.adminUsername || !config.adminPassword) throw new Error('Set ADMIN_USERNAME and ADMIN_PASSWORD to create the first administrator');
@@ -59,25 +58,33 @@ export function createApp(config, database) {
       if (state.users.some(u => u.username === username)) throw new Error('Administrator username is already used');
       state.users.push({ id: state.nextUserId++, username, password_hash: hashPassword(password(config.adminPassword)), role: 'admin',
         is_active: 1, department: '', department_id: null, quota_mode: 'custom', max_concurrent_requests: 2,
-        created_at: now(), session_limit: 2, model_id: null, key_id: null, quotas: quotas(), legacy_tokens: 0 });
+        created_at: now(), session_limit: 2, model_id: null, key_id: null, quotas: quotas() });
     }
-    if (!state.models.length && config.baseUrl && config.upstreamModel) state.models.push({ id: id(), name: 'Default model',
-      public_name: config.publicModel, upstream_model: config.upstreamModel, base_url: baseUrl(config.baseUrl),
-      active: true, is_default: true, max_output_tokens: 8192, context_window: 131072, max_tokens_field: 'max_tokens', input_price: 0, output_price: 0, currency: 'CNY', stream_usage: true, created_at: now() });
     if (!state.keys.length && config.upstreamKey && !config.upstreamKey.startsWith('replace-with-')) {
       const keyId = id();
       state.keys.push({ id: keyId, name: 'Initial provider key', secret: vault.encrypt(config.upstreamKey), suffix: config.upstreamKey.slice(-4), active: true, health: 'unknown', created_at: now() });
       for (const user of state.users.filter(u => u.role === 'admin')) user.key_id = keyId;
     }
+    function provisionModel(body, kind, name) {
+      const model = saveModel(state, body);
+      const source = { id: id(), kind, name, base_url: model.base_url, key_id: model.key_id,
+        protocol: model.protocol, active: true, auto_sync: !!model.key_id || kind === 'local', created_at: now(), revision: 1 };
+      state.settings.modelSources.push(source);
+      model.source_id = source.id;
+      return model;
+    }
+    if (!state.models.length && config.baseUrl && config.upstreamModel) {
+      const official = /^https:\/\/api\.deepseek\.com(?:\/|$)/.test(config.baseUrl);
+      provisionModel({ name: 'Default model', publicName: config.publicModel || 'qcode-model', upstreamModel: config.upstreamModel,
+        baseUrl: config.baseUrl, keyId: state.keys[0]?.id || null, isDefault: true }, official ? 'official' : 'relay', official ? 'DeepSeek 官方' : '中转服务');
+    }
     if (config.ollamaBaseUrl && !state.settings.ollamaModelProvisioned) {
       if (!state.models.some(model => model.public_name === 'qcode-qwen-local')) {
-        const model = saveModel(state, {name:'通义千问 Qwen 0.5B（本地测试）',provider:'ollama',protocol:'chat-completions',publicName:'qcode-qwen-local',upstreamModel:'qwen:0.5b',baseUrl:config.ollamaBaseUrl,maxOutputTokens:256,contextWindow:32768,active:true,isDefault:false});
+        const model = provisionModel({name:'通义千问 Qwen 0.5B（本地测试）',provider:'ollama',protocol:'chat-completions',publicName:'qcode-qwen-local',upstreamModel:'qwen:0.5b',baseUrl:config.ollamaBaseUrl,maxOutputTokens:256,contextWindow:32768,active:true,isDefault:false}, 'local', '本地 Ollama');
         audit(state,{id:null,username:'system'},'model.provision',model.id);
       }
       state.settings.ollamaModelProvisioned = true;
     }
-    migrateModelSources(state);
-    migrateImageSettings(state, saveModel);
   });
   ensureDemoUser(db, config);
   const app = express();
@@ -141,7 +148,7 @@ export function createApp(config, database) {
     const user = { id: state.nextUserId++, username, password_hash: hashPassword(password(body.password)), role: body.role || 'user', is_active: 1,
       department_id: body.departmentId || null, quota_mode: body.quotaMode || 'custom', max_concurrent_requests: maxConcurrent,
       department: typeof body.department === 'string' ? body.department.slice(0, 80) : '', created_at: now(),
-      model_id: body.modelId ?? null, key_id: body.keyId ?? null, session_limit: integer(body.sessionLimit ?? 1, 'sessionLimit', 20), quotas: quotas(body.quotas), legacy_tokens: 0 };
+      model_id: body.modelId ?? null, key_id: body.keyId ?? null, session_limit: integer(body.sessionLimit ?? 1, 'sessionLimit', 20), quotas: quotas(body.quotas) };
     if (!user.session_limit) fail(400, 'INVALID_FIELD', 'sessionLimit must be at least 1');
     state.users.push(user); audit(state, actor, 'user.create', user.id);
     assignDefaultPlan(state, user, actor);
@@ -211,7 +218,7 @@ export function createApp(config, database) {
     db.transaction(state => {
       const user = getUser(state, req.params.id);
       if (state.requests.some(r => r.user_id === user.id && r.status === 'pending')) fail(409, 'REQUEST_IN_PROGRESS', 'Wait for active requests before resetting quotas');
-      user.quota_reset_at = now(); user.legacy_tokens = 0; audit(state, req.user, 'user.quota.reset', user.id);
+      user.quota_reset_at = now(); audit(state, req.user, 'user.quota.reset', user.id);
     }); res.json({ ok: true });
   });
   app.post('/admin/users/:id/delete', (req, res) => {
@@ -330,7 +337,8 @@ export function createApp(config, database) {
   app.post('/admin/requests/list', (req, res) => res.json(page(filterRecords(db.read().requests,req.query,timezone), req.query)));
   app.post('/admin/audits/list', (req, res) => res.json(page(filterRecords(db.read().audits,req.query,timezone), req.query)));
   app.post('/admin/system/detail', (_req, res) => res.json({ version: '0.3.0', storage: db.kind, timezone,
-    tokenTtlDays: config.tokenTtlDays, requestTimeoutMs: config.timeoutMs, uptimeSeconds: Math.floor(process.uptime()),
+    accessTokenMinutes: config.accessTokenMinutes, refreshTokenDays: config.refreshTokenDays, requestTimeoutMs: config.timeoutMs, uptimeSeconds: Math.floor(process.uptime()),
+    memoryBytes: process.memoryUsage().rss, maxActiveRequests: db.read().settings.maxActiveRequests || 64,
     pendingRequests: db.read().requests.filter(r => r.status === 'pending').length }));
   app.use('/v1', auth);
   app.get('/v1/models', (req, res) => {

@@ -14,7 +14,7 @@ const terms = (plan, state) => ({
   id: plan.id,
   name: plan.name,
   description: plan.description,
-  level: plan.level || 0,
+  level: plan.level,
   is_default: Boolean(plan.is_default),
   price_cents: plan.price_cents,
   currency: "CNY",
@@ -69,11 +69,7 @@ function savePlan(state, body, existing) {
     fail(400, "INVALID_PLAN", "默认套餐设置必须为布尔值");
   if (isDefault && (Number(body.price) !== 0 || body.active === false))
     fail(400, "INVALID_DEFAULT_PLAN", "默认套餐必须免费且上架");
-  const level = integer(
-    Number(body.level ?? existing?.level ?? 0),
-    "套餐等级",
-    1000,
-  );
+  const level = integer(Number(body.level), "套餐等级", 1000);
   if (isDefault) for (const item of state.plans) item.is_default = false;
   const plan = {
     id: existing?.id || id(),
@@ -138,6 +134,31 @@ export function registerPlans(app, { db, auth, config }) {
   };
   const current = (state, userId) =>
     state.subscriptions.findLast((item) => item.user_id === userId);
+  function completeFreeOrder(state, order, actor) {
+    if (order.terms.price_cents === 0) {
+      grant(state, actor.id, order.terms, actor, order.id);
+      Object.assign(order, {
+        status: "approved",
+        processed_at: now(),
+        processed_by: "system",
+        verified_transaction_id: null,
+      });
+    }
+    return order;
+  }
+  function requireUpgrade(state, userId, candidate) {
+    if (!Number.isSafeInteger(candidate.level))
+      fail(409, "PLAN_LEVEL_REQUIRED", "请管理员先配置套餐等级");
+    const active = current(state, userId);
+    if (!active || active.expires_at <= now()) return;
+    const activePlan = findPlan(state, active.plan_id);
+    if (!Number.isSafeInteger(activePlan.level))
+      fail(409, "PLAN_LEVEL_REQUIRED", "请管理员先配置当前套餐等级");
+    if (active.plan_id === candidate.id)
+      fail(409, "PLAN_ALREADY_ACTIVE", "已在使用此套餐，请勿重复开通");
+    if (candidate.level <= activePlan.level)
+      fail(409, "PLAN_NOT_UPGRADE", "当前有效期内只能升级到更高等级套餐");
+  }
   app.post("/admin/plans/list", (_req, res) => res.json(db.read().plans));
   app.post("/admin/plans/create", (req, res) =>
     res.status(201).json(
@@ -263,17 +284,7 @@ export function registerPlans(app, { db, auth, config }) {
             "PAYMENT_ALREADY_VERIFIED",
             "此交易号已用于其他申请，请勿重复开通",
           );
-        const active = current(state, order.user_id);
-        if (
-          active &&
-          active.expires_at > now() &&
-          (order.terms.level || 0) <= (active.terms.level || 0)
-        )
-          fail(
-            409,
-            "PLAN_NOT_UPGRADE",
-            "用户已开通同级或更高套餐，请拒绝此申请",
-          );
+        requireUpgrade(state, order.user_id, findPlan(state, order.plan_id));
         const entry = grant(
           state,
           order.user_id,
@@ -333,9 +344,18 @@ export function registerPlans(app, { db, auth, config }) {
           ? "active"
           : "expired"
         : "none",
-      subscription: subscription || null,
+      subscription: subscription
+        ? {
+            ...subscription,
+            terms: {
+              ...subscription.terms,
+              level: findPlan(state, subscription.plan_id).level,
+            },
+          }
+        : null,
       plans: state.plans
         .filter((plan) => plan.active)
+        .sort((a, b) => a.level - b.level)
         .map((plan) => terms(plan, state)),
       orders: state.planOrders
         .filter((item) => item.user_id === req.user.id)
@@ -356,29 +376,25 @@ export function registerPlans(app, { db, auth, config }) {
           fail(403, "INVALID_PLAN_USER", "请使用普通员工账号申请套餐");
         const plan = findPlan(state, req.body.planId);
         if (!plan.active) fail(409, "PLAN_UNAVAILABLE", "套餐已下架");
-        const active = current(state, req.user.id);
-        if (active && active.expires_at > now()) {
-          if (active.plan_id === plan.id)
-            fail(409, "PLAN_ALREADY_ACTIVE", "已在使用此套餐");
-          if ((plan.level || 0) <= (active.terms.level || 0))
-            fail(409, "PLAN_NOT_UPGRADE", "当前有效期内只能升级到更高等级套餐");
-        }
+        requireUpgrade(state, req.user.id, plan);
         const pending = state.planOrders.find(
           (item) =>
             item.user_id === req.user.id &&
             item.plan_id === plan.id &&
             item.status === "pending",
         );
-        if (pending) return pending;
+        if (pending) return completeFreeOrder(state, pending, req.user);
         if (
-          typeof req.body.phone !== "string" ||
-          !/^\+?[0-9]{7,20}$/.test(req.body.phone.trim())
+          plan.price_cents > 0 &&
+          (typeof req.body.phone !== "string" ||
+            !/^\+?[0-9]{7,20}$/.test(req.body.phone.trim()))
         )
           fail(400, "INVALID_PHONE", "请填写有效的联系电话");
         if (
           state.planOrders.filter(
             (item) => item.user_id === req.user.id && item.status === "pending",
-          ).length >= 3
+          ).length >= 3 &&
+          plan.price_cents > 0
         )
           fail(429, "ORDER_LIMIT", "最多保留 3 条待处理申请");
         if (
@@ -393,7 +409,7 @@ export function registerPlans(app, { db, auth, config }) {
           id: id(),
           user_id: req.user.id,
           username: req.user.username,
-          phone: req.body.phone.trim(),
+          phone: plan.price_cents > 0 ? req.body.phone.trim() : "",
           plan_id: plan.id,
           terms: terms(plan, state),
           status: "pending",
@@ -401,7 +417,7 @@ export function registerPlans(app, { db, auth, config }) {
           created_at: now(),
         };
         state.planOrders.push(order);
-        return order;
+        return completeFreeOrder(state, order, req.user);
       }),
     ),
   );

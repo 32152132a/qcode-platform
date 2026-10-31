@@ -82,7 +82,7 @@ test('failed provider probes are sanitized, logged, and never marked verified',a
   const f=await fixture(t),model=await f.model('gpt','responses');f.mode('failure');
   const checked=await f.request(`/admin/models/${model.id}/check`,'POST',{},f.admin);
   assert.equal(checked.body.status,'failed');assert.match(checked.body.message,/Key 无效/);assert.doesNotMatch(JSON.stringify(checked),/sk-secret|upstream-address/);
-  assert.equal(f.db.read().requests[0].status,'failed');assert.ok(f.db.read().requests[0].charged_tokens>0);
+  assert.equal(f.db.read().requests[0].status,'failed');assert.equal(f.db.read().requests[0].charged_tokens,0);
   assert.equal((await f.request(`/admin/models/${model.id}`,'PUT',{name:'GPT',publicName:'gpt',baseUrl:'https://example.test/v1',upstreamModel:'gpt',protocol:'gemini-native'},f.admin)).status,400);
 });
 test('Responses adapter rejects truncated streams and preserves multiple tool argument indexes',async()=>{

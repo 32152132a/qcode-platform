@@ -20,7 +20,7 @@
   import QyqForm from '@/components/qyq-form/index.vue'
   import type { FormItemProp } from '@/components/qyq-form/types'
   import type { Row } from '@/types'
-  const props = defineProps<{ kind: 'requests' | 'audits' }>()
+  const props = defineProps<{ kind: 'requests' | 'audits'; errorsOnly?: boolean }>()
   const emit = defineEmits<{ search: [values: Record<string, string>] }>()
   const form = ref<Row>({ search: '', status: '' }),
     dates = ref<[string, string] | null>(null)
@@ -44,10 +44,15 @@
             placeholder: '全部状态',
             clearable: true,
             options: [
-              { label: '成功', value: 'success' },
+              ...(!props.errorsOnly
+                ? [
+                    { label: '成功', value: 'success' },
+                    { label: '进行中', value: 'pending' },
+                  ]
+                : []),
               { label: '失败', value: 'failed' },
-              { label: '进行中', value: 'pending' },
               { label: '已中断', value: 'interrupted' },
+              { label: '已取消', value: 'cancelled' },
             ],
           },
         ]

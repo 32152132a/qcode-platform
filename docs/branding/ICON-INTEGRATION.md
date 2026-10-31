@@ -2,7 +2,6 @@
 
 唯一源图为本目录 `logo-selected-02.png`。运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-branding-assets.ps1` 可重新生成资源；默认查找同级 `qcode-opencode` 仓库，也可传 `-OpenCodeRepository`。运行脚本需要 Windows System.Drawing。
 
-资源：平台 `apps/server/public/branding`、安装器 `apps/client/branding`、客户端 `packages/app/public/branding`，PNG 尺寸为 16/24/32/48/64/96/128/192/256/512；ICO 包含 16/24/32/48/64/96/128/256。源图浅色底、图形与透明外缘均保留，当前未做裁切或重新设计。
 
 ## 已接入
 
@@ -13,7 +12,6 @@
 
 ## Windows 安装器接入
 
-2026-10-14：Windows 安装器迁移到 Inno Setup 6。`scripts/qcode-setup.iss` 使用同一 `apps/client/branding/qcode.ico` 编译安装器和系统卸载器资源；桌面、开始菜单启动与卸载快捷方式指向安装根目录 `qcode.ico`。签名和 manifest 哈希在编译后生成，不再事后修改 EXE 资源。ZIP 继续包含 ICO/PNG；旧 ZIP 缺图标时使用当前安装器资源或保留已安装图标。默认卸载保留小型数据清理入口及其图标，完整清理移除它们，用户项目始终保留。
 
 独立产物目录：artifacts/icon-review-20261014。已真实生成三个隔离 LNK，并读取确认 IconLocation 均为安装根目录 qcode.ico,0；它们位于 shortcut-check 内。此检查执行安装器实际创建代码，但没有改用户真实桌面/PATH，不能等同实际默认安装验证。
 

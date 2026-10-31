@@ -2,48 +2,51 @@
   <el-dialog
     v-model="visible"
     title="收款码"
-    width="620px"
+    width="440px"
     :close-on-click-modal="false"
     destroy-on-close
   >
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-skeleton v-if="loading" :rows="4" animated />
-    <template v-else>
-      <el-alert
-        title="上传收款码后，用户申请套餐时即可查看。到账后需由管理员确认开通。"
-        type="info"
-        :closable="false"
-        show-icon
+    <section v-else class="payment-settings">
+      <el-image
+        v-if="qrUrl"
+        class="payment-preview"
+        :src="qrUrl"
+        fit="contain"
+        :preview-src-list="[qrUrl]"
+        preview-teleported
       />
-      <el-space direction="vertical" alignment="start">
-        <el-upload
-          :auto-upload="false"
-          :show-file-list="false"
-          accept="image/png,image/jpeg,image/webp"
-          :disabled="saving"
-          :on-change="selectImage"
-        >
-          <el-button :disabled="saving">上传或替换收款码</el-button>
-          <template #tip
-            ><el-text type="info" size="small"
-              >PNG、JPEG、WebP，最大 512
-              KB；图片保存在服务器私有数据库。</el-text
-            ></template
+      <el-empty v-else description="暂未设置收款码" :image-size="72" />
+      <el-upload
+        class="payment-upload"
+        :auto-upload="false"
+        :show-file-list="false"
+        accept="image/png,image/jpeg,image/webp"
+        :disabled="saving"
+        :on-change="selectImage"
+      >
+        <el-button :disabled="saving">{{
+          qrUrl ? "替换收款码" : "上传收款码"
+        }}</el-button>
+        <template #tip>
+          <el-text type="info" size="small"
+            >PNG / JPEG / WebP · 最大 512 KB</el-text
           >
-        </el-upload>
-        <el-text v-if="selectedName" type="primary"
-          >已选择 {{ selectedName }}，保存后可预览。</el-text
-        >
-        <el-image
-          v-if="qrUrl"
-          class="payment-preview"
-          :src="qrUrl"
-          fit="contain"
-          :preview-src-list="[qrUrl]"
-          preview-teleported
-        />
-      </el-space>
-    </template>
+        </template>
+      </el-upload>
+      <el-text
+        v-if="selectedName"
+        class="payment-filename"
+        type="primary"
+        size="small"
+      >
+        已选择 {{ selectedName }}，保存后生效。
+      </el-text>
+      <el-text tag="p" type="info" size="small">
+        用户申请套餐时显示此收款码，到账后由管理员确认开通。
+      </el-text>
+    </section>
     <template #footer
       ><el-button :disabled="saving" @click="visible = false">取消</el-button
       ><el-button
@@ -148,8 +151,30 @@ async function save() {
 defineExpose({ open });
 </script>
 <style scoped lang="scss">
-.payment-preview {
-  width: 180px;
-  max-width: 100%;
+.payment-settings {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding-block: 8px;
+  text-align: center;
+  .payment-upload {
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+  }
+  .payment-preview {
+    width: 210px;
+    max-width: 100%;
+    height: 280px;
+    padding: 12px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: var(--el-border-radius-base);
+  }
+  .payment-filename {
+    overflow-wrap: anywhere;
+  }
+  p {
+    margin: 0;
+  }
 }
 </style>

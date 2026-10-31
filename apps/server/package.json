@@ -12,7 +12,6 @@
     "demo": "node scripts/demo.js",
     "test": "node test/run.js",
     "check": "node scripts/check.js",
-    "package:client": "node scripts/package-client.js",
     "backup": "node --env-file=.env scripts/maintenance.js backup"
   },
   "dependencies": {

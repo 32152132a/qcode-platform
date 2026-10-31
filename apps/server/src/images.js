@@ -6,24 +6,6 @@ import { sourcesFor } from './model-sources.js';
 
 const defaults = { enabled: false, sourceId: '', model: '', modelId: '', dailyImagesPerUser: 10, visionModelId: '' };
 const settings = state => ({ ...defaults, ...state.settings.imageGeneration });
-// Bring the former standalone image configuration into the unified model list once.
-export function migrateImageSettings(state, saveModel) {
-  const value = state.settings.imageGeneration;
-  if (!value?.enabled || !value.sourceId || !value.model || value.modelId) return;
-  const source = sourcesFor(state).find(item => item.id === value.sourceId);
-  if (!source) return;
-  let name = value.model + '（生图）', suffix = 2;
-  while (state.models.some(item => item.name.normalize('NFKC').toLowerCase() === name.normalize('NFKC').toLowerCase())) name = value.model + '（生图 ' + suffix++ + '）';
-  const model = state.models.find(item => item.source_id === source.id && item.upstream_model === value.model)
-    || saveModel(state, {name, publicName: 'qcode-image-' + id().slice(0, 20), upstreamModel: value.model,
-      baseUrl: source.base_url, provider: source.kind === 'local' ? 'ollama' : 'custom'});
-  model.key_id = source.key_id;
-  model.source_id = source.id;
-  model.model_type = 'image'; model.capabilities = ['image_generation']; model.is_default = false;
-  value.modelId = model.id;
-  if (value.visionModelId === model.id) value.visionModelId = '';
-  for (const item of [...state.users, ...state.departments]) if (item.model_id === model.id) item.model_id = null;
-}
 function configuredSource(state, value) {
   const source = sourcesFor(state).find(item => item.id === value.sourceId && item.active);
   const key = source && state.keys.find(item => item.id === source.key_id && item.active);

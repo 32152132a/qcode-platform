@@ -1,7 +1,7 @@
 <template>
   <PagePanel
     title="套餐管理"
-    description="配置套餐名称、展示价格、有效天数及权益，通过人工确认开通。"
+    description="等级越大越高级，只允许向上升级。0 元套餐自动开通，付费套餐由管理员核款开通。"
     :loading="loading"
     :error="error"
   >
@@ -16,7 +16,7 @@
       ></template
     >
     <el-alert
-      title="当前未接在线支付，请人工核对收款或免费开通。套餐编辑只影响后续开通；重新开通会立即替换旧套餐并重置周期。"
+      title="免费套餐自动开通；付费套餐人工核款。套餐等级决定升级路线，价格不参与等级判断。"
       type="info"
       :closable="false"
       show-icon
@@ -226,9 +226,10 @@ async function edit(row?: Row) {
     const fields: Field[] = [
       {
         prop: "level",
-        label: "套餐等级",
+        label: "套餐等级（越大越高级）",
+        required: true,
         type: "number",
-        props: { min: 0, max: 1000 },
+        props: { min: 0, max: 1000, precision: 0 },
       },
       {
         prop: "isDefault",

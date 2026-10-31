@@ -8,16 +8,15 @@
 2. `npm run setup` 创建配置，已有配置只补齐必要项；不会替换已有模型、账号或加密密钥。
 3. 检查 `.env`，新安装默认 `DB_PATH=./data/qcode.sqlite`，妥善单独备份 `KEY_ENCRYPTION_SECRET`。
 4. `npm start`，登录后台后修改管理员密码，配置模型地址、Key、用户、部门及配额。
-5. 原 JSON 数据可继续使用；迁移时停止服务，执行下方迁移命令，再将 `.env` 的 DB_PATH 改成新路径。
+5. 仅支持当前 v4 SQLite 数据库；旧 JSON 或旧版本数据库不会自动迁移。重置测试数据必须先确认并备份，再重新初始化。
 
 ```powershell
-node --env-file=.env scripts/maintenance.js migrate --target ./data/qcode.sqlite
 node --env-file=.env scripts/maintenance.js backup
 node --env-file=.env scripts/maintenance.js restore --input ./backups/FILE.qcode-backup --target ./data/restored.sqlite
 node --env-file=.env scripts/maintenance.js archive-audits --days 180
 ```
 
-维护命令要求服务停止。恢复只写新文件并撤销历史登录会话；迁移保留原文件。备份经过加密，丢失加密密钥无法恢复 Key。审计归档不删除用量账本。未指定 --days 时使用后台保留期限设置，0 表示不归档；当前不自动运行清理任务。
+维护命令要求服务停止。恢复只写新文件并撤销历史登录会话。备份经过加密，丢失加密密钥无法恢复 Key。审计归档不删除用量账本。未指定 --days 时使用后台保留期限设置，0 表示不归档；当前不自动运行清理任务。
 
 ## 权限与计费语义
 
@@ -25,7 +24,7 @@ node --env-file=.env scripts/maintenance.js archive-audits --days 180
 
 模型选择顺序为用户指定、部门指定、系统默认。Key 为用户指定或部门继承。用户额度可单独设置或继承部门成员模板，部门还可设置所有成员共享的总额度。
 
-额度 0 表示不限。日/月边界由 QUOTA_TIMEZONE 指定，默认 Asia/Shanghai。请求发出前预留输入估计与最大输出 Token，返回 usage 后结算。缺少 usage 或中断时保留预留量并标识未知；输入估计不是供应商 tokenizer，严格账单硬上限需供应商侧配合。已转发失败请求也计请求数；转发前拒绝不计。手动恢复额度保留历史账本。
+额度 0 表示不限。日/月边界由 QUOTA_TIMEZONE 指定，默认 Asia/Shanghai。请求发出前预留输入估计与最大输出 Token，返回 usage 后结算。缺少 usage 或中断且未返回用量时标识未知，不扣估算 Token，释放临时预留量；输入估计不是供应商 tokenizer，严格账单硬上限需供应商侧配合。已转发失败请求也计请求数；转发前拒绝不计。手动恢复额度保留历史账本。
 
 默认每用户一个同时进行的模型请求，可由管理员修改；会话数量另行控制。禁用账号、重置密码或撤销会话会取消网关中的关联请求，但上游是否立即停止计算由服务商决定。价格为管理员配置的每百万 Token 单价，按请求快照；CNY/USD 分别统计，未知 usage 不伪造零成本。
 
@@ -37,7 +36,7 @@ node --env-file=.env scripts/maintenance.js archive-audits --days 180
 
 当前客户端源码和发布脚本位于相邻的 qcode-openwork 仓库，运行 release-desktop.bat 构建、验收并上传，-BuildOnly 仅生成安装包。后台/网关代码由本仓库既有部署流程发布。
 
-旧 apps/client、ZIP、Inno Setup 及 /downloads/manifest.json 仅为旧安装保留兼容，不是当前 Desktop 入口。当前 Desktop 使用 /downloads/desktop/latest.yml；不要混用两种清单。详见 ../../docs/CURRENT-ARCHITECTURE.md。
+旧安装与更新链路已删除；apps/client 仅保留当前共享模块。Desktop 使用 /downloads/desktop/latest.yml，详见 ../../docs/CURRENT-ARCHITECTURE.md。
 
 ## 部署和检查
 

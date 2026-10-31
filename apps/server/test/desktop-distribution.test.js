@@ -22,13 +22,11 @@ function temporary(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-des
 test('desktop publisher validates checksums and retains only the latest desktop artifacts',t=>{
   const root=temporary(t),destination=path.join(root,'releases');
   fs.mkdirSync(path.join(destination,'macos'),{recursive:true});
-  fs.writeFileSync(path.join(destination,'manifest.json'),'legacy');
   fs.writeFileSync(path.join(destination,'macos','keep.txt'),'mac');
   const first=release(root,'0.5.0');publishDesktop(first.directory,destination);
   const second=release(root,'0.5.1');publishDesktop(second.directory,destination);
   assert(!fs.existsSync(path.join(destination,'desktop',first.manifest.installer)));
   assert(fs.existsSync(path.join(destination,'desktop',second.manifest.installer)));
-  assert.equal(fs.readFileSync(path.join(destination,'manifest.json'),'utf8'),'legacy');
   assert.equal(fs.readFileSync(path.join(destination,'macos','keep.txt'),'utf8'),'mac');
 });
 
@@ -52,4 +50,5 @@ test('desktop downloads and updates share the published namespace without servin
   assert.equal((await fetch(url+'/downloads/desktop/latest.yml')).status,200);
   assert.equal((await fetch(url+'/downloads/desktop/manifest.json')).status,200);
   assert.equal((await fetch(url+'/downloads/desktop/secrets.env')).status,404);
+  for (const route of ['/downloads/manifest.json', '/downloads/qcode-client-0.4.0.zip', '/downloads/QCodeSetup-0.4.0.exe']) assert.equal((await fetch(url+route)).status,404);
 });

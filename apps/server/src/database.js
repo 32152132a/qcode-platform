@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { emptyState, normalizeState } from './state.js';
 import { createSqliteDatabase } from './sqlite-store.js';
 import { createHash, randomBytes, scryptSync, timingSafeEqual, createCipheriv, createDecipheriv } from 'node:crypto';
@@ -32,50 +30,18 @@ export function createVault(masterKey) {
     },
   };
 }
-// Single-process store: persist an atomic snapshot before publishing each transaction.
+// Tests use isolated memory stores; persistent data uses SQLite only.
 export function createDatabase(filename = ':memory:', options = {}) {
   if (filename === ':sqlite:' || /\.(sqlite|db)$/i.test(filename)) return createSqliteDatabase(filename, options);
-  const file = filename === ':memory:' ? null : path.resolve(filename);
-  let lock;
-  if (file) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    try { lock = fs.openSync(`${file}.lock`, 'wx', 0o600); }
-    catch { throw new Error('Database locked. Stop the other gateway; after a crash verify it stopped before removing the .lock file.'); }
-    fs.writeFileSync(lock, String(process.pid));
-  }
-  const close = () => {
-    if (lock !== undefined) { fs.closeSync(lock); fs.unlinkSync(`${file}.lock`); lock = undefined; }
+  if (filename !== ':memory:') throw new Error('Only SQLite database files (.sqlite or .db) are supported');
+  let state = emptyState();
+  normalizeState(state, options.vault);
+  return {
+    kind: 'memory', read: () => structuredClone(state), close() {},
+    transaction(change) {
+      const next = structuredClone(state), result = change(next);
+      if (result && typeof result.then === 'function') throw new Error('Database transactions must be synchronous');
+      state = next; return result;
+    },
   };
-  try {
-    let state = emptyState();
-    if (file && fs.existsSync(file)) {
-      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (!Array.isArray(raw.users) || !Array.isArray(raw.tokens)) throw new Error('Invalid database format');
-      state = { ...state, ...raw };
-    }
-    const persist = next => {
-      if (!file) return;
-      const temporary = `${file}.${process.pid}.tmp`;
-      try {
-        const fd = fs.openSync(temporary, 'w', 0o600);
-        try { fs.writeFileSync(fd, JSON.stringify(next, null, 2)); fs.fsyncSync(fd); }
-        finally { fs.closeSync(fd); }
-        fs.renameSync(temporary, file);
-      } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
-    };
-    const db = {
-      kind: file ? 'atomic-json' : 'memory',
-      read: () => structuredClone(state),
-      transaction(change) {
-        const next = structuredClone(state), result = change(next);
-        if (result && typeof result.then === 'function') throw new Error('Database transactions must be synchronous');
-        persist(next);
-        state = next;
-        return result;
-      },
-      close,
-    };
-    db.transaction(next => normalizeState(next, options.vault));
-    return db;
-  } catch (error) { close(); throw error; }
 }

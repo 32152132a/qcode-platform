@@ -12,7 +12,6 @@ const pages = {
   knowledge: () => import('@/views/knowledge/index.vue'),
   usage: () => import('@/views/usage/index.vue'),
   requests: () => import('@/views/requests/index.vue'),
-  audits: () => import('@/views/audits/index.vue'),
   settings: () => import('@/views/settings/index.vue'),
   system: () => import('@/views/system/index.vue'),
 }
@@ -46,14 +45,6 @@ const routes = [
     meta: { public: true },
   },
 ]
-// Preserve bookmarks from the previous /console/#/... deployment.
-if (/^\/console(?:\/|$)/.test(window.location.pathname)) {
-  const legacy = window.location.hash.slice(1)
-  const target = /^\/(?:manage(?:\/|[?]|$)|login(?:[?]|$)|download(?:[?]|$))/.test(legacy)
-    ? legacy
-    : '/'
-  window.history.replaceState(window.history.state, '', target)
-}
 export const router = createRouter({ history: createWebHistory(), routes })
 router.beforeEach((to) => {
   if (!to.meta.public && !getSession()) return { path: '/login', query: { redirect: to.fullPath } }

@@ -22,13 +22,13 @@ test('history page routes refresh correctly without swallowing API or asset erro
   await once(server, 'listening');
   t.after(() => { server.closeAllConnections(); server.close(); });
   const base = `http://127.0.0.1:${server.address().port}`;
-  for (const route of ['/', '/login', '/download', '/manage', '/manage/models?tab=relay', '/console/', '/console/manage/models']) {
+  for (const route of ['/', '/login', '/download', '/manage', '/manage/models?tab=relay']) {
     const response = await fetch(base + route);
     assert.equal(response.status, 200, route);
     assert.match(response.headers.get('content-type'), /text\/html/);
     assert.match(await response.text(), /QCode shell/);
   }
-  for (const route of ['/assets/app.js', '/console/assets/app.js']) {
+  for (const route of ['/assets/app.js']) {
     assert.equal(await (await fetch(base + route)).text(), 'window.qcode=true;');
   }
   const unknownPage = await fetch(base + '/missing-page', { headers: { Accept: 'text/html' } });
@@ -37,7 +37,7 @@ test('history page routes refresh correctly without swallowing API or asset erro
   assert.equal((await fetch(base + '/missing-page')).status, 404);
   assert.equal((await fetch(base + '/admin/users')).status, 401);
   assert.deepEqual(await (await fetch(base + '/health')).json(), { status: 'ok' });
-  for (const route of ['/v1/missing', '/auth/missing', '/client/missing', '/downloads/missing', '/assets/missing.js', '/manage/missing.js']) {
+  for (const route of ['/console/', '/console/manage/models', '/console/assets/app.js', '/v1/missing', '/auth/missing', '/client/missing', '/downloads/missing', '/assets/missing.js', '/manage/missing.js']) {
     const response = await fetch(base + route, { headers: { Accept: 'text/html' } });
     assert.equal(response.status, 404, route);
     assert.doesNotMatch(await response.text(), /QCode shell/);

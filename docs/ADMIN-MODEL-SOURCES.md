@@ -8,7 +8,7 @@
 在 apps/admin 执行 npm ci、npm run dev。开发代理连接 127.0.0.1:3100 的 QCode 后端。
 npm run build 会先类型检查。生产 Docker 多阶段构建前端，再由 Node 提供 /console/ 静态目录。
 后台使用 Hash 路由，无需增加 Nginx history fallback。根地址进入下载首页，管理入口为 /console/#/login。
-旧 DOM 管理端及 legacy.html 已从主线清理，管理界面统一使用 apps/admin 的 Vue 构建产物；原 API 和旧客户端下载清单保持兼容。
+旧 DOM 管理端及 legacy.html 已从主线清理，管理界面统一使用 apps/admin 的 Vue 构建产物；旧客户端下载清单和旧路由已移除，员工使用当前桌面客户端。
 
 ## 模型来源
 分为 local、official、relay 三类。服务来源集中持有地址、协议、Key 引用和开关；Key 仍在原凭据库加密。
