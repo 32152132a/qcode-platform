@@ -40,3 +40,5 @@ import './vision.test.js';
 import './feedback.test.js';
 
 import './plans.test.js';
+
+import './prepare-launch.test.js';

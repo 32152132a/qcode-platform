@@ -47,3 +47,11 @@ TRUST_PROXY_CIDRS 仅填写受控反向代理来源；ADMIN_ALLOWED_IPS 限制�
 `npm test` 执行隔离测试；`npm run check` 做语法检查。先构建 `apps/admin`，再运行 `node scripts/admin-ui-smoke.mjs`、`node scripts/model-sync-ui-smoke.mjs` 和 `node scripts/component-reuse-ui-smoke.mjs` 验证现用 Vue 管理端；需要 Playwright，Windows 使用 Edge，其他系统使用 Playwright Chromium。详细统一验收与尚待环境验证内容见仓库 `docs/product-handoff.md`。
 
 登录设备名额满时，正确密码的新登录自动替换最旧会话，旧访问 Token 和刷新 Token 立即失效，旧会话请求被中止，并记录 session.replaced 审计。名额为 1 时为后登录顶掉前登录；多设备账号保留其余名额，名额为 0 仍拒绝新登录。
+
+## 一次性上线前数据整理
+
+仅针对已检查的 v3 测试数据库，非启动迁移。先停止网关，使用原加密密钥和挂载的数据/备份卷运行 scripts/prepare-launch.js（默认只检查），加 --apply 才执行。
+
+脚本先保存加密的原始 v3 快照，再原子更新至 v4；设置基础版/test/plus/pro 等级 0/1/2/3、基础版为默认，清空开通申请、请求、审计、登录失败记录。保留账号、Key、模型、登录会话、技能、反馈及收款码。发现新增订阅、套餐价格变化或旧字段异常就停止。已执行过再次运行不清理新数据。
+
+备份默认在 backups/before-launch-时间.qcode-backup，可用 QCODE_LAUNCH_BACKUP 指定独立路径。回滚需使用原加密密钥、上一版代码的恢复工具将 v3 备份恢复至新数据库文件，并切回旧镜像；不要用新版 v4 恢复工具读 v3 备份。整理完成后再部署新版。
