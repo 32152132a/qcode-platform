@@ -1,5 +1,5 @@
 <template>
-  <PagePanel
+  <PagePanel class="log-page"
     title="系统记录"
     description="记录不包含提示词、代码内容或真实 Key。"
     :loading="loading"
@@ -93,3 +93,9 @@
     }
   }
 </script>
+
+<style scoped lang="scss">
+  .page-panel.log-page {
+    flex: 1 0 auto;
+  }
+</style>

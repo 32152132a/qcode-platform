@@ -1,5 +1,5 @@
 <template>
-  <PagePanel title="系统状态" :loading="loading" :error="error"
+  <PagePanel class="system-page" title="系统状态" :loading="loading" :error="error"
     ><template #actions><el-button @click="load">刷新</el-button></template>
     <template v-if="data"
       ><el-alert v-if="!error" title="网关运行正常" type="success" :closable="false" show-icon />
@@ -52,3 +52,9 @@
     refreshTokenDays: '登录续期有效期（天）',
   }
 </script>
+
+<style scoped lang="scss">
+  .page-panel.system-page {
+    flex: 1 0 auto;
+  }
+</style>

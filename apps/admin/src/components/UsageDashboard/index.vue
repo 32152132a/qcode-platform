@@ -149,7 +149,8 @@
   })
 </script>
 <style scoped lang="scss">
-  .usage-dashboard {
+  .page-panel.usage-dashboard {
+    flex: 1 0 auto;
     :deep(.data-table) {
       min-height: 420px;
       flex-shrink: 0;

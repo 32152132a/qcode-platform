@@ -1,5 +1,5 @@
 <template>
-  <PagePanel
+  <PagePanel class="knowledge-page"
     title="团队知识库"
     description="上传 UTF-8 TXT 或 Markdown，每篇最多 64 KB；通过共享 Skill 同步，无需向量数据库。"
     :loading="loading"
@@ -141,3 +141,9 @@
     }
   }
 </script>
+
+<style scoped lang="scss">
+  .page-panel.knowledge-page {
+    flex: 1 0 auto;
+  }
+</style>

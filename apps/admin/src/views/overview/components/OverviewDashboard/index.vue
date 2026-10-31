@@ -1,5 +1,6 @@
 <template>
   <PagePanel
+    class="overview-dashboard"
     title="工作台概览"
     description="连接团队成员与 AI，统一管理账号、模型和使用情况。"
     :error="error"
@@ -270,6 +271,9 @@
   }
 </script>
 <style scoped lang="scss">
+  .page-panel.overview-dashboard {
+    flex: 1 0 auto;
+  }
   .overview {
     --muted: var(--el-text-color-secondary);
     display: grid;

@@ -1,5 +1,5 @@
 <template>
-  <PagePanel
+  <PagePanel class="models-page"
     title="模型与服务"
     description="支持多个服务站点；每个站点独立配置地址、Key 和模型，员工统一获取已启用模型。"
     :loading="loading"
@@ -328,6 +328,9 @@
   void load()
 </script>
 <style scoped lang="scss">
+  .page-panel.models-page {
+    flex: 1 0 auto;
+  }
   .source-tab-label {
     display: inline-grid;
     grid-auto-flow: column;
