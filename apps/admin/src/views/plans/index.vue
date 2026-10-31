@@ -8,6 +8,7 @@
     <template #actions
       ><el-button @click="load">刷新</el-button
       ><template v-if="auth.can('plans:write')"
+        ><el-button @click="paymentEditor?.open()">收款设置</el-button
         ><el-button @click="manualGrant">手动开通</el-button
         ><el-button type="primary" @click="edit()"
           >创建套餐</el-button
@@ -33,10 +34,11 @@
       :rows="data || []"
       :columns="columns"
       :actions="actions"
-    /><EntityDialog ref="editor" />
+    /><EntityDialog ref="editor" /><PaymentSettings ref="paymentEditor" />
   </PagePanel>
 </template>
 <script setup lang="ts">
+import PaymentSettings from "./components/PaymentSettings/index.vue";
 import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import PagePanel from "@/components/PagePanel/index.vue";
@@ -56,7 +58,8 @@ import {
 import type { Row, Column, Field } from "@/types";
 const auth = useAuthStore(),
   tab = ref("plans"),
-  editor = ref<InstanceType<typeof EntityDialog>>();
+  editor = ref<InstanceType<typeof EntityDialog>>(),
+  paymentEditor = ref<InstanceType<typeof PaymentSettings>>();
 const { data, loading, error, load } = useResource<Row[]>(
   () => "/admin/plans" + (tab.value === "plans" ? "" : "/" + tab.value),
 );
@@ -94,6 +97,7 @@ const columns = computed<Column[]>(() =>
       ]
     : tab.value === "orders"
       ? [
+          { prop: "id", label: "订单号", minWidth: 290 },
           { prop: "username", label: "用户" },
           { prop: "phone", label: "联系电话", minWidth: 150 },
           { prop: "terms", label: "申请套餐", render: name },
@@ -102,6 +106,11 @@ const columns = computed<Column[]>(() =>
             prop: "status",
             label: "状态",
             render: (r) => statusLabels[String(r.status)] || String(r.status),
+          },
+          {
+            prop: "verified_transaction_id",
+            label: "已核实交易号",
+            minWidth: 220,
           },
           { prop: "reply", label: "处理回复", minWidth: 160 },
           {
@@ -155,23 +164,7 @@ const actions = computed<RowAction[]>(() =>
             {
               label: "确认开通",
               visible: (r) => r.status === "pending",
-              run: (r) =>
-                confirmAction(
-                  "已核对 " +
-                    r.username +
-                    " 的 " +
-                    name(r) +
-                    "，金额 " +
-                    amount(r) +
-                    "？确认后立即替换其当前套餐并重新开始周期。",
-                  () =>
-                    request(
-                      "/admin/plans/orders/" + r.id + "/approve",
-                      "POST",
-                      { confirmed: true },
-                    ),
-                  load,
-                ),
+              run: approve,
             },
             {
               label: "拒绝",
@@ -181,6 +174,33 @@ const actions = computed<RowAction[]>(() =>
           ]
         : [],
 );
+function approve(row: Row) {
+  editor.value?.open(
+    {
+      title:
+        "核对 " +
+        row.username +
+        " 的 " +
+        name(row) +
+        "（" +
+        amount(row) +
+        "）到账并开通",
+      value: { transactionId: "" },
+      fields:
+        Number((row.terms as Row).price_cents) > 0
+          ? [{ prop: "transactionId", label: "支付宝交易号", required: true }]
+          : [],
+      save: (value) =>
+        request("/admin/plans/orders/" + row.id + "/approve", "POST", {
+          confirmed: true,
+          ...(value.transactionId
+            ? { transactionId: String(value.transactionId) }
+            : {}),
+        }),
+    },
+    load,
+  );
+}
 async function edit(row?: Row) {
   try {
     const models = await request<Row[]>("/admin/models");

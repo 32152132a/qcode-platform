@@ -499,3 +499,198 @@ test("plan concurrency overrides a higher personal allowance and remains queued"
   assert(responses.every((r) => r.status === 200));
   assert.equal(maximum, 1);
 });
+
+test("manual payment is private, never grants by client claims, and rejects reused transactions", async (t) => {
+  const f = await fixture(t);
+  const image =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==";
+  const settings = {
+    enabled: true,
+    recipient: "测试收款方",
+    instructions: "请备注订单号",
+    image,
+  };
+  assert.equal(
+    (await f.call("/admin/plans/payment-config/detail", {}, f.user.token))
+      .status,
+    403,
+  );
+  const demo = (
+    await f.call("/auth/login", { username: "demo", password: "demo-password" })
+  ).body.token;
+  assert.equal(
+    (await f.call("/admin/plans/payment-config/detail", {}, demo)).status,
+    403,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/payment-config/update",
+        { ...settings, image: "data:image/svg+xml;base64,PHN2Zy8+" },
+        f.admin,
+      )
+    ).status,
+    400,
+  );
+  const configured = await f.call(
+    "/admin/plans/payment-config/update",
+    settings,
+    f.admin,
+  );
+  assert.equal(configured.status, 200);
+  assert(!JSON.stringify(configured.body).includes("base64"));
+  assert.equal((await fetch(f.origin + configured.body.qrUrl)).status, 200);
+  assert.equal(
+    (
+      await fetch(
+        f.origin +
+          configured.body.qrUrl.replace(
+            /signature=[^&]+/,
+            "signature=" + "0".repeat(64),
+          ),
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await f.call("/client/billing/detail", {}, f.user.token)).body.payment,
+    null,
+  );
+  assert(
+    !JSON.stringify(
+      (await f.call("/admin/settings/detail", {}, demo)).body,
+    ).includes("data:image"),
+  );
+  const p = (await f.call("/admin/plans/create", plan(), f.admin)).body;
+  const order = (
+    await f.call(
+      "/client/billing/apply",
+      { planId: p.id, phone: "13800000000", paid: true },
+      f.user.token,
+    )
+  ).body;
+  const detail = (await f.call("/client/billing/detail", {}, f.user.token))
+    .body;
+  assert.equal(detail.status, "none");
+  assert.equal(detail.orders[0].status, "pending");
+  assert(detail.payment.qrUrl.startsWith("/downloads/billing-payment/"));
+  assert.equal(
+    (await f.call("/client/billing/detail", {}, f.other.token)).body.payment,
+    null,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/orders/" + order.id + "/approve",
+        { confirmed: true },
+        f.admin,
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/orders/" + order.id + "/approve",
+        { confirmed: true, transactionId: 123 },
+        f.admin,
+      )
+    ).status,
+    400,
+  );
+  const approved = await f.call(
+    "/admin/plans/orders/" + order.id + "/approve",
+    { confirmed: true, transactionId: "2026103100000001" },
+    f.admin,
+  );
+  assert.equal(approved.status, 200);
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/orders/" + order.id + "/approve",
+        { confirmed: true },
+        f.admin,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(f.db.read().subscriptions.length, 1);
+  const other = (
+    await f.call(
+      "/client/billing/apply",
+      { planId: p.id, phone: "13800000000" },
+      f.other.token,
+    )
+  ).body;
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/orders/" + other.id + "/approve",
+        { confirmed: true, transactionId: "2026103100000001" },
+        f.admin,
+      )
+    ).status,
+    409,
+  );
+  assert.equal(f.db.read().subscriptions.length, 1);
+  const changed = await f.call(
+    "/admin/plans/payment-config/update",
+    { ...settings, recipient: "新的测试收款方" },
+    f.admin,
+  );
+  assert.equal(changed.status, 200);
+  assert.equal((await fetch(f.origin + detail.payment.qrUrl)).status, 410);
+  const free = (
+    await f.call(
+      "/admin/plans/create",
+      plan({ name: "Free", price: 0 }),
+      f.admin,
+    )
+  ).body;
+  const freeOrder = (
+    await f.call(
+      "/client/billing/apply",
+      { planId: free.id, phone: "13800000000" },
+      f.user.token,
+    )
+  ).body;
+  assert.equal(
+    (await f.call("/client/billing/detail", {}, f.user.token)).body.payment,
+    null,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/orders/" + freeOrder.id + "/approve",
+        { confirmed: true },
+        f.admin,
+      )
+    ).status,
+    200,
+  );
+});
+
+test("manual payment configuration survives SQLite reopen without being added to public settings", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qcode-payment-")),
+    file = path.join(root, "payment.sqlite");
+  let db = createDatabase(file);
+  const f = await fixture(t, db);
+  t.after(() => {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/payment-config/update",
+        { enabled: false, recipient: "测试收款方", instructions: "稍后启用" },
+        f.admin,
+      )
+    ).status,
+    200,
+  );
+  db.close();
+  db = createDatabase(file);
+  assert.equal(db.read().paymentSettings[0].recipient, "测试收款方");
+  assert.equal(db.read().settings.paymentSettings, undefined);
+});

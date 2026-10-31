@@ -1,3 +1,4 @@
+import { registerBillingPayment } from "./billing-payment.js";
 import {
   id,
   now,
@@ -80,6 +81,7 @@ function savePlan(state, body, existing) {
   return plan;
 }
 export function registerPlans(app, { db, auth, config }) {
+  const paymentFor = registerBillingPayment(app, { db, config });
   const findPlan = (state, value) => {
     const plan = state.plans.find((item) => item.id === value);
     if (!plan) fail(404, "PLAN_NOT_FOUND", "套餐不存在");
@@ -192,6 +194,37 @@ export function registerPlans(app, { db, auth, config }) {
           fail(400, "CONFIRMATION_REQUIRED", "请先核对实际收款或免费开通信息");
         if (!findPlan(state, order.plan_id).active)
           fail(409, "PLAN_UNAVAILABLE", "套餐已下架，请拒绝申请后重新选择");
+        if (
+          req.body.transactionId !== undefined &&
+          typeof req.body.transactionId !== "string"
+        )
+          fail(400, "PAYMENT_REFERENCE_REQUIRED", "支付平台交易号格式不正确");
+        const transactionId = req.body.transactionId?.trim();
+        if (
+          (transactionId !== undefined &&
+            !/^[A-Za-z0-9_-]{8,100}$/.test(transactionId)) ||
+          (state.paymentSettings[0]?.enabled &&
+            order.terms.price_cents > 0 &&
+            !transactionId)
+        )
+          fail(
+            400,
+            "PAYMENT_REFERENCE_REQUIRED",
+            "请核对实际到账并填写有效的支付平台交易号",
+          );
+        if (
+          transactionId &&
+          state.planOrders.some(
+            (item) =>
+              item.id !== order.id &&
+              item.verified_transaction_id === transactionId,
+          )
+        )
+          fail(
+            409,
+            "PAYMENT_ALREADY_VERIFIED",
+            "此交易号已用于其他申请，请勿重复开通",
+          );
         const entry = grant(
           state,
           order.user_id,
@@ -201,6 +234,7 @@ export function registerPlans(app, { db, auth, config }) {
         );
         Object.assign(order, {
           status: "approved",
+          verified_transaction_id: transactionId || null,
           processed_at: now(),
           processed_by: req.user.username,
         });
@@ -259,6 +293,7 @@ export function registerPlans(app, { db, auth, config }) {
         effective_quotas: account.effective_quotas,
       },
       paymentMode: "manual",
+      payment: paymentFor(state, req.user),
     });
   });
   app.post("/client/billing/apply", auth, (req, res) =>
