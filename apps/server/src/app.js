@@ -1,4 +1,4 @@
-import { registerPlans } from './plans.js';
+import { registerPlans, assignDefaultPlan } from './plans.js';
 import { registerFeedback } from './feedback.js';
 import { registerImages, migrateImageSettings } from './images.js';
 import { businessOperation, obsoleteBusinessRequest } from '../../client/api-contract.mjs';
@@ -144,6 +144,7 @@ export function createApp(config, database) {
       model_id: body.modelId ?? null, key_id: body.keyId ?? null, session_limit: integer(body.sessionLimit ?? 1, 'sessionLimit', 20), quotas: quotas(body.quotas), legacy_tokens: 0 };
     if (!user.session_limit) fail(400, 'INVALID_FIELD', 'sessionLimit must be at least 1');
     state.users.push(user); audit(state, actor, 'user.create', user.id);
+    assignDefaultPlan(state, user, actor);
     return publicUser(state, user, timezone);
   }
   app.post('/admin/users/create', (req, res) => res.status(201).json(db.transaction(state => createUser(state, req.body || {}, req.user))));

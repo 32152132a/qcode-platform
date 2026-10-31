@@ -15,7 +15,7 @@
       :data="pageRows"
       :columns="tableColumns"
       :total="total"
-      :max-height="440"
+      height="100%"
       :pagination-config="serverPagination ? { layout: 'total, prev, pager, next' } : {}"
     >
       <template #actions-cell="{ row }"
@@ -117,6 +117,8 @@
             label: '操作',
             minWidth: props.actions.length === 1 ? 110 : 230,
             fixed: 'right' as const,
+            align: 'center' as const,
+            headerAlign: 'center' as const,
           },
         ]
       : props.columns
@@ -135,8 +137,10 @@
 </script>
 <style scoped lang="scss">
   .data-table {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 240px;
     min-width: 0;
     gap: 18px;
     .table-search {

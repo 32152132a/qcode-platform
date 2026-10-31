@@ -81,6 +81,12 @@ const columns = computed<Column[]>(() =>
   tab.value === "plans"
     ? [
         { prop: "name", label: "套餐名称" },
+        { prop: "level", label: "等级" },
+        {
+          prop: "is_default",
+          label: "默认套餐",
+          render: (r) => (r.is_default ? "是" : "—"),
+        },
         { prop: "price_cents", label: "价格", render: amount },
         { prop: "duration_days", label: "有效天数" },
         {
@@ -105,6 +111,7 @@ const columns = computed<Column[]>(() =>
           {
             prop: "status",
             label: "状态",
+            minWidth: 100,
             render: (r) => statusLabels[String(r.status)] || String(r.status),
           },
           {
@@ -171,6 +178,18 @@ const actions = computed<RowAction[]>(() =>
               visible: (r) => r.status === "pending",
               run: reject,
             },
+            {
+              label: "删除",
+              danger: true,
+              visible: (r) =>
+                ["cancelled", "rejected"].includes(String(r.status)),
+              run: (r) =>
+                confirmAction(
+                  "删除这条已结束的申请？",
+                  () => request("/admin/plans/orders/" + r.id, "DELETE"),
+                  load,
+                ),
+            },
           ]
         : [],
 );
@@ -205,6 +224,18 @@ async function edit(row?: Row) {
   try {
     const models = await request<Row[]>("/admin/models");
     const fields: Field[] = [
+      {
+        prop: "level",
+        label: "套餐等级",
+        type: "number",
+        props: { min: 0, max: 1000 },
+      },
+      {
+        prop: "isDefault",
+        label: "新用户默认套餐",
+        type: "select",
+        options: yesNo,
+      },
       {
         prop: "name",
         label: "套餐名称",
@@ -255,6 +286,8 @@ async function edit(row?: Row) {
         fields,
         value: {
           ...row,
+          level: row?.level || 0,
+          isDefault: String(row?.is_default ?? false),
           price: Number(row?.price_cents || 0) / 100,
           durationDays: row?.duration_days || 30,
           maxConcurrentRequests: row?.max_concurrent_requests || 1,
@@ -268,6 +301,8 @@ async function edit(row?: Row) {
             row ? "PUT" : "POST",
             {
               name: v.name,
+              level: v.level || 0,
+              isDefault: v.isDefault === "true",
               description: v.description || "",
               price: v.price,
               durationDays: v.durationDays,

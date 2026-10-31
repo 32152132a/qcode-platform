@@ -643,7 +643,7 @@ test("manual payment is private, never grants by client claims, and rejects reus
   const free = (
     await f.call(
       "/admin/plans/create",
-      plan({ name: "Free", price: 0 }),
+      plan({ name: "Free", price: 0, level: 1 }),
       f.admin,
     )
   ).body;
@@ -693,4 +693,110 @@ test("manual payment configuration survives SQLite reopen without being added to
   db = createDatabase(file);
   assert.equal(db.read().paymentSettings[0].recipient, "测试收款方");
   assert.equal(db.read().settings.paymentSettings, undefined);
+});
+
+test("default plans apply only to new users; upgrades and ended-order deletion are guarded", async (t) => {
+  const f = await fixture(t);
+  const create = async (fields) =>
+    await f.call("/admin/plans/create", plan(fields), f.admin);
+  assert.equal(
+    (await create({ name: "Bad default", isDefault: true })).status,
+    400,
+  );
+  const basic = (
+    await create({ name: "Basic", price: 0, level: 0, isDefault: true })
+  ).body;
+  const plus = (await create({ name: "Plus", level: 1 })).body;
+  const pro = (await create({ name: "Pro+", level: 2 })).body;
+  const fresh = (
+    await f.call(
+      "/admin/users/create",
+      { username: "fresh", password: "password-123" },
+      f.admin,
+    )
+  ).body;
+  assert.equal(
+    f.db.read().subscriptions.find((x) => x.user_id === fresh.id).plan_id,
+    basic.id,
+  );
+  assert.equal(
+    f.db.read().subscriptions.some((x) => x.user_id === f.user.id),
+    false,
+  );
+  const token = (
+    await f.call("/auth/login", { username: "fresh", password: "password-123" })
+  ).body.token;
+  const apply = async (id) =>
+    f.call(
+      "/client/billing/apply",
+      { planId: id, phone: "13800000000" },
+      token,
+    );
+  assert.equal((await apply(basic.id)).status, 409);
+  const lower = (await apply(plus.id)).body,
+    higher = (await apply(pro.id)).body;
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/orders/" + higher.id + "/approve",
+        { confirmed: true },
+        f.admin,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "/admin/plans/orders/" + lower.id + "/approve",
+        { confirmed: true },
+        f.admin,
+      )
+    ).status,
+    409,
+  );
+  assert.equal(
+    (await f.call("/admin/plans/orders/" + higher.id + "/delete", {}, f.admin))
+      .status,
+    409,
+  );
+  assert.equal(
+    (await f.call("/admin/plans/orders/" + lower.id + "/delete", {}, f.admin))
+      .status,
+    409,
+  );
+  assert.equal(
+    (await f.call("/client/billing/" + lower.id + "/cancel", {}, token)).status,
+    200,
+  );
+  assert.equal(
+    (await f.call("/admin/plans/orders/" + lower.id + "/delete", {}, token))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await f.call("/admin/plans/orders/" + lower.id + "/delete", {}, f.admin))
+      .status,
+    200,
+  );
+  assert.equal(
+    f.db.read().planOrders.some((x) => x.id === lower.id),
+    false,
+  );
+  const next = (
+    await create({ name: "New default", price: 0, isDefault: true })
+  ).body;
+  assert.equal(f.db.read().plans.filter((x) => x.is_default).length, 1);
+  assert.equal(
+    f.db.read().plans.find((x) => x.id === basic.id).is_default,
+    false,
+  );
+  assert.equal(
+    f.db.read().plans.find((x) => x.id === next.id).is_default,
+    true,
+  );
+  assert.equal(
+    f.db.read().subscriptions.findLast((x) => x.user_id === fresh.id).plan_id,
+    pro.id,
+  );
 });

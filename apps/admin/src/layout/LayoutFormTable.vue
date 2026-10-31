@@ -10,9 +10,10 @@
 </script>
 <style scoped lang="scss">
   .layout-form-table {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
     min-width: 0;
     gap: var(--admin-gap);
     .form,
@@ -23,9 +24,10 @@
       border-radius: var(--admin-radius);
     }
     .table {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      align-content: start;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
       gap: var(--admin-gap);
     }
     &--transparent .table {

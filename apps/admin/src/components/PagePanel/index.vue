@@ -81,9 +81,10 @@
     }
     .page-content {
       min-width: 0;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      align-content: start;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
       gap: var(--admin-gap);
     }
     @media (max-width: 1100px) {

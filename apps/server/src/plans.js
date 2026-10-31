@@ -14,6 +14,8 @@ const terms = (plan, state) => ({
   id: plan.id,
   name: plan.name,
   description: plan.description,
+  level: plan.level || 0,
+  is_default: Boolean(plan.is_default),
   price_cents: plan.price_cents,
   currency: "CNY",
   duration_days: plan.duration_days,
@@ -62,9 +64,22 @@ function savePlan(state, body, existing) {
     (typeof body.description !== "string" || body.description.length > 400)
   )
     fail(400, "INVALID_PLAN", "说明最多 400 字");
+  const isDefault = body.isDefault ?? existing?.is_default ?? false;
+  if (typeof isDefault !== "boolean")
+    fail(400, "INVALID_PLAN", "默认套餐设置必须为布尔值");
+  if (isDefault && (Number(body.price) !== 0 || body.active === false))
+    fail(400, "INVALID_DEFAULT_PLAN", "默认套餐必须免费且上架");
+  const level = integer(
+    Number(body.level ?? existing?.level ?? 0),
+    "套餐等级",
+    1000,
+  );
+  if (isDefault) for (const item of state.plans) item.is_default = false;
   const plan = {
     id: existing?.id || id(),
     name,
+    level,
+    is_default: isDefault,
     description: body.description?.trim() || "",
     price_cents: Math.round(Number(body.price) * 100),
     currency: "CNY",
@@ -80,6 +95,35 @@ function savePlan(state, body, existing) {
   else state.plans.push(plan);
   return plan;
 }
+function grant(state, userId, snapshot, actor, orderId = null) {
+  const user = state.users.find((item) => item.id === Number(userId));
+  if (!user || user.role !== "user" || !user.is_active)
+    fail(400, "INVALID_PLAN_USER", "只能为启用的普通用户开通套餐");
+  const started = now();
+  const entry = {
+    id: id(),
+    user_id: user.id,
+    username: user.username,
+    plan_id: snapshot.id,
+    terms: structuredClone(snapshot),
+    started_at: started,
+    expires_at: new Date(
+      Date.parse(started) + snapshot.duration_days * 86400000,
+    ).toISOString(),
+    order_id: orderId,
+    created_by: actor.username,
+  };
+  state.subscriptions.push(entry);
+  audit(state, actor, "plan.grant", entry.id);
+  return entry;
+}
+export function assignDefaultPlan(state, user, actor) {
+  if (user.role !== "user") return;
+  const plan = state.plans.find(
+    (item) => item.is_default && item.active && item.price_cents === 0,
+  );
+  if (plan) grant(state, user.id, terms(plan, state), actor);
+}
 export function registerPlans(app, { db, auth, config }) {
   const paymentFor = registerBillingPayment(app, { db, config });
   const findPlan = (state, value) => {
@@ -94,28 +138,6 @@ export function registerPlans(app, { db, auth, config }) {
   };
   const current = (state, userId) =>
     state.subscriptions.findLast((item) => item.user_id === userId);
-  function grant(state, userId, snapshot, actor, orderId = null) {
-    const user = state.users.find((item) => item.id === Number(userId));
-    if (!user || user.role !== "user" || !user.is_active)
-      fail(400, "INVALID_PLAN_USER", "只能为启用的普通用户开通套餐");
-    const started = now();
-    const entry = {
-      id: id(),
-      user_id: user.id,
-      username: user.username,
-      plan_id: snapshot.id,
-      terms: structuredClone(snapshot),
-      started_at: started,
-      expires_at: new Date(
-        Date.parse(started) + snapshot.duration_days * 86400000,
-      ).toISOString(),
-      order_id: orderId,
-      created_by: actor.username,
-    };
-    state.subscriptions.push(entry);
-    audit(state, actor, "plan.grant", entry.id);
-    return entry;
-  }
   app.post("/admin/plans/list", (_req, res) => res.json(db.read().plans));
   app.post("/admin/plans/create", (req, res) =>
     res.status(201).json(
@@ -152,6 +174,22 @@ export function registerPlans(app, { db, auth, config }) {
     if (req.user.role === "demo")
       fail(403, "PERMISSION_DENIED", "演示账号不能查看开通申请");
     res.json(db.read().planOrders.toReversed());
+  });
+  app.post("/admin/plans/orders/:id/delete", (req, res) => {
+    db.transaction((state) => {
+      const order = findOrder(state, req.params.id);
+      if (!["cancelled", "rejected"].includes(order.status))
+        fail(
+          409,
+          "ORDER_NOT_DELETABLE",
+          "仅可删除已取消或已拒绝的申请；已开通记录保留核款依据",
+        );
+      state.planOrders = state.planOrders.filter(
+        (item) => item.id !== order.id,
+      );
+      audit(state, req.user, "plan.order.delete", order.id);
+    });
+    res.json({ ok: true });
   });
   app.post("/admin/plans/members/list", (req, res) => {
     if (req.user.role === "demo")
@@ -225,6 +263,17 @@ export function registerPlans(app, { db, auth, config }) {
             "PAYMENT_ALREADY_VERIFIED",
             "此交易号已用于其他申请，请勿重复开通",
           );
+        const active = current(state, order.user_id);
+        if (
+          active &&
+          active.expires_at > now() &&
+          (order.terms.level || 0) <= (active.terms.level || 0)
+        )
+          fail(
+            409,
+            "PLAN_NOT_UPGRADE",
+            "用户已开通同级或更高套餐，请拒绝此申请",
+          );
         const entry = grant(
           state,
           order.user_id,
@@ -274,6 +323,10 @@ export function registerPlans(app, { db, auth, config }) {
         id: req.user.id,
         username: req.user.username,
         role: req.user.role,
+        phone:
+          state.planOrders.findLast(
+            (item) => item.user_id === req.user.id && item.phone,
+          )?.phone || "",
       },
       status: subscription
         ? subscription.expires_at > now()
@@ -303,6 +356,13 @@ export function registerPlans(app, { db, auth, config }) {
           fail(403, "INVALID_PLAN_USER", "请使用普通员工账号申请套餐");
         const plan = findPlan(state, req.body.planId);
         if (!plan.active) fail(409, "PLAN_UNAVAILABLE", "套餐已下架");
+        const active = current(state, req.user.id);
+        if (active && active.expires_at > now()) {
+          if (active.plan_id === plan.id)
+            fail(409, "PLAN_ALREADY_ACTIVE", "已在使用此套餐");
+          if ((plan.level || 0) <= (active.terms.level || 0))
+            fail(409, "PLAN_NOT_UPGRADE", "当前有效期内只能升级到更高等级套餐");
+        }
         const pending = state.planOrders.find(
           (item) =>
             item.user_id === req.user.id &&

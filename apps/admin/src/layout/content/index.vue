@@ -9,7 +9,8 @@
     min-height: 0;
     overflow: auto;
     padding: var(--admin-gap);
-    scrollbar-gutter: stable;
+    display: flex;
+    flex-direction: column;
     outline: none;
   }
 </style>

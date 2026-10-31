@@ -11,6 +11,7 @@
       :stripe="stripe"
       :size="size"
       :max-height="maxHeight"
+      :height="height"
       :row-key="resolvedRowKey"
       :default-sort="resolvedDefaultSort"
       :cell-style="getCellStyle"
@@ -87,11 +88,11 @@
             </template>
             <!-- 编码转换 -->
             <template v-else-if="column.codeMap">
-              {{ getCodeValue(scope.row[column.prop], column.codeMap) }}
+              {{ displayValue(getCodeValue(scope.row[column.prop], column.codeMap)) }}
             </template>
             <!-- 自定义渲染函数 -->
             <template v-else-if="column.render">
-              {{ column.render(scope.row, column, scope.$index) }}
+              {{ displayValue(column.render(scope.row, column, scope.$index)) }}
             </template>
             <!-- 默认显示 + Tooltip提示 -->
             <template v-else>
@@ -106,9 +107,9 @@
                 :placement="column.tooltipPlacement || 'top'"
                 :disabled="!column.tooltip"
               >
-                <span>{{ scope.row[column.prop] }}</span>
+                <span>{{ displayValue(scope.row[column.prop]) }}</span>
               </el-tooltip>
-              <span v-else>{{ scope.row[column.prop] }}</span>
+              <span v-else>{{ displayValue(scope.row[column.prop]) }}</span>
             </template>
           </slot>
         </template>
@@ -251,6 +252,7 @@
     size?: 'large' | 'default' | 'small'
     // 最大高度
     maxHeight?: number | string
+    height?: number | string
     // 行数据的 Key
     rowKey?: string | ((row: any) => string | number)
     // 默认排序
@@ -282,6 +284,9 @@
   }
 
   // Props
+  function displayValue(value: unknown) {
+    return value == null || value === '' ? '—' : value
+  }
   const props = withDefaults(defineProps<AdvancedTableProps>(), {
     loading: false,
     border: false,
@@ -367,7 +372,7 @@
       headerMeasure?.measureText(column.label || '').width ||
       Array.from(column.label || '').length * 14
     return Math.max(
-      Number(column.minWidth) || 0,
+      Number(column.minWidth) || 100,
       Math.ceil(textWidth) + 32 + (column.sortable ? 24 : 0)
     )
   }
@@ -493,7 +498,8 @@
 <style lang="scss" scoped>
   .advanced-table-wrapper {
     width: 100%;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -508,6 +514,7 @@
   .advanced-table {
     width: 100%;
     flex: 1;
+    min-height: 0;
   }
 
   .advanced-table :deep(.el-table__header-wrapper .cell) {
@@ -520,6 +527,8 @@
     justify-content: flex-end;
     align-items: center;
     padding: 12px 0;
+    flex-shrink: 0;
+    overflow-x: auto;
   }
 
   .operate-buttons {

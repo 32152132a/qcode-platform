@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="人工收款设置"
+    title="收款码"
     width="620px"
     :close-on-click-modal="false"
     destroy-on-close
@@ -10,24 +10,12 @@
     <el-skeleton v-if="loading" :rows="4" animated />
     <template v-else>
       <el-alert
-        title="仅展示付款信息，不会自动扣款或自动开通。请使用适用于当前业务的收款方式，确认开通前核对实际到账。"
+        title="上传收款码后，用户申请套餐时即可查看。到账后需由管理员确认开通。"
         type="info"
         :closable="false"
         show-icon
       />
-      <QyqForm
-        v-model="value"
-        :columns="1"
-        :form-options="fields"
-        :show-btn="false"
-        :disabled="saving"
-      />
       <el-space direction="vertical" alignment="start">
-        <el-switch
-          v-model="enabled"
-          active-text="显示人工收款信息"
-          :disabled="saving"
-        />
         <el-upload
           :auto-upload="false"
           :show-file-list="false"
@@ -71,7 +59,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { ElMessage, type UploadFile } from "element-plus";
-import QyqForm from "@/components/qyq-form/index.vue";
 import { request } from "@/api/request";
 type PaymentConfig = {
   enabled: boolean;
@@ -83,29 +70,9 @@ const visible = ref(false),
   loading = ref(false),
   saving = ref(false),
   error = ref(""),
-  enabled = ref(false),
   qrUrl = ref<string | null>(null),
   selectedName = ref(""),
   image = ref<string>();
-const value = ref({ recipient: "", instructions: "" });
-const fields = [
-  {
-    prop: "recipient",
-    label: "收款人",
-    type: "input",
-    isNotTrim: true,
-    allowSpecialChars: true,
-    maxlength: 80,
-  },
-  {
-    prop: "instructions",
-    label: "付款说明",
-    type: "textarea",
-    isNotTrim: true,
-    allowSpecialChars: true,
-    maxlength: 500,
-  },
-];
 async function open() {
   visible.value = true;
   loading.value = true;
@@ -115,11 +82,6 @@ async function open() {
   qrUrl.value = null;
   try {
     const data = await request<PaymentConfig>("/admin/plans/payment-config");
-    value.value = {
-      recipient: data.recipient,
-      instructions: data.instructions,
-    };
-    enabled.value = data.enabled;
     qrUrl.value = data.qrUrl;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "加载失败";
@@ -155,6 +117,10 @@ async function selectImage(file: UploadFile) {
 }
 async function save() {
   if (saving.value) return;
+  if (!image.value && !qrUrl.value) {
+    error.value = "请先上传收款码";
+    return;
+  }
   saving.value = true;
   error.value = "";
   try {
@@ -162,8 +128,10 @@ async function save() {
       "/admin/plans/payment-config",
       "PUT",
       {
-        ...value.value,
-        enabled: enabled.value,
+        enabled: true,
+        recipient: "以二维码所示收款人为准",
+        instructions:
+          "请备注账号，付款后等待管理员核实，通常约需 5～10 分钟。开通后刷新账号权益即可使用，请勿重复付款。",
         ...(image.value ? { image: image.value } : {}),
       },
     );

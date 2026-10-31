@@ -5,6 +5,7 @@ export const businessApi = [
   ["GET","/client/billing","/client/billing/detail","read"],
   ["POST","/client/billing/apply","/client/billing/apply","write"],
   ["POST","/client/billing/:id/cancel","/client/billing/:id/cancel","write"],
+  ["DELETE","/admin/plans/orders/:id","/admin/plans/orders/:id/delete","write"],
   ["GET","/admin/plans/orders","/admin/plans/orders/list","read"],
   ["GET","/admin/plans/members","/admin/plans/members/list","read"],
   ["POST","/admin/plans/grants","/admin/plans/grants/create","write"],
