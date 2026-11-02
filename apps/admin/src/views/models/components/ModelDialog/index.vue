@@ -34,6 +34,7 @@
           <template #streamUsage
             ><el-switch v-model="form.streamUsage" aria-label="请求流式用量"
           /></template>
+          <template #supportsVision><el-switch v-model="form.supportsVision" aria-label="模型原生支持识图" /></template>
           <template #pricingKnown
             ><el-switch v-model="form.pricingKnown" aria-label="已确认计价"
           /></template>
@@ -80,6 +81,7 @@
     outputPrice: 0,
     currency: 'CNY',
     pricingKnown: false,
+    supportsVision: false,
   })
   const basicFields: FormItemProp[] = [
     {
@@ -133,6 +135,7 @@
         { label: 'max_completion_tokens', value: 'max_completion_tokens' },
       ],
     },
+    { prop: 'supportsVision', label: '模型原生支持识图（按服务实际能力确认）', type: 'custom' },
     { prop: 'streamUsage', label: '请求流式用量', type: 'custom' },
     { prop: 'pricingKnown', label: '已确认计价（未确认时成本记为未知）', type: 'custom' },
     ...numericFields
@@ -167,6 +170,7 @@
       outputPrice: value.output_price,
       currency: value.currency,
       pricingKnown: value.pricing_known !== false,
+      supportsVision: value.capabilities?.includes('vision') === true,
     }
     error.value = ''
     success = onSuccess

@@ -50,3 +50,27 @@ test('Responses adapter preserves image bytes, order and detail across follow-up
   assert.equal(request.payload.input[2].content,'它是什么颜色？');
   assert.equal(request.payload.store,false);
 });
+
+test('native vision stays on the selected model without a default reader and keeps its tools', async t => {
+  const f=await fixture(t);await f.create();const token=await f.login();const selected=f.db.read().models[0];
+  const body={name:selected.name,publicName:selected.public_name,upstreamModel:selected.upstream_model,baseUrl:selected.base_url,supportsVision:true,isDefault:true};
+  assert.equal((await f.request('/admin/models/'+selected.id,'PUT',body,f.admin)).status,200);
+  let config=(await f.request('/client/config','GET',undefined,token)).body;
+  assert.equal(config.models[0].imageInput,true);assert(config.models[0].capabilities.includes('vision'));
+  const tools=[{type:'function',function:{name:'read_file',parameters:{type:'object',properties:{}}}}];
+  assert.equal((await f.chat(token,{messages,tools})).status,200);
+  assert.equal(f.received().body.model,selected.upstream_model);assert.deepEqual(f.received().body.messages,messages);assert.deepEqual(f.received().body.tools,tools);
+  f.db.transaction(state=>{state.settings.imageGeneration={visionModelId:'removed'};});
+  assert.equal((await f.chat(token,{messages})).status,200);
+  assert.equal((await f.request('/admin/models/'+selected.id,'PUT',{...body,supportsVision:false},f.admin)).status,200);
+  config=(await f.request('/client/config','GET',undefined,token)).body;assert.equal(config.models[0].imageInput,false);
+  const failure=await f.chat(token,{messages});assert.equal(failure.body.error.code,'VISION_UNAVAILABLE');assert.match(failure.body.error.message,/模型与服务/);
+  assert.equal(f.calls(),2);
+});
+
+test('default vision enables gateway image input without claiming native vision on text models',async t=>{
+  const f=await fixture(t);const reader=f.db.read().models[0];
+  await f.request('/admin/models/images/settings','PUT',{visionModelId:reader.id},f.admin);
+  const config=(await f.request('/client/config','GET',undefined,f.admin)).body;
+  assert.equal(config.models[0].imageInput,true);assert(!config.models[0].capabilities.includes('vision'));
+});

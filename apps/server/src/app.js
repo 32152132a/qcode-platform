@@ -304,6 +304,7 @@ export function createApp(config, database) {
     if (!protocols.includes(protocol)) fail(400, 'INVALID_PROTOCOL', 'Choose Chat Completions or Responses');
     const keyId = body.keyId === undefined ? existing?.key_id || null : body.keyId || null;
     if (keyId && !state.keys.some(k => k.id === keyId && k.active)) fail(400, 'INVALID_KEY', 'Choose an enabled model key');
+    if (body.supportsVision !== undefined && typeof body.supportsVision !== 'boolean') fail(400, 'INVALID_FIELD', '识图能力必须为布尔值');
     const provider = text(body.provider ?? existing?.provider ?? 'custom', 'provider', 40);
     if (provider === 'ollama' && (protocol !== 'chat-completions' || keyId)) fail(400, 'INVALID_MODEL', 'Ollama 使用 Chat Completions，且无需绑定 Key');
     const model = { ...existing, pricing_known:body.pricingKnown??existing?.pricing_known??true, protocol, provider, key_id: keyId, id: existing?.id || id(), name: text(body.name, 'name'), public_name: text(body.publicName, 'publicName', 80),
@@ -311,6 +312,7 @@ export function createApp(config, database) {
       max_output_tokens: integer(body.maxOutputTokens ?? 8192, 'maxOutputTokens', 131072),
       context_window: integer(body.contextWindow ?? 131072, 'contextWindow', 2000000), input_price: body.inputPrice ?? 0, output_price: body.outputPrice ?? 0, currency: body.currency || 'CNY', max_tokens_field: body.maxTokensField || 'max_tokens',
       stream_usage: body.streamUsage !== false, active: body.active !== false, is_default: body.isDefault === true, created_at: existing?.created_at || now() };
+    if (body.supportsVision !== undefined) model.capabilities = [...new Set([...(existing?.capabilities || []).filter(value => value !== 'vision'), ...(body.supportsVision ? ['vision'] : [])])];
     if (!/^[a-zA-Z0-9_.-]+$/.test(model.public_name) || !model.max_output_tokens || model.context_window < model.max_output_tokens) fail(400, 'INVALID_MODEL', '公开模型名称或上下文/输出上限配置无效');
     const nameKey = model.name.normalize('NFKC').toLowerCase();
     if ((!existing || nameKey !== existing.name.trim().normalize('NFKC').toLowerCase()) && state.models.some(m => m.id !== model.id && m.name.trim().normalize('NFKC').toLowerCase() === nameKey)) fail(409, 'MODEL_NAME_EXISTS', '模型显示名称已存在，请使用其他名称');

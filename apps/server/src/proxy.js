@@ -27,9 +27,9 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   if (!model) fail(400, 'INVALID_MODEL', '请选择 /v1/models 中已启用的模型');
   if (!Array.isArray(body.messages) || !body.messages.length || body.messages.some(m => !m || typeof m !== 'object')) fail(400, 'INVALID_MESSAGES', 'messages must be a non-empty array');
   const hasImages = body.messages.some(message => Array.isArray(message.content) && message.content.some(part => part?.type === 'image_url'));
-  if (hasImages) {
+  if (hasImages && !model.capabilities?.includes('vision')) {
     model = configuredVisionModel(state);
-    if (!model) fail(503, 'VISION_UNAVAILABLE', '图片识别暂不可用，请联系管理员配置默认识图模型；文字对话仍可使用');
+    if (!model) fail(503, 'VISION_UNAVAILABLE', '当前模型不支持图片识别，请联系管理员在“模型与服务”中配置默认识图模型；文字对话仍可使用');
   }
   const key = model.provider === 'ollama' ? null : effectiveKey(state, req.user, model);
   if (model.provider !== 'ollama' && !key?.active) fail(503, 'KEY_UNAVAILABLE', '模型服务暂不可用，请联系管理员');
