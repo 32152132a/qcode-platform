@@ -1,7 +1,7 @@
 <template>
   <PagePanel
     title="Key 管理"
-    description="凭据在服务器加密保存，仅显示末四位。也可以在添加服务来源时直接填写 Key。"
+    description="凭据加密保存，按站点隔离使用。上游异常后停用，管理员或定时恢复后重新参与调用。"
     :loading="loading"
     :error="error"
     ><template #actions
@@ -10,7 +10,7 @@
       ><el-button v-if="auth.can('keys:write')" type="primary" @click="add"
         >添加 Key</el-button
       ></template
-    ><DataTable :rows="data || []" :columns="columns" :actions="actions" /><EntityDialog
+    ><KeyDialog ref="keyEditor" /><DataTable :rows="data || []" :columns="columns" :actions="actions" /><EntityDialog
       ref="editor"
   /></PagePanel>
 </template>
@@ -20,6 +20,7 @@
   import PagePanel from '@/components/PagePanel/index.vue'
   import DataTable, { type RowAction } from '@/components/DataTable/index.vue'
   import EntityDialog from '@/components/EntityDialog/index.vue'
+  import KeyDialog from './components/KeyDialog/index.vue'
   import { useResource } from '@/hooks/useResource'
   import { useAuthStore } from '@/stores/auth'
   import { request } from '@/api/request'
@@ -28,11 +29,18 @@
   const auth = useAuthStore(),
     { data, loading, error, load } = useResource<import('@/types').Row[]>(() => '/admin/keys'),
     editor = ref<InstanceType<typeof EntityDialog>>()
+  const keyEditor = ref<InstanceType<typeof KeyDialog>>()
   const columns: Column[] = [
     { prop: 'name', label: '名称' },
     { prop: 'suffix', label: '末四位' },
     { prop: 'active', label: '状态', render: (r) => (r.active ? '启用' : '禁用') },
-    { prop: 'health', label: '检查结果' },
+    { prop: 'source_name', label: '服务站点' },
+    { prop: 'disabled_reason', label: '上次停用原因' },
+    { prop: 'disabled_at', label: '上次停用时间', render: r => r.disabled_at ? new Date(String(r.disabled_at)).toLocaleString() : '—' },
+    { prop: 'restore_at', label: '下次恢复', render: r => r.restore_at ? new Date(String(r.restore_at)).toLocaleString() : '—' },
+    { prop: 'restore_hours', label: '异常后恢复', render: r => r.restore_hours ? r.restore_hours + ' 小时后' : '仅手动' },
+    { prop: 'tokens', label: '实际 Token' },
+    { prop: 'unknown_usage', label: '用量未知请求' },
     {
       prop: 'assigned_users',
       label: '分配用户',
@@ -43,6 +51,10 @@
   const actions = computed<RowAction[]>(() =>
     auth.can('keys:write')
       ? [
+          {
+            label: '配置',
+            run: configure,
+          },
           {
             label: '检查',
             run: checkKey,
@@ -82,33 +94,27 @@
         ]
       : []
   )
-  function add() {
-    editor.value?.open(
-      {
-        title: '添加 Key',
-        fields: [
-          { prop: 'name', label: '名称', required: true },
-          { prop: 'apiKey', label: 'API Key', type: 'password', required: true },
-        ],
-        value: { name: '', apiKey: '' },
-        save: (v) => request('/admin/keys', 'POST', v),
-      },
-      load
-    )
+  async function sourceField(): Promise<import('@/types').Field> {
+    const sources = await request<Row[]>('/admin/models/sources')
+    return { prop: 'sourceId', label: '服务站点（可暂不绑定）', type: 'select', options: sources
+      .filter(source => source.kind !== 'local')
+      .map(source => ({ label: String(source.name), value: String(source.id) })) }
   }
-  function bulk() {
+  function configure(row: Row) { keyEditor.value?.open(row, load) }
+  function add() { keyEditor.value?.open(undefined, load) }
+  async function bulk() {
     editor.value?.open(
       {
         title: '批量导入 Key',
-        fields: [{ prop: 'keys', label: '每行一个 Key', type: 'textarea', required: true }],
-        value: { keys: '' },
+        fields: [await sourceField(), { prop: 'keys', label: '每行一个 Key', type: 'textarea', required: true }],
+        value: { keys: '', sourceId: '' },
         save: (v) =>
           request('/admin/keys', 'POST', {
             keys: String(v.keys)
               .split(/\r?\n/)
               .map((k) => k.trim())
               .filter(Boolean)
-              .map((apiKey, index) => ({ name: '批量 Key ' + (index + 1), apiKey })),
+              .map((apiKey, index) => ({ name: '批量 Key ' + (index + 1), apiKey, sourceId: v.sourceId })),
           }),
       },
       load
@@ -116,7 +122,7 @@
   }
   async function checkKey(row: Row) {
     const models = (await request<Row[]>('/admin/models')).filter(
-      (model) => model.provider !== 'ollama'
+      (model) => model.provider !== 'ollama' && (!row.source_id || model.source_id === row.source_id)
     )
     editor.value?.open(
       {

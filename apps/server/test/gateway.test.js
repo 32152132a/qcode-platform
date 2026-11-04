@@ -98,7 +98,7 @@ test('JSON and split UTF-8 streaming record usage, tools and sanitized errors', 
   assert.equal(f.received().auth, 'Bearer secret-provider-key'); assert.equal(f.received().body.model, 'private-model'); assert.equal(f.received().body.tools[0].function.name, 'read_file');
   const response = await fetch(f.url + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ model: 'qcode-model', messages: [{}], stream: true, max_tokens: 10 }) });
   assert.match(await response.text(), /你好/); assert.equal(f.received().body.stream_options.include_usage, true);
-  const failed = await f.chat(token, { testCase: 'failure' }); assert.equal(failed.status, 502); assert.doesNotMatch(JSON.stringify(failed.body), /secret-provider-key|internal-address/);
+  const failed = await f.chat(token, { testCase: 'failure' }); assert.equal(failed.status, 503); assert.doesNotMatch(JSON.stringify(failed.body), /secret-provider-key|internal-address/);
   const stats = (await f.request('/admin/usage', 'GET', undefined, f.admin)).body;
   assert.equal(stats.totals.success, 2); assert.equal(stats.totals.tokens, 10); assert.equal(stats.totals.failed, 1);
   assert.equal(f.db.read().requests[0].input_tokens, 3);
@@ -194,6 +194,9 @@ test('truncated streams fail and do not leave an in-flight request', async t => 
   for (let i = 0; i < 30 && f.db.read().requests[0]?.status === 'pending'; i++) await new Promise(resolve => setTimeout(resolve, 5));
   assert.notEqual(f.db.read().requests[0].status, 'pending');
   assert.notEqual(f.db.read().requests[0].status, 'success');
+  assert.equal(f.db.read().keys[0].active, false);
+  assert.equal((await f.chat(token)).status, 503);
+  await f.request('/admin/keys/' + f.key.id, 'PATCH', {active:true}, f.admin);
   assert.equal((await f.chat(token)).status, 200);
 });
 

@@ -1,3 +1,4 @@
+import { bindSourceKeys, sourceKey, sourceKeyIds, fetchWithKeys } from './key-pool.js';
 import { catalogDisplayFields } from './model-presentation.js'
 import { createHash } from 'node:crypto'
 import { id, now, text, baseUrl, fail, audit, availableModels } from './domain.js'
@@ -106,6 +107,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     if (body.apiKey) {
       if (kind === 'local') fail(400, 'INVALID_KEY', '本地 Ollama 无需 Key')
       const value = text(body.apiKey, 'API Key', 4096)
+      if (state.keys.some(key => vault.decrypt(key.secret) === value)) fail(409, 'KEY_EXISTS', '此 Key 已存在，请从 Key 池选择')
       const key = {
         id: id(),
         name: name + ' 服务 Key',
@@ -118,8 +120,8 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       state.keys.push(key)
       keyId = key.id
     }
-    if (keyId && !state.keys.some((k) => k.id === keyId && k.active))
-      fail(400, 'INVALID_KEY', '请选择启用的 Key')
+    if (keyId && !state.keys.some((k) => k.id === keyId))
+      fail(400, 'INVALID_KEY', '请选择存在的 Key')
     for (const field of ['active', 'autoSync'])
       if (body[field] !== undefined && typeof body[field] !== 'boolean')
         fail(400, 'INVALID_FIELD', '开关必须为布尔值')
@@ -136,14 +138,15 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       revision: (existing?.revision || 0) + 1,
       created_at: existing?.created_at || now(),
     }
+    bindSourceKeys(state, source, body.keyIds ?? (body.apiKey || body.keyId !== undefined ? [keyId].filter(Boolean) : sourceKeyIds(source)));
     const protocolChanged = existing && existing.protocol !== protocol
     const changed =
-      existing && ['base_url', 'key_id', 'protocol'].some((key) => existing[key] !== source[key])
+      existing && (['base_url', 'key_id', 'protocol'].some((key) => existing[key] !== source[key]) || JSON.stringify(existing.fallback_key_ids) !== JSON.stringify(source.fallback_key_ids))
     if (existing) Object.assign(existing, source)
     else sourcesFor(state).push(source)
     for (const model of state.models.filter((m) => m.source_id === source.id)) {
       model.base_url = address
-      model.key_id = keyId
+      model.key_id = source.key_id
       if (protocolChanged) model.protocol = protocol
       if (changed) model.verification = null
     }
@@ -153,19 +156,20 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
   async function synchronize(sourceId, actor = { id: null, username: 'system' }) {
     if (pending.has(sourceId)) return pending.get(sourceId)
     const operation = (async () => {
+
       const snapshot = db.read(),
         source = structuredClone(find(snapshot, sourceId))
       if (!source.active) fail(409, 'SOURCE_DISABLED', '请先启用服务来源')
-      const key =
+      let key =
         source.kind === 'local'
           ? null
-          : snapshot.keys.find((k) => k.id === source.key_id && k.active)
+          : sourceKey(snapshot, source)
       try {
         if (source.kind !== 'local' && !key) fail(400, 'INVALID_KEY', '请为服务来源配置 Key')
-        const response = await fetch(source.base_url + '/models', {
-          redirect: 'error',
-          headers: key ? { Authorization: 'Bearer ' + vault.decrypt(key.secret) } : {},
+        const response = await fetchWithKeys({db, keys: key ? sourceKeyIds(source).map(id => snapshot.keys.find(item => item.id === id)).filter(item => item?.active) : [null],
           signal: AbortSignal.timeout(Math.min(config.timeoutMs, 12000)),
+          build: candidate => ({url: source.base_url + '/models', headers: candidate ? {Authorization: 'Bearer ' + vault.decrypt(candidate.secret)} : {}}),
+          attempt: candidate => { key = candidate },
         })
         if (!response.ok) {
           await response.body?.cancel()
@@ -309,7 +313,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
         const key =
           current.kind === 'local'
             ? null
-            : state.keys.find((item) => item.id === current.key_id && item.active)
+            : sourceKey(state, current)
         if (current.kind !== 'local' && !key) fail(400, 'INVALID_KEY', '请为服务来源配置有效 Key')
         if (
           !body.catalogRevision ||

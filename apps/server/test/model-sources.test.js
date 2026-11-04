@@ -91,7 +91,7 @@ test('source discovery scopes credentials and preserves edits, disables retired 
   await sync()
   assert.equal(f.db.read().models.find((m) => m.id === gpt.id).catalog_available, false)
   fail = true
-  assert.equal((await sync()).status, 502)
+  assert.equal((await sync()).status, 503)
   assert.equal(f.db.read().models.filter((m) => m.source_id === source.id).length, 3)
   assert.equal(
     (await f.request('/admin/keys/' + source.key_id, 'DELETE', undefined, f.admin)).status,
@@ -301,7 +301,7 @@ test('discovering identical upstream IDs across sources creates distinct names w
         await f.request(
           '/admin/models/sources',
           'POST',
-          { kind: 'relay', name, baseUrl: address, apiKey: 'fixture-key' },
+          { kind: 'relay', name, baseUrl: address, apiKey: 'fixture-key-' + name },
           f.admin
         )
       ).status,

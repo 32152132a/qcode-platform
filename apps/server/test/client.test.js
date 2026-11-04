@@ -30,7 +30,7 @@ test('client refresh is single-flight and never replays an upstream failure',asy
   await Promise.all([session.renew(),session.renew(),session.renew()]);assert.equal(saves,1);
   const bridge=await startBridge(session);t.after(()=>bridge.close());
   const response=await fetch(bridge.baseUrl+'/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${bridge.token}`,'Content-Type':'application/json'},body:JSON.stringify({model:'qcode-model',messages:[{}],max_tokens:10,testCase:'failure'})});
-  assert.equal(response.status,502);await response.text();assert.equal(f.calls(),1);
+  assert.equal(response.status,503);await response.text();assert.equal(f.calls(),1);
 });
 
 test('managed skills update atomically and remove only managed directories',async()=>{

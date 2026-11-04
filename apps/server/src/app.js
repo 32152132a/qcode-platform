@@ -1,3 +1,4 @@
+import { keySource, sourceKeyIds, bindSourceKeys, configureKeyRecovery } from './key-pool.js';
 import { registerPlans, assignDefaultPlan } from './plans.js';
 import { registerFeedback } from './feedback.js';
 import { registerImages } from './images.js';
@@ -232,7 +233,22 @@ export function createApp(config, database) {
   });
   const publicKey = (state, key) => ({ id: key.id, name: key.name, suffix: key.suffix, active: key.active, health: key.health,
     checked_at: key.checked_at, created_at: key.created_at, assigned_users: state.users.filter(u => u.key_id === key.id).map(u => u.username),
-    requests: state.requests.filter(r => r.key_id === key.id).length });
+    source_id: keySource(state, key.id)?.id || null, source_name: keySource(state, key.id)?.name || null,
+    disabled_reason: key.disabled_reason, disabled_at: key.disabled_at, restore_at: key.restore_at, restore_hours: key.restore_hours || 0,
+    tokens: state.requests.filter(r => r.key_id === key.id).reduce((sum, row) => sum + (row.total_tokens || 0), 0),
+    unknown_usage: state.requests.filter(r => r.status !== 'pending' && (r.key_id === key.id ? r.total_tokens == null : r.key_attempts?.some(attempt => attempt.key_id === key.id))).length,
+    requests: state.requests.filter(r => r.key_id === key.id || r.key_attempts?.some(attempt => attempt.key_id === key.id)).length });
+  function assignKeySource(state, key, sourceId) {
+    const current = keySource(state, key.id);
+    if ((current?.id || null) === (sourceId || null)) return;
+    if (current && state.requests.some(row => row.status === 'pending' && row.key_id === key.id)) fail(409, 'KEY_IN_USE', '请等待此 Key 的进行中请求完成');
+    if (current) { bindSourceKeys(state, current, sourceKeyIds(current).filter(id => id !== key.id)); current.revision++; }
+    if (sourceId) {
+      const source = sourcesFor(state).find(source => source.id === sourceId);
+      if (!source) fail(400, 'SOURCE_NOT_FOUND', '请选择有效服务站点');
+      bindSourceKeys(state, source, [...sourceKeyIds(source), key.id]); source.revision++;
+    }
+  }
   app.post('/admin/keys/list', (_req, res) => { const state = db.read(); res.json(state.keys.map(k => publicKey(state, k))); });
   app.post('/admin/keys/create', (req, res) => {
     const entries = req.body?.keys || [req.body];
@@ -242,7 +258,7 @@ export function createApp(config, database) {
       if (/[\r\n]/.test(secret)) fail(400, 'INVALID_KEY', 'Key cannot contain line breaks');
       if (state.keys.some(k => vault.decrypt(k.secret) === secret)) fail(409, 'KEY_EXISTS', 'This key already exists');
       const key = { id: id(), name: text(entry.name, 'name'), secret: vault.encrypt(secret), suffix: secret.slice(-4), active: true, health: 'unknown', created_at: now() };
-      state.keys.push(key); audit(state, req.user, 'key.create', key.id); return publicKey(state, key);
+      state.keys.push(key); configureKeyRecovery(key, entry); assignKeySource(state, key, entry.sourceId); audit(state, req.user, 'key.create', key.id); return publicKey(state, key);
     })));
   });
   app.post('/admin/keys/:id/update', (req, res) => {
@@ -251,6 +267,9 @@ export function createApp(config, database) {
       const key = state.keys.find(k => k.id === req.params.id);
       if (!key) fail(404, 'KEY_NOT_FOUND', 'Key not found');
       if ('active' in req.body) { if (typeof req.body.active !== 'boolean') fail(400, 'INVALID_FIELD', 'active must be boolean'); key.active = req.body.active; }
+      configureKeyRecovery(key, req.body);
+      if ('sourceId' in req.body) assignKeySource(state, key, req.body.sourceId);
+      if ('active' in req.body) { key.restore_at = null; key.health = key.active ? 'unknown' : 'disabled'; if (!key.active) { key.disabled_reason = '管理员停用'; key.disabled_at = now(); } }
       if ('name' in req.body) key.name = text(req.body.name, 'name');
       if ('apiKey' in req.body) {
         const secret = text(req.body.apiKey, 'apiKey', 4096);
@@ -258,14 +277,14 @@ export function createApp(config, database) {
         if (state.keys.some(k => k.id !== key.id && vault.decrypt(k.secret) === secret)) fail(409, 'KEY_EXISTS', 'This key already exists');
         key.secret = vault.encrypt(secret); key.suffix = secret.slice(-4); key.health = 'unknown';
       }
-      if ('apiKey' in req.body || 'active' in req.body) for (const model of state.models) if (model.key_id === key.id || model.verification?.key_id === key.id) model.verification = null;
+      if ('apiKey' in req.body || 'active' in req.body) for (const model of state.models) if (model.key_id === key.id || model.verification?.key_id === key.id || sourcesFor(state).some(source => source.id === model.source_id && sourceKeyIds(source).includes(key.id))) model.verification = null;
       audit(state, req.user, 'key.update', key.id); return publicKey(state, key);
     }));
   });
   app.post('/admin/keys/:id/delete', (req, res) => {
     db.transaction(state => {
       if (!state.keys.some(k => k.id === req.params.id)) fail(404, 'KEY_NOT_FOUND', 'Key not found');
-      if (sourcesFor(state).some(source=>source.key_id===req.params.id) || state.users.some(u => u.key_id === req.params.id) || state.departments.some(d => d.key_id === req.params.id) || state.models.some(m => m.key_id === req.params.id) || state.requests.some(r => r.key_id === req.params.id && r.status === 'pending')) fail(409, 'KEY_IN_USE', '请先回收用户和部门的 Key，并等待进行中的请求完成');
+      if (sourcesFor(state).some(source=>sourceKeyIds(source).includes(req.params.id)) || state.users.some(u => u.key_id === req.params.id) || state.departments.some(d => d.key_id === req.params.id) || state.models.some(m => m.key_id === req.params.id) || state.requests.some(r => r.key_id === req.params.id && r.status === 'pending')) fail(409, 'KEY_IN_USE', '请先回收用户和部门的 Key，并等待进行中的请求完成');
       state.keys = state.keys.filter(k => k.id !== req.params.id); audit(state, req.user, 'key.delete', req.params.id);
     }); res.json({ ok: true });
   });
@@ -273,6 +292,8 @@ export function createApp(config, database) {
     const state = db.read(), key = state.keys.find(k => k.id === req.params.id);
     const model = state.models.find(m => req.body?.modelId ? m.id === req.body.modelId : m.is_default);
     if (!key || !model) fail(400, 'INVALID_CHECK', 'Choose a key and model');
+    const owner = keySource(state, key.id);
+    if (owner && owner.id !== model.source_id) fail(400, 'KEY_SOURCE_CONFLICT', '此 Key 不属于所选模型的服务站点');
     let health = 'unreachable';
     try {
       const response = await fetch(`${model.base_url}/models`, { headers: { Authorization: `Bearer ${vault.decrypt(key.secret)}` }, redirect: 'error', signal: AbortSignal.timeout(Math.min(config.timeoutMs, 10000)) });
@@ -303,7 +324,7 @@ export function createApp(config, database) {
     const protocol = body.protocol ?? existing?.protocol ?? 'chat-completions';
     if (!protocols.includes(protocol)) fail(400, 'INVALID_PROTOCOL', 'Choose Chat Completions or Responses');
     const keyId = body.keyId === undefined ? existing?.key_id || null : body.keyId || null;
-    if (keyId && !state.keys.some(k => k.id === keyId && k.active)) fail(400, 'INVALID_KEY', 'Choose an enabled model key');
+    if (keyId && !state.keys.some(k => k.id === keyId)) fail(400, 'INVALID_KEY', '请选择存在的模型 Key');
     if (body.supportsVision !== undefined && typeof body.supportsVision !== 'boolean') fail(400, 'INVALID_FIELD', '识图能力必须为布尔值');
     const provider = text(body.provider ?? existing?.provider ?? 'custom', 'provider', 40);
     if (provider === 'ollama' && (protocol !== 'chat-completions' || keyId)) fail(400, 'INVALID_MODEL', 'Ollama 使用 Chat Completions，且无需绑定 Key');

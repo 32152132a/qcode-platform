@@ -1,3 +1,4 @@
+import { sourceKey, sourceKeyIds, fetchWithKeys, suspendKey } from './key-pool.js';
 import { subscriptionFor } from './entitlements.js';
 import { now, id, text, integer, fail, audit, consumption, period, availableModels } from './domain.js';
 import { effectiveQuotas, checkQuota, departmentFor, departmentConsumption } from './policy.js';
@@ -8,7 +9,7 @@ const defaults = { enabled: false, sourceId: '', model: '', modelId: '', dailyIm
 const settings = state => ({ ...defaults, ...state.settings.imageGeneration });
 function configuredSource(state, value) {
   const source = sourcesFor(state).find(item => item.id === value.sourceId && item.active);
-  const key = source && state.keys.find(item => item.id === source.key_id && item.active);
+  const key = source && sourceKey(state, source);
   const model = value.modelId && state.models.find(item => item.id === value.modelId && item.source_id === value.sourceId && item.upstream_model === value.model);
   if (!source || (source.kind !== 'local' && !key) || (value.modelId && (!model?.active || model.catalog_available === false))) fail(503, 'IMAGE_SERVICE_UNAVAILABLE', '生图服务未配置或已停用，请联系管理员');
   return { source, key };
@@ -86,6 +87,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
   });
   app.post('/v1/images/generations', (req, res) => queueRequest(req, res, async () => {
     auth(req, res, () => {});
+
     const prompt = text(req.body?.prompt, '图片描述', 4000);
     if (req.body.n !== undefined && req.body.n !== 1) fail(400, 'INVALID_N', '每次只能生成一张图片');
     const started = Date.now(), startedAt = now(), requestId = id();
@@ -112,12 +114,17 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
     const close = () => { if (!res.writableFinished) controller.abort(); }; res.on('close', close);
     try {
       const payload = { model: selected.model, prompt, n: 1, ...(/^gpt-image-/i.test(selected.model) ? { output_format: 'png' } : { response_format: 'b64_json' }) };
-      const response = await fetch(selected.source.base_url + '/images/generations', { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', ...(selected.key ? {Authorization: 'Bearer ' + vault.decrypt(selected.key.secret)} : {}) }, body: JSON.stringify(payload), signal: controller.signal });
+      const snapshot = db.read();
+      const response = await fetchWithKeys({db, keys: selected.key ? sourceKeyIds(selected.source).map(id => snapshot.keys.find(key => key.id === id)).filter(key => key?.active) : [null], signal: controller.signal,
+        build: key => ({url: selected.source.base_url + '/images/generations', method: 'POST', headers: {'Content-Type': 'application/json', ...(key ? {Authorization: 'Bearer ' + vault.decrypt(key.secret)} : {})}, body: JSON.stringify(payload)}),
+        attempt: key => { selected.key = key; db.transaction(state => { state.requests.find(item => item.id === requestId).key_id = key?.id || null; }); },
+      });
       upstreamStatus = response.status;
       if (!response.ok) { await response.body?.cancel(); fail(response.status === 429 ? 429 : 502, 'IMAGE_UPSTREAM_ERROR', '生图服务返回 HTTP ' + response.status + '，请检查生图模型、Key 权限和余额'); }
       const result = await readImageResponse(response); status = 'success'; res.json(result);
     } catch (error) {
       errorCode = active.reason || (timedOut ? 'IMAGE_TIMEOUT' : controller.signal.aborted ? 'CLIENT_DISCONNECTED' : error.code || 'IMAGE_UNAVAILABLE');
+      if (!active.reason && (!controller.signal.aborted || timedOut) && (timedOut || !error.status || error.code === 'INVALID_IMAGE_RESPONSE')) suspendKey(db, selected.key, timedOut ? '上游生图超时' : '上游生图响应异常');
       if (error.status) throw error;
       fail(502, errorCode, timedOut ? '图片生成超时，请稍后再试；未自动重发' : '图片生成失败，请检查生图服务；未自动重发');
     } finally {

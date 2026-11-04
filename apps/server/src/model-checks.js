@@ -1,3 +1,4 @@
+import { sourceKey } from './key-pool.js';
 import { fail, now, id, audit, consumption, baseUrl } from './domain.js';
 import { effectiveQuotas, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
@@ -42,7 +43,8 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
   function select(req) {
     const state = db.read(), model = state.models.find(m=>m.id===req.params.id);
     if (!model) fail(404,'MODEL_NOT_FOUND','模型不存在');
-    const key = model.provider === 'ollama' ? null : state.keys.find(k=>k.id===(req.body?.keyId || model.key_id));
+    const source = state.settings.modelSources.find(source => source.id === model.source_id);
+    const key = model.provider === 'ollama' ? null : req.body?.keyId ? state.keys.find(k=>k.id===req.body.keyId && (!source || [source.key_id, ...(source.fallback_key_ids || [])].includes(k.id))) : source ? sourceKey(state, source) : state.keys.find(k=>k.id===model.key_id);
     if (model.provider !== 'ollama' && !key?.active) fail(400,'INVALID_KEY','请先选择启用的 Key');
     return { model: structuredClone(model), key: key ? structuredClone(key) : null };
   }

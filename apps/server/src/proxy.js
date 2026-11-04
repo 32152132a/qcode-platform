@@ -1,3 +1,4 @@
+import { sourceKeyIds, fetchWithKeys, suspendKey } from './key-pool.js';
 import { subscriptionFor } from './entitlements.js';
 import { Transform, Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -15,6 +16,7 @@ function parseUsage(value) {
 }
 
 export async function complete(req, res, { db, vault, config, activeRequests = new Map() }) {
+
   const body = req.body;
   const state = db.read(), models = availableModels(state, req.user), selectedModel = models.find(item => item.public_name === body?.model), department = departmentFor(state, req.user);
   const subscription = subscriptionFor(state, req.user);
@@ -31,7 +33,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
     model = configuredVisionModel(state);
     if (!model) fail(503, 'VISION_UNAVAILABLE', '当前模型不支持图片识别，请联系管理员在“模型与服务”中配置默认识图模型；文字对话仍可使用');
   }
-  const key = model.provider === 'ollama' ? null : effectiveKey(state, req.user, model);
+  let key = model.provider === 'ollama' ? null : effectiveKey(state, req.user, model);
   if (model.provider !== 'ollama' && !key?.active) fail(503, 'KEY_UNAVAILABLE', '模型服务暂不可用，请联系管理员');
   if (body.stream !== undefined && typeof body.stream !== 'boolean') fail(400, 'INVALID_STREAM', 'stream must be boolean');
   if (body.n !== undefined && body.n !== 1) fail(400, 'INVALID_N', 'Only one completion per request is supported');
@@ -42,6 +44,9 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   // UTF-8 bytes plus message/tool overhead is a conservative estimate, not a provider tokenizer.
   const reserved = Buffer.byteLength(JSON.stringify(body), 'utf8') + body.messages.length * 32 + outputLimit;
   const outbound = providerRequest(body, model, key ? vault.decrypt(key.secret) : undefined, outputLimit);
+  const payload = JSON.stringify(outbound.payload);
+  const source = state.settings.modelSources.find(source => source.id === model.source_id);
+  const keys = key && source ? sourceKeyIds(source).map(id => state.keys.find(item => item.id === id)).filter(item => item?.active) : [key];
   const requestId = id(), startedAt = now(), started = Date.now();
   db.transaction(next => {
     const user = next.users.find(u => u.id === req.user.id), used = consumption(next, user, config.timezone, startedAt);
@@ -60,8 +65,19 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   const onClose = () => { if (!res.writableFinished) { disconnected = true; controller.abort(); } };
   res.on('close', onClose);
   try {
-    const response = await fetch(outbound.url, { method: 'POST', redirect: 'error',
-      headers: outbound.headers, body: JSON.stringify(outbound.payload), signal: controller.signal });
+    const response = await fetchWithKeys({ db, keys, signal: controller.signal,
+      build: candidate => ({url: outbound.url, method: 'POST', body: payload,
+        headers: {...outbound.headers, ...(candidate ? {Authorization: 'Bearer ' + vault.decrypt(candidate.secret)} : {})},
+      }),
+      attempt: candidate => {
+        key = candidate;
+        db.transaction(next => {
+          const record = next.requests.find(item => item.id === requestId);
+          record.key_id = key?.id || null;
+          (record.key_attempts ||= []).push({ key_id: key?.id || null, started_at: now() });
+        });
+      },
+    });
     upstreamStatus = response.status;
     if (!response.ok) {
       await response.body?.cancel();
@@ -123,8 +139,10 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
     }
     status = 'success';
   } catch (error) {
-    status = disconnected || active.reason ? 'cancelled' : 'failed';
-    errorCode = active.reason || (timedOut ? 'UPSTREAM_TIMEOUT' : disconnected ? 'CLIENT_DISCONNECTED' : error.code || 'UPSTREAM_UNAVAILABLE');
+    const upstreamFailure = ['INVALID_UPSTREAM_RESPONSE','UPSTREAM_STREAM_ERROR','INCOMPLETE_STREAM'].includes(error.code);
+    status = active.reason || (disconnected && !upstreamFailure) ? 'cancelled' : 'failed';
+    if (status === 'failed' && (timedOut || upstreamFailure)) suspendKey(db, key, timedOut ? '上游请求超时' : '上游响应异常');
+    errorCode = active.reason || (timedOut ? 'UPSTREAM_TIMEOUT' : upstreamFailure ? error.code : disconnected ? 'CLIENT_DISCONNECTED' : error.code || 'UPSTREAM_UNAVAILABLE');
     if (!res.headersSent && !res.destroyed) res.status(timedOut ? 504 : error.status || 502).json({ error: { type: 'gateway_error', code: errorCode,
       message: timedOut ? 'Model request timed out' : error.status ? error.message : 'Unable to complete model request' } });
     else if (!res.writableFinished) res.destroy();

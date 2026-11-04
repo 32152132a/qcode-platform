@@ -1,5 +1,6 @@
 import { subscriptionFor } from './entitlements.js';
 export { effectiveConcurrency } from './entitlements.js';
+import { sourceKey } from './key-pool.js';
 import { fail, quotaNames, now, period, resolveModel, quotaTokens } from './domain.js';
 export const rolePermissions = {
   admin: ['plans:read','plans:write','feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
@@ -16,6 +17,8 @@ export function effectiveQuotas(state, user) {
   return user.quota_mode === 'department' ? departmentFor(state, user)?.user_quotas || user.quotas : user.quotas;
 }
 export function effectiveKey(state, user, model = resolveModel(state, user)) {
+  const source = state.settings.modelSources.find(source => source.id === model?.source_id);
+  if (source) return sourceKey(state, source);
   const department = departmentFor(state, user);
   // A model-bound credential must not be replaced with another provider's user key.
   const keyId = model?.key_id || user.key_id || department?.key_id;

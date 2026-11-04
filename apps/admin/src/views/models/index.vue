@@ -42,6 +42,7 @@
             @change="toggle(source)"
         /></template>
         <template #status>
+          <el-tag v-if="source.kind !== 'local'" type="info">{{ (source.key_id ? 1 : 0) + (source.fallback_key_ids?.length || 0) }} 个 Key</el-tag>
           <el-tag :type="source.sync_status === 'failed' ? 'warning' : 'info'">{{
             source.synced_at
               ? '上次同步 ' + new Date(source.synced_at).toLocaleString()
@@ -171,23 +172,18 @@
       if (category === 'local')
         preset = String((await request<Row>('/admin/models/ollama-preset')).baseUrl)
       const fields: Field[] = [{ prop: 'name', label: '来源名称', required: true }]
-      if (category !== 'official')
-        fields.push({ prop: 'baseUrl', label: '服务基础地址', required: true })
+      fields.push({ prop: 'baseUrl', label: '服务基础地址', required: true })
       if (category !== 'local')
         fields.push(
           {
-            prop: 'apiKey',
-            label: source ? '替换 Key（留空保留）' : 'API Key',
-            type: 'password',
-          },
-          {
-            prop: 'keyId',
-            label: '或选择已有 Key',
+            prop: 'keyIds',
+            label: '站点 Key 池（按选择顺序使用）',
             type: 'select',
+            multiple: true,
             options: keys
-              .filter((k) => k.active)
+              .filter((k) => !k.source_id || k.source_id === source?.id)
               .map((k) => ({
-                label: String(k.name) + ' · …' + k.suffix,
+                label: String(k.name) + ' · …' + k.suffix + (k.active ? '' : '（已停用）'),
                 value: String(k.id),
               })),
           }
@@ -222,8 +218,7 @@
                 : category === 'local'
                   ? preset
                   : ''),
-            keyId: source?.key_id || '',
-            apiKey: '',
+            keyIds: [source?.key_id, ...(source?.fallback_key_ids || [])].filter(Boolean),
             autoSync: String(source?.auto_sync ?? true),
           },
           save: (value) =>

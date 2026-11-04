@@ -4,6 +4,7 @@ export interface ModelSource {
   kind: 'local' | 'official' | 'relay'
   base_url: string
   key_id: string | null
+  fallback_key_ids?: string[]
   protocol: string
   active: boolean
   auto_sync: boolean

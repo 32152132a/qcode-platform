@@ -71,10 +71,12 @@ test('image configuration and generation enforce demo, user, source and request 
 test('failed providers and URL-only or non-PNG results are rejected without leaking secrets or consuming daily image allowance', async t => {
   const f = await fixture(t); await f.configure({ dailyImagesPerUser: 1 });
   for (const mode of ['401', 'url', 'invalid']) {
+    await f.post('/admin/keys/' + f.source.key_id + '/update', {active: true}, f.session.token);
     f.mode(mode); const r = await f.post('/v1/images/generations', { prompt: mode }, f.session.token);
-    assert.equal(r.status, 502); assert(!JSON.stringify(r).includes('private-test-key'));
+    assert.equal(r.status, mode === '401' ? 503 : 502); assert(!JSON.stringify(r).includes('private-test-key'));
     assert.equal(f.db.read().requests.at(-1).status, 'failed');
   }
+  await f.post('/admin/keys/' + f.source.key_id + '/update', {active: true}, f.session.token);
   f.mode('ok'); assert.equal((await f.post('/v1/images/generations', { prompt: 'valid' }, f.session.token)).status, 200);
   assert.equal((await f.configure({ model: 123 })).status, 400);
   assert.equal((await f.post('/v1/images/generations', { prompt: 'many', n: 2 }, f.session.token)).status, 400);
@@ -95,6 +97,8 @@ test('image timeouts release concurrency, retain a failed audit and do not retry
   const r = await f.post('/v1/images/generations', { prompt: 'slow' }, f.session.token);
   assert.equal(r.status, 502); assert.equal(r.body.error.code, 'IMAGE_TIMEOUT');
   assert.equal(f.received.length, 1); assert.equal(f.db.read().requests[0].status, 'failed');
+  assert.equal(f.db.read().keys[0].active, false);
+  await f.post('/admin/keys/' + f.source.key_id + '/update', {active: true}, f.session.token);
   f.mode('ok'); assert.equal((await f.post('/v1/images/generations', { prompt: 'after timeout' }, f.session.token)).status, 200);
 });
 

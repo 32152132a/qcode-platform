@@ -42,3 +42,5 @@ import './feedback.test.js';
 import './plans.test.js';
 
 import './prepare-launch.test.js';
+
+import './key-pool.test.js';
