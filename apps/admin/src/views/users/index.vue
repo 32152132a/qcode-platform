@@ -11,7 +11,7 @@
         ><el-button @click="template">下载模板</el-button
         ><el-button type="primary" @click="edit()">创建用户</el-button></template
       ></template
-    ><DataTable :rows="data || []" :columns="columns" :actions="actions" /><EntityDialog
+    ><UserDialog ref="userDialog" /><DataTable :rows="data || []" :columns="columns" :actions="actions" /><PasswordDialog
       ref="editor" /><UserSessionsDialog ref="sessionDialog"
   /></PagePanel>
 </template>
@@ -20,21 +20,23 @@
   import { ElMessage } from 'element-plus'
   import PagePanel from '@/components/PagePanel/index.vue'
   import DataTable, { type RowAction } from '@/components/DataTable/index.vue'
-  import EntityDialog from '@/components/EntityDialog/index.vue'
+  import UserDialog from './components/UserDialog/index.vue'
+  import PasswordDialog from './components/PasswordDialog/index.vue'
   import UserSessionsDialog from './components/UserSessionsDialog/index.vue'
   import { useResource } from '@/hooks/useResource'
   import { useAuthStore } from '@/stores/auth'
   import { request } from '@/api/request'
-  import { quotaFields, quotaValues, quotaBody, date, confirmAction } from '@/utils/forms'
+  import { date, confirmAction } from '@/utils/forms'
   import { importUsersCsv, downloadText } from '@/utils/csv'
-  import type { Row, Field, Column } from '@/types'
+  import type { Row, Column } from '@/types'
   const auth = useAuthStore(),
     { data, loading, error, load } = useResource<Row[]>(() => '/admin/users'),
-    editor = ref<InstanceType<typeof EntityDialog>>(),
-    sessionDialog = ref<InstanceType<typeof UserSessionsDialog>>()
+    editor = ref<InstanceType<typeof PasswordDialog>>()
+  const userDialog=ref<InstanceType<typeof UserDialog>>()
+  const sessionDialog = ref<InstanceType<typeof UserSessionsDialog>>()
   const columns: Column[] = [
     { prop: 'username', label: '用户', minWidth: 120 },
-    { prop: 'department', label: '部门' },
+    { prop: 'plan_name', label: '套餐' },
     { prop: 'role', label: '角色' },
     { prop: 'is_active', label: '状态', render: (r) => (r.is_active ? '启用' : '禁用') },
     { prop: 'created_at', label: '创建时间', minWidth: 175, render: (r) => date(r.created_at) },
@@ -70,18 +72,7 @@
     {
       label: '重置密码',
       visible: writable,
-      run: (r) =>
-        editor.value?.open(
-          {
-            title: '重置 ' + r.username + ' 密码',
-            fields: [
-              { prop: 'password', label: '新密码（至少 10 位）', type: 'password', required: true },
-            ],
-            value: { password: '' },
-            save: (value) => request('/admin/users/' + r.id + '/password', 'POST', value),
-          },
-          load
-        ),
+      run: (r) => editor.value?.open(r,load),
     },
     { label: '登录设备', visible: writable, run: openSessions },
     {
@@ -126,105 +117,7 @@
         ),
     },
   ])
-  async function edit(row?: Row) {
-    try {
-      const [departments, models, keys] = await Promise.all([
-        request<Row[]>('/admin/departments'),
-        auth.can('models:read') ? request<Row[]>('/admin/models') : Promise.resolve([]),
-        auth.can('keys:read') ? request<Row[]>('/admin/keys') : Promise.resolve([]),
-      ])
-      const options = (rows: Row[]) => [
-        { label: '不指定', value: '' },
-        ...rows.map((r) => ({ label: String(r.name), value: String(r.id) })),
-      ]
-      const fields: Field[] = [
-        ...(!row
-          ? [
-              { prop: 'username', label: '账号', required: true },
-              {
-                prop: 'password',
-                label: '初始密码（至少 10 位）',
-                type: 'password',
-                required: true,
-              },
-            ]
-          : []),
-        { prop: 'departmentId', label: '部门', type: 'select', options: options(departments) },
-        { prop: 'modelId', label: '默认模型', type: 'select', options: options(models) },
-        {
-          prop: 'quotaMode',
-          label: '额度来源',
-          type: 'select',
-          options: [
-            { label: '个人额度', value: 'custom' },
-            { label: '继承部门', value: 'department' },
-          ],
-        },
-        { prop: 'sessionLimit', label: '登录设备上限', type: 'number' },
-        { prop: 'maxConcurrentRequests', label: '并发请求上限', type: 'number' },
-        ...quotaFields,
-      ]
-      if (auth.can('keys:read'))
-        fields.push({
-          prop: 'keyId',
-          label: '专用 Key（可不指定）',
-          type: 'select',
-          options: options(keys),
-        })
-      if (auth.user?.role === 'admin')
-        fields.push({
-          prop: 'role',
-          label: '角色',
-          type: 'select',
-          options: [
-            { label: '普通用户', value: 'user' },
-            { label: '运维', value: 'operator' },
-            { label: '审计员', value: 'auditor' },
-            { label: '演示账号', value: 'demo' },
-            { label: '管理员', value: 'admin' },
-          ],
-        })
-      editor.value?.open(
-        {
-          title: row ? '编辑 ' + row.username : '创建用户',
-          fields,
-          value: {
-            ...quotaValues(row),
-            username: '',
-            password: '',
-            departmentId: row?.department_id || '',
-            modelId: row?.model_id || '',
-            keyId: row?.key_id || '',
-            quotaMode: row?.quota_mode || 'custom',
-            sessionLimit: row?.session_limit ?? 1,
-            maxConcurrentRequests: row?.max_concurrent_requests ?? 1,
-            role: row?.role || 'user',
-          },
-          save: (value) => {
-            const body: Row = {
-              departmentId: value.departmentId || null,
-              modelId: value.modelId || null,
-              quotaMode: value.quotaMode,
-              maxConcurrentRequests: Number(value.maxConcurrentRequests),
-              quotas: quotaBody(value),
-            }
-            if (!row || Number(value.sessionLimit) !== row.session_limit)
-              body.sessionLimit = Number(value.sessionLimit)
-            if (auth.can('keys:read')) body.keyId = value.keyId || null
-            if (auth.user?.role === 'admin') body.role = value.role
-            if (!row) {
-              body.username = value.username
-              body.password = value.password
-            }
-            return request('/admin/users' + (row ? '/' + row.id : ''), row ? 'PATCH' : 'POST', body)
-          },
-        },
-        load
-      )
-    } catch (cause) {
-      ElMessage.error(cause instanceof Error ? cause.message : '读取失败')
-    }
-  }
+  function edit(row?:Row){userDialog.value?.open(row,load)}
   function openSessions(row: Row) {
     return sessionDialog.value?.open(row, load)
   }
@@ -237,6 +130,6 @@
     }
   }
   function template() {
-    downloadText('员工导入模板.csv', '\uFEFF用户名,初始密码,部门\r\n')
+    downloadText('员工导入模板.csv', '\uFEFF用户名,初始密码\r\n')
   }
 </script>

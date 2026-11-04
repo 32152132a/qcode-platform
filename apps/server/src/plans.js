@@ -113,12 +113,14 @@ function grant(state, userId, snapshot, actor, orderId = null) {
   audit(state, actor, "plan.grant", entry.id);
   return entry;
 }
-export function assignDefaultPlan(state, user, actor) {
+export function assignUserPlan(state, user, actor, planId) {
   if (user.role !== "user") return;
-  const plan = state.plans.find(
-    (item) => item.is_default && item.active && item.price_cents === 0,
-  );
-  if (plan) grant(state, user.id, terms(plan, state), actor);
+  const plan = planId ? state.plans.find(item=>item.id===planId && item.active) : state.plans.find(item=>item.is_default && item.active && item.price_cents===0);
+  if (planId && !plan) fail(400,'INVALID_PLAN','请选择启用的套餐');
+  if (plan) {
+    if (user.model_id && !plan.model_ids.includes(user.model_id)) fail(400,'PLAN_MODEL_NOT_ALLOWED','默认模型不在所选套餐内，请重新选择');
+    grant(state, user.id, terms(plan, state), actor);
+  }
 }
 export function registerPlans(app, { db, auth, config }) {
   const paymentFor = registerBillingPayment(app, { db, config });

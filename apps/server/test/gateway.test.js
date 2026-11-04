@@ -165,7 +165,7 @@ test('retired JSON databases are rejected without changing their contents', () =
 
 test('configuration validates encryption, URLs and numeric values', () => {
   assert.throws(() => readConfig({}), /KEY_ENCRYPTION_SECRET/);
-  assert.throws(() => readConfig({ KEY_ENCRYPTION_SECRET: encryptionSecret, UPSTREAM_BASE_URL: 'https://a:b@example.com' }), /base URL/);
+  assert.throws(() => readConfig({ KEY_ENCRYPTION_SECRET: encryptionSecret, UPSTREAM_BASE_URL: 'https://a:b@example.com' }), /基础地址/);
   assert.throws(() => readConfig({ KEY_ENCRYPTION_SECRET: encryptionSecret, PORT: '-1' }), /PORT/);
 });
 

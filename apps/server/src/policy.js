@@ -1,40 +1,26 @@
 import { subscriptionFor } from './entitlements.js';
 export { effectiveConcurrency } from './entitlements.js';
 import { sourceKey } from './key-pool.js';
-import { fail, quotaNames, now, period, resolveModel, quotaTokens } from './domain.js';
+import { fail, quotaNames, resolveModel } from './domain.js';
 export const rolePermissions = {
-  admin: ['plans:read','plans:write','feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
-  operator: ['users:read','users:write','models:read','departments:read','departments:write','skills:read','skills:write','usage:read','requests:read','system:read'],
-  auditor: ['users:read','departments:read','usage:read','requests:read','audits:read','system:read'],
+  admin: ['plans:read','plans:write','feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
+  operator: ['users:read','users:write','models:read','skills:read','skills:write','usage:read','requests:read','system:read'],
+  auditor: ['users:read','usage:read','requests:read','audits:read','system:read'],
   user: [],
 };
 rolePermissions.demo = rolePermissions.admin.filter(permission => permission.endsWith(':read') && !permission.startsWith('feedback:'));
 export const permissions = user => Object.hasOwn(rolePermissions, user.role) ? rolePermissions[user.role] : [];
-export const departmentFor = (state, user) => state.departments.find(d => d.id === user.department_id);
 export function effectiveQuotas(state, user) {
   const subscription = subscriptionFor(state, user);
   if (subscription) return subscription.terms.quotas;
-  return user.quota_mode === 'department' ? departmentFor(state, user)?.user_quotas || user.quotas : user.quotas;
+  return user.quotas;
 }
 export function effectiveKey(state, user, model = resolveModel(state, user)) {
   const source = state.settings.modelSources.find(source => source.id === model?.source_id);
   if (source) return sourceKey(state, source);
-  const department = departmentFor(state, user);
   // A model-bound credential must not be replaced with another provider's user key.
-  const keyId = model?.key_id || user.key_id || department?.key_id;
+  const keyId = model?.key_id || user.key_id;
   return state.keys.find(key => key.id === keyId);
-}
-export function departmentConsumption(state, department, timezone, timestamp = now()) {
-  const day = period(timestamp, timezone), used = Object.fromEntries(quotaNames.map(name => [name, 0]));
-  for (const row of state.requests) {
-    if (row.department_id !== department.id || (department.quota_reset_at && row.started_at < department.quota_reset_at)) continue;
-    const tokens = quotaTokens(row);
-    used.totalTokens += tokens; used.totalRequests++;
-    const requestDay = period(row.started_at, timezone);
-    if (requestDay === day) { used.dailyTokens += tokens; used.dailyRequests++; }
-    if (requestDay.slice(0,7) === day.slice(0,7)) { used.monthlyTokens += tokens; used.monthlyRequests++; }
-  }
-  return used;
 }
 export function checkQuota(limits, used, reserved, label = '') {
   for (const name of quotaNames) {

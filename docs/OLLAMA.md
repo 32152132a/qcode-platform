@@ -4,7 +4,7 @@
 
 服务器已有 Ollama 0.17.4，模型 qwen:0.5b，声明 completion 能力、32768 上下文；nomic-embed-text 是向量模型。此任务只验证小模型文本连通性，不能据此保证 OpenCode 的文件/命令工具可用。不下载或替换模型，不更改默认模型或账号分配，不重建员工安装包。
 
-可选私有环境变量 OLLAMA_BASE_URL 首次启动时添加 qcode-qwen-local 模型，默认输出上限 256，非默认模型，记录 model.provision 审计。初始化标记存在 SQLite settings JSON 中，没有新增表；后续重启不会覆盖管理员地址，也不会恢复已删除的模型。模型添加后，管理员可在用户/部门配置中分配。手动创建模型时选择 Ollama 来源可读取配置地址及模型列表。
+可选私有环境变量 OLLAMA_BASE_URL 首次启动时添加 qcode-qwen-local 模型，默认输出上限 256，非默认模型，记录 model.provision 审计。初始化标记存在 SQLite settings JSON 中，没有新增表；后续重启不会覆盖管理员地址，也不会恢复已删除的模型。模型添加后，管理员可将其加入套餐的可用模型。手动创建模型时选择 Ollama 来源可读取配置地址及模型列表。
 
 当前服务器 QCode 的 Docker 网关是 172.20.0.1，已验证 http://172.20.0.1:11434/v1 可读取模型；容器里的 localhost 指向 QCode 容器自身。地址保存在后台/私有环境变量，Docker 网络变更时应检查并更新，不向员工暴露模型服务地址。
 

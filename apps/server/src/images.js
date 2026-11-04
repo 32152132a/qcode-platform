@@ -1,7 +1,7 @@
 import { sourceKey, sourceKeyIds, fetchWithKeys, suspendKey } from './key-pool.js';
 import { subscriptionFor } from './entitlements.js';
 import { now, id, text, integer, fail, audit, consumption, period, availableModels } from './domain.js';
-import { effectiveQuotas, checkQuota, departmentFor, departmentConsumption } from './policy.js';
+import { effectiveQuotas, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
 import { sourcesFor } from './model-sources.js';
 
@@ -58,7 +58,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
         Object.assign(value, {enabled: true, sourceId: source.id, model: model.upstream_model, modelId: model.id});
         if (value.visionModelId === model.id) value.visionModelId = '';
         model.model_type = 'image'; model.capabilities = ['image_generation']; model.is_default = false;
-        for (const item of [...state.users, ...state.departments]) if (item.model_id === model.id) item.model_id = null;
+        for (const item of state.users) if (item.model_id === model.id) item.model_id = null;
       }
       model.active = true;
     }
@@ -97,15 +97,13 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
       if (subscription && subscription.expires_at <= now()) fail(403, 'SUBSCRIPTION_EXPIRED', '套餐已到期，请申请重新开通或联系管理员');
       const value = settings(state);
       if (!value.enabled) fail(503, 'IMAGE_GENERATION_DISABLED', '管理员尚未启用生图服务');
-      const { source, key } = configuredSource(state, value), user = state.users.find(item => item.id === req.user.id), department = departmentFor(state, user);
-      if (department && !department.active) fail(403, 'DEPARTMENT_DISABLED', '所在部门已停用');
+      const { source, key } = configuredSource(state, value), user = state.users.find(item => item.id === req.user.id);
       if (state.requests.filter(item => item.status === 'pending').length >= settingsFor(state).maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关繁忙，请稍后重试');
       const used = state.requests.filter(item => item.user_id === user.id && item.purpose === 'image_generation' && ['pending','success'].includes(item.status) && period(item.started_at, config.timezone) === period(startedAt, config.timezone)).length;
       if (used >= value.dailyImagesPerUser) fail(429, 'IMAGE_QUOTA_EXCEEDED', '今日生图张数已达上限');
       checkQuota(effectiveQuotas(state, user), consumption(state, user, config.timezone, startedAt), 0, '用户 ');
-      if (department) checkQuota(department.quotas, departmentConsumption(state, department, config.timezone, startedAt), 0, '部门 ');
       selected = { model: value.model, source: structuredClone(source), key: structuredClone(key) };
-      state.requests.push({ id: requestId, subscription_id: subscription?.id || null, user_id: user.id, username: user.username, model: value.model, model_id: value.modelId || null, key_id: key?.id || null, department_id: department?.id || null, department_name: department?.name || '', started_at: startedAt, status: 'pending', purpose: 'image_generation', reserved_tokens: 0, charged_tokens: 0, total_tokens: null, input_tokens: null, output_tokens: null });
+      state.requests.push({ id: requestId, subscription_id: subscription?.id || null, user_id: user.id, username: user.username, model: value.model, model_id: value.modelId || null, key_id: key?.id || null, started_at: startedAt, status: 'pending', purpose: 'image_generation', reserved_tokens: 0, charged_tokens: 0, total_tokens: null, input_tokens: null, output_tokens: null });
     });
     const controller = new AbortController(), active = { userId: req.user.id, sessionId: req.session.id, controller, reason: null };
     activeRequests.set(requestId, active);

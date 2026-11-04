@@ -30,21 +30,18 @@ test('empty usage keeps finite zero totals and empty dimensions',()=>{
 
 test('historical estimates never consume quota or inflate actual statistics; pending holds are temporary', async()=>{
  const {consumption,quotas}=await import('../src/domain.js');
- const {departmentConsumption}=await import('../src/policy.js');
- const user={id:1,quotas:quotas()}, department={id:'team'};
+ const user={id:1,quotas:quotas()};
  const rows=[
- {user_id:1,department_id:'team',started_at:'2026-10-31T01:00:00Z',status:'failed',total_tokens:null,charged_tokens:90000,reserved_tokens:90000},
- {user_id:1,department_id:'team',started_at:'2026-10-31T01:00:00Z',status:'success',input_tokens:10,output_tokens:20,total_tokens:30,charged_tokens:90000},
- {user_id:1,department_id:'team',started_at:'2026-10-31T01:00:00Z',status:'pending',reserved_tokens:100},
+ {user_id:1,started_at:'2026-10-31T01:00:00Z',status:'failed',total_tokens:null,charged_tokens:90000,reserved_tokens:90000},
+ {user_id:1,started_at:'2026-10-31T01:00:00Z',status:'success',input_tokens:10,output_tokens:20,total_tokens:30,charged_tokens:90000},
+ {user_id:1,started_at:'2026-10-31T01:00:00Z',status:'pending',reserved_tokens:100},
  ];
  const state={requests:rows};
  assert.equal(consumption(state,user,'Asia/Shanghai').totalTokens,130);
- assert.equal(departmentConsumption(state,department,'Asia/Shanghai').totalTokens,130);
  assert.equal(statistics(state,'Asia/Shanghai').totals.tokens,30);
  assert.equal(statistics(state,'Asia/Shanghai').totals.inputTokens,10);
  rows[2].status='cancelled';
  assert.equal(consumption(state,user,'Asia/Shanghai').totalTokens,30);
- assert.equal(departmentConsumption(state,department,'Asia/Shanghai').totalTokens,30);
  assert.equal(rows[0].charged_tokens,90000,'historical raw values are preserved');
  assert.deepEqual(filterRecords(rows,{status:'errors'},'Asia/Shanghai').map(r=>r.status),['failed','cancelled']);
  assert.equal(filterRecords([{...rows[0],model_id:'one'}, {...rows[1],model_id:'two'}],{modelId:'two'},'Asia/Shanghai').length,1);

@@ -299,7 +299,7 @@
   async function removeModel(model: Model) {
     try {
       await ElMessageBox.confirm(
-        '删除模型“' + model.name + '”？员工和部门的默认选择将清除，历史调用与用量保留。再次同步不会自动加回，可手动重新导入。',
+        '删除模型“' + model.name + '”？员工的默认选择将清除，历史调用与用量保留。再次同步不会自动加回，可手动重新导入。',
         '删除模型',
         { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
       )

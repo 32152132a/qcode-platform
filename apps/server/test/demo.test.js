@@ -17,7 +17,7 @@ test('demo can query real records and open forms but cannot mutate or consume mo
   assert.equal(login.user.role, 'demo');
   assert(login.user.permissions.length > 0);
   assert(login.user.permissions.every(permission => permission.endsWith(':read')));
-  for (const route of ['/admin/users', '/admin/models', '/admin/keys', '/admin/departments', '/admin/skills', '/admin/knowledge', '/admin/usage', '/admin/requests', '/admin/audits', '/admin/system', '/admin/settings'])
+  for (const route of ['/admin/users', '/admin/models', '/admin/keys', '/admin/skills', '/admin/knowledge', '/admin/usage', '/admin/requests', '/admin/audits', '/admin/system', '/admin/settings'])
     assert.equal((await f.request(route, 'GET', undefined, login.token)).status, 200, route);
   const keys = (await f.request('/admin/keys', 'GET', undefined, login.token)).body;
   assert(!JSON.stringify(keys).includes('secret-provider-key'));

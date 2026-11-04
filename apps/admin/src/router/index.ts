@@ -5,7 +5,6 @@ const pages = {
   users: () => import('@/views/users/index.vue'),
   models: () => import('@/views/models/index.vue'),
   keys: () => import('@/views/keys/index.vue'),
-  departments: () => import('@/views/departments/index.vue'),
   skills: () => import('@/views/skills/index.vue'),
   plans: () => import('@/views/plans/index.vue'),
   feedback: () => import('@/views/feedback/index.vue'),

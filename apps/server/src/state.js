@@ -1,8 +1,8 @@
 export function emptyState() {
-  return { version: 4, users: [], tokens: [], keys: [], models: [], departments: [], skills: [], feedback: [], plans: [], planOrders: [], subscriptions: [], paymentSettings: [], requests: [], audits: [], loginFailures: [], settings: { modelSources: [] }, nextUserId: 1 };
+  return { version: 5, users: [], tokens: [], keys: [], models: [], skills: [], feedback: [], plans: [], planOrders: [], subscriptions: [], paymentSettings: [], requests: [], audits: [], loginFailures: [], settings: { modelSources: [] }, nextUserId: 1 };
 }
 export function normalizeState(state, vault) {
-  if (state.version !== 4) throw new Error('Unsupported database version; confirm a test-data reset before initializing the current format.');
+  if (state.version !== 5) throw new Error('Unsupported database version; see docs/ADMIN-ACCOUNTS.md and run the reviewed offline migration before starting.');
   for (const [name, value] of Object.entries(emptyState())) {
     if (Array.isArray(value) && !Array.isArray(state[name])) throw new Error('Invalid database collection: ' + name);
   }

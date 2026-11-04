@@ -34,34 +34,14 @@ test('roles constrain both UI data access and direct write endpoints', async t =
   assert.equal((await f.request('/admin/users','POST',{username:'prototype',password:'other-password',role:'constructor'},f.admin)).status,403);
 });
 
-test('department model/key inheritance and shared quota are enforced across users', async t => {
+test('skills publish to all users, update by revision and reject unsafe paths', async t => {
   const f = await fixture(t);
-  const department = (await f.request('/admin/departments','POST',{name:'Engineering',keyId:f.key.id,quotas:{totalRequests:1},userQuotas:{monthlyTokens:100000}},f.admin)).body;
-  const alice = await f.create('alice',{departmentId:department.id,keyId:null,quotaMode:'department'});
-  await f.create('bob',{departmentId:department.id,keyId:null,quotaMode:'department'});
-  const tokens = await Promise.all([f.login('alice'),f.login('bob')]);
-  const results = await Promise.all(tokens.map(token => f.chat(token,{testCase:'slow'})));
-  assert.deepEqual(results.map(r=>r.status).sort(),[200,429]);
-  assert.equal(f.db.read().requests[0].department_id,department.id);
-  assert.equal((await f.request('/auth/me','GET',undefined,tokens[0])).body.effective_quotas.monthlyTokens,100000);
-  await f.request(`/admin/departments/${department.id}/reset-quota`,'POST',{},f.admin);
-  assert.equal((await f.chat(tokens[1])).status,200);
-  assert.equal((await f.request(`/admin/keys/${f.key.id}`,'DELETE',undefined,f.admin)).status,409);
-  assert.equal((await f.request(`/admin/departments/${department.id}`,'DELETE',undefined,f.admin)).status,409);
-  await f.request(`/admin/departments/${department.id}`,'PUT',{name:'Engineering',active:false,quotas:{},userQuotas:{}},f.admin);
-  assert.equal((await f.chat(tokens[0])).body.error.code,'DEPARTMENT_DISABLED');
-  assert.ok(alice.id);
-});
-
-test('skills publish by department, update by revision and reject unsafe paths', async t => {
-  const f = await fixture(t);
-  const department = (await f.request('/admin/departments','POST',{name:'Research'},f.admin)).body;
-  await f.create('alice',{departmentId:department.id}); await f.create('bob');
+  await f.create('alice'); await f.create('bob');
   const alice = await f.login('alice'), bob = await f.login('bob');
-  const data = {name:'team-review',description:'Review code carefully',content:'Check tests and explain risks.',departmentIds:[department.id],files:{'references/rules.md':'Use small changes.'}};
+  const data = {name:'team-review',description:'Review code carefully',content:'Check tests and explain risks.',files:{'references/rules.md':'Use small changes.'}};
   const skill = (await f.request('/admin/skills','POST',data,f.admin)).body;
   assert.equal((await f.request('/client/skills','GET',undefined,alice)).body.skills.length,1);
-  assert.equal((await f.request('/client/skills','GET',undefined,bob)).body.skills.length,0);
+  assert.equal((await f.request('/client/skills','GET',undefined,bob)).body.skills.length,1);
   assert.equal((await f.request('/admin/skills','POST',{...data,name:'bad',files:{'../escape.md':'bad'}},f.admin)).status,400);
   assert.equal((await f.request('/admin/skills','POST',{...data,name:'bad',files:{'CON.txt':'bad'}},f.admin)).status,400);
   const updated = await f.request(`/admin/skills/${skill.id}`,'PUT',{...data,content:'New rules.',active:false},f.admin);

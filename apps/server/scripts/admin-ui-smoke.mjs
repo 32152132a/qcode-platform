@@ -44,6 +44,7 @@ try {
   await page.getByText('抱歉，您访问的页面不存在', { exact: true }).waitFor()
   await page.getByRole('button', { name: '返回首页', exact: true }).click()
   await page.getByRole('heading', { name: '员工安装即用，团队统一管理', exact: true }).waitFor()
+  assert.equal(await page.getByRole('menuitem', {name:'部门管理',exact:true}).count(),0)
   console.log('NAVIGATION, HOMEPAGE AND 404 passed')
   async function checkPageBounds(route) {
     await page.waitForFunction(() => !document.querySelector('.el-loading-mask'))
@@ -68,7 +69,6 @@ try {
     users: '用户管理',
     models: '模型与服务',
     keys: 'Key 管理',
-    departments: '部门管理',
     skills: '共享 Skill',
     knowledge: '团队知识库',
     overview: '工作台概览',
@@ -95,17 +95,23 @@ try {
   await page.getByRole('button', { name: '创建用户', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('账号', { exact: true }).fill('browser-user')
-  await dialog.getByLabel('初始密码（至少 10 位）', { exact: true }).fill('user-test-password')
+  await dialog.getByLabel('初始密码（10～256 位）', { exact: true }).fill('user-test-password')
   await dialog.getByRole('button', { name: '保存', exact: true }).click()
   await dialog.waitFor({ state: 'hidden' })
   await page.getByText('browser-user', { exact: true }).first().waitFor()
   console.log('CREATE USER passed')
+  const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem('qcode.admin.session')))
+  await page.request.post(origin + '/admin/keys/create', {headers:{Authorization:'Bearer ' + session.token},data:{name:'Smoke Key',apiKey:'fixture-only-private-key'}})
   await page.goto(origin + '/manage/models')
   await page.getByRole('tab', { name: /中转站/ }).click()
   await page.getByRole('button', { name: '添加中转站' }).click()
   await dialog.getByLabel('来源名称', { exact: true }).fill('Test relay')
   await dialog.getByLabel('服务基础地址', { exact: true }).fill('https://example.invalid/v1')
-  await dialog.getByLabel('API Key', { exact: true }).fill('fixture-only-private-key')
+  await dialog.locator('.el-form-item').filter({hasText:'站点 Key 池（按选择顺序使用）'}).locator('.el-select').click()
+  await page.getByRole('option', {name:/Smoke Key/}).click()
+  await page.keyboard.press('Escape')
+  await dialog.locator('.el-form-item').filter({hasText:'启动时自动刷新模型列表'}).locator('.el-select').click()
+  await page.getByRole('option', {name:'关闭',exact:true}).click()
   await dialog.getByRole('button', { name: '保存', exact: true }).click()
   await dialog.waitFor({ state: 'hidden' })
   await page.getByRole('heading', { name: 'Test relay', exact: true }).waitFor()

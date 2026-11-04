@@ -1,16 +1,11 @@
 import { createHash } from 'node:crypto';
 import { configuredVisionModel } from './model-sources.js';
 import { modelPresentation } from './model-presentation.js';
-import { now, id, text, integer, quotas, fail, audit, resolveModel, availableModels, publicUser } from './domain.js';
-import { departmentConsumption, permissions } from './policy.js';
+import { now, id, text, integer, fail, audit, resolveModel, availableModels, publicUser } from './domain.js';
 export const clientVersion = '0.3.0';
 const defaults = { organizationName: 'QCode', supportMessage: '遇到问题请联系管理员', minimumClientVersion: '0.3.0', maxActiveRequests: 64, auditRetentionDays: 180 };
 export const settingsFor = state => ({ ...defaults, ...state.settings });
-export const assignedSkills = (state, user) => state.skills.filter(s => s.active && (!s.department_ids.length || s.department_ids.includes(user.department_id)));
-function validateDepartmentReferences(state, body) {
-  if (body.modelId != null && !state.models.some(m => m.id === body.modelId && m.active)) fail(400, 'INVALID_MODEL', '请选择启用的模型');
-  if (body.keyId != null && !state.keys.some(k => k.id === body.keyId && k.active)) fail(400, 'INVALID_KEY', '请选择启用的 Key');
-}
+export const assignedSkills = state => state.skills.filter(skill => skill.active);
 export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests }) {
   app.post('/client/config', auth, (req, res) => {
     const state = db.read(), model = resolveModel(state, req.user), settings = settingsFor(state);
@@ -19,58 +14,15 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       contextWindow: model?.context_window || 131072, maxOutputTokens: model?.max_output_tokens || 8192,
       maxTokensField: model?.max_tokens_field || 'max_tokens', minimumClientVersion: settings.minimumClientVersion,
       organizationName: settings.organizationName, supportMessage: settings.supportMessage,
-      skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state, req.user).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
+      skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
   });
-  app.post('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read(), req.user).map(s => ({ id: s.id, name: s.name, kind: s.kind === 'knowledge' ? 'knowledge' : 'skill', title: s.knowledge?.title || s.name, description: s.description, revision: s.revision, files: s.files })) }));
-  app.post('/admin/departments/list', (_req, res) => {
-    const state = db.read();
-    res.json(state.departments.map(d => ({ ...d, members: state.users.filter(u => u.department_id === d.id).length, used: departmentConsumption(state, d, config.timezone) })));
-  });
-  function saveDepartment(state, body, actor, existing) {
-    validateDepartmentReferences(state, body);
-    const name = text(body.name, '部门名称', 80);
-    if (state.departments.some(d => d.id !== existing?.id && d.name === name)) fail(409, 'DEPARTMENT_EXISTS', '部门名称已存在');
-    if (actor.role !== 'admin' && body.keyId !== undefined && body.keyId !== (existing?.key_id || null)) fail(403, 'KEY_ADMIN_REQUIRED', '只有管理员可以配置部门 Key');
-    const department = { ...existing, id: existing?.id || id(), name, active: body.active !== false, model_id: body.modelId ?? null,
-      key_id: body.keyId ?? existing?.key_id ?? null, quotas: quotas(body.quotas), user_quotas: quotas(body.userQuotas), created_at: existing?.created_at || now() };
-    if (existing) Object.assign(existing, department); else state.departments.push(department);
-    for (const user of state.users.filter(u => u.department_id === department.id)) user.department = department.name;
-    audit(state, actor, existing ? 'department.update' : 'department.create', department.id);
-    return department;
-  }
-  app.post('/admin/departments/create', (req, res) => res.status(201).json(db.transaction(state => saveDepartment(state, req.body || {}, req.user))));
-  app.post('/admin/departments/:id/update', (req, res) => {
-    const result = db.transaction(state => {
-      const department = state.departments.find(d => d.id === req.params.id);
-      if (!department) fail(404, 'DEPARTMENT_NOT_FOUND', '部门不存在');
-      return saveDepartment(state, req.body || {}, req.user, department);
-    });
-    if (!result.active) for (const user of db.read().users.filter(u => u.department_id === result.id)) cancelRequests(user.id, 'DEPARTMENT_DISABLED');
-    res.json(result);
-  });
-  app.post('/admin/departments/:id/reset-quota', (req, res) => {
-    db.transaction(state => {
-      const department = state.departments.find(d => d.id === req.params.id);
-      if (!department) fail(404, 'DEPARTMENT_NOT_FOUND', '部门不存在');
-      if (state.requests.some(r => r.department_id === department.id && r.status === 'pending')) fail(409, 'REQUEST_IN_PROGRESS', '请等待本部门进行中的请求完成');
-      department.quota_reset_at = now(); audit(state, req.user, 'department.quota.reset', department.id);
-    }); res.json({ ok: true });
-  });
-  app.post('/admin/departments/:id/delete', (req, res) => {
-    db.transaction(state => {
-      if (!state.departments.some(d => d.id === req.params.id)) fail(404, 'DEPARTMENT_NOT_FOUND', '部门不存在');
-      if (state.users.some(u => u.department_id === req.params.id) || state.skills.some(s => s.department_ids.includes(req.params.id))) fail(409, 'DEPARTMENT_IN_USE', '请先移出成员并调整关联的 Skill');
-      state.departments = state.departments.filter(d => d.id !== req.params.id); audit(state, req.user, 'department.delete', req.params.id);
-    }); res.json({ ok: true });
-  });
+  app.post('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read()).map(s => ({ id: s.id, name: s.name, kind: s.kind === 'knowledge' ? 'knowledge' : 'skill', title: s.knowledge?.title || s.name, description: s.description, revision: s.revision, files: s.files })) }));
   app.post('/admin/skills/list', (_req, res) => res.json(db.read().skills.filter(s=>s.kind!=='knowledge')));
   function saveSkill(state, body, actor, existing) {
     const name = text(body.name, 'Skill 名称', 64);
     if (!/^[a-z][a-z0-9-]*$/.test(name)) fail(400, 'INVALID_SKILL_NAME', 'Skill 名称只能使用小写字母、数字和短横线，并以字母开头');
     if (state.skills.some(s => s.name === name && s.id !== existing?.id)) fail(409, 'SKILL_EXISTS', 'Skill 名称已存在');
     const description = text(body.description, 'Skill 描述', 500), content = text(body.content, 'Skill 内容', 256000);
-    const departmentIds = body.departmentIds || [];
-    if (!Array.isArray(departmentIds) || departmentIds.some(value => !state.departments.some(d => d.id === value))) fail(400, 'INVALID_DEPARTMENT', 'Skill 部门配置无效');
     const extraFiles = body.files || {};
     if (typeof extraFiles !== 'object' || Array.isArray(extraFiles) || Object.keys(extraFiles).length > 30) fail(400, 'INVALID_SKILL_FILES', '附加文件最多 30 个');
     const files = { 'SKILL.md': `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${content}\n` };
@@ -80,7 +32,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       files[filename] = value;
     }
     if (Buffer.byteLength(JSON.stringify(files)) > 1024 * 1024) fail(400, 'SKILL_TOO_LARGE', '每个 Skill 文件总大小上限为 1 MB');
-    const skill = { id: existing?.id || id(), name, description, content, files, active: body.active !== false, department_ids: [...new Set(departmentIds)],
+    const skill = { id: existing?.id || id(), name, description, content, files, active: body.active !== false,
       revision: createHash('sha256').update(JSON.stringify(files)).digest('hex'), created_at: existing?.created_at || now(), updated_at: now() };
     if (existing) Object.assign(existing, skill); else state.skills.push(skill);
     audit(state, actor, existing ? 'skill.update' : 'skill.create', skill.id); return skill;

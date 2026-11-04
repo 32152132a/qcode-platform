@@ -44,3 +44,7 @@ import './plans.test.js';
 import './prepare-launch.test.js';
 
 import './key-pool.test.js';
+
+import './account-password.test.js';
+
+import './remove-departments.test.js';

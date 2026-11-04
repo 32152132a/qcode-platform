@@ -1,3 +1,5 @@
+export const initialUserPassword = 'Qcode@2026'
+
 import { ElMessageBox } from 'element-plus'
 import type { Field, Row } from '@/types'
 export const quotaLabels: Record<string, string> = {

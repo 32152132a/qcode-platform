@@ -17,7 +17,7 @@ export function ensureDemoUser(db, config) {
       return;
     }
     state.users.push({ id: state.nextUserId++, username, role: 'demo', password_hash: hashPassword(config.demoPassword),
-      is_active: 1, department: '', department_id: null, created_at: now(), session_limit: 20,
+      is_active: 1, created_at: now(), session_limit: 20,
       model_id: null, key_id: null, quota_mode: 'custom', quotas: {}, max_concurrent_requests: 1 });
   });
 }
@@ -104,7 +104,7 @@ export function registerAuth(app, { db, config, cancelRequests }) {
     res.json({ ok: true });
   });
   app.post('/auth/password', auth, (req, res) => {
-    if (!verifyPassword(req.body?.currentPassword, req.user.password_hash)) fail(401, 'LOGIN_FAILED', '当前密码不正确');
+    if (!verifyPassword(req.body?.currentPassword, req.user.password_hash)) fail(400, 'INVALID_CURRENT_PASSWORD', '当前密码不正确');
     const hashed = hashPassword(password(req.body?.password));
     db.transaction(state => {
       state.users.find(u => u.id === req.user.id).password_hash = hashed;

@@ -418,10 +418,6 @@ test('model deletion clears assignments, preserves usage and requires explicit r
   assert.equal((await f.chat(token)).status, 200)
   const history = f.db.read().requests
   const usage = (await f.request('/admin/usage', 'GET', undefined, f.admin)).body.totals
-  const department = (
-    await f.request('/admin/departments', 'POST', { name: 'Model deletion team', modelId: model.id }, f.admin)
-  ).body
-  assert(department.id)
   assert.equal((await f.request(route, 'DELETE', undefined, token)).status, 403)
   const source = (
     await f.request('/admin/models/sources', 'POST', {
@@ -434,7 +430,6 @@ test('model deletion clears assignments, preserves usage and requires explicit r
   const state = f.db.read()
   assert.equal(state.models.length, 0)
   assert.equal(state.users.find((user) => user.username === 'alice').model_id, null)
-  assert.equal(state.departments.find((item) => item.id === department.id).model_id, null)
   assert.deepEqual(state.requests, history)
   assert.deepEqual((await f.request('/admin/usage', 'GET', undefined, f.admin)).body.totals, usage)
   assert(state.audits.some((entry) => entry.action === 'model.delete' && entry.target === model.id))

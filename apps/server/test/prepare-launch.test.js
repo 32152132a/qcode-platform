@@ -5,9 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { prepareLaunchDatabase } from '../scripts/prepare-launch.js';
-import { createDatabase, createVault } from '../src/database.js';
+import { createVault } from '../src/database.js';
 import { emptyState } from '../src/state.js';
 
+function inspectV4(filename) {
+  const sql=new DatabaseSync(filename);try{
+    const state=JSON.parse(sql.prepare('SELECT data FROM metadata WHERE id=1').get().data);
+    for(const {name} of sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'metadata'").all())state[name]=sql.prepare('SELECT data FROM "'+name+'" ORDER BY rowid').all().map(row=>JSON.parse(row.data));
+    return state;
+  }finally{sql.close()}
+}
 function fixture(t) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'qcode-launch-')),filename=path.join(root,'data.sqlite'),backupPath=path.join(root,'before.qcode-backup'),secret='a'.repeat(64);
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
@@ -35,16 +42,15 @@ test('launch cleanup previews without writes, preserves business data and create
   const result=prepareLaunchDatabase({...f,apply:true});assert.equal(result.version,4);
   const wrapper=JSON.parse(fs.readFileSync(f.backupPath)),payload=JSON.parse(createVault(f.secret).decrypt(wrapper.ciphertext));
   assert.equal(payload.format,'qcode-backup-v3');assert.deepEqual(payload.state,f.state);
-  const db=createDatabase(f.filename,{vault:createVault(f.secret)});
-  try {
-    const state=db.read();for(const name of ['tokens','keys','models','skills','feedback','paymentSettings'])assert.deepEqual(state[name],f.state[name],name);
+  {
+    const state=inspectV4(f.filename);for(const name of ['tokens','keys','models','skills','feedback','paymentSettings'])assert.deepEqual(state[name],f.state[name],name);
     assert.equal(state.users[0].username,'staff');assert.equal(state.users[0].quotas.totalTokens,100);assert(!Object.hasOwn(state.users[0],'legacy_tokens'));
     for(const name of ['planOrders','requests','audits','loginFailures'])assert.equal(state[name].length,0);
     assert.deepEqual(state.plans.map(p=>p.level),[0,1,2,3]);assert.equal(state.plans.find(p=>p.is_default).name,'基础版');
-    db.transaction(s=>s.requests.push({id:'new',status:'success',total_tokens:2}));
-  }finally{db.close();}
+    const sql=new DatabaseSync(f.filename);try{sql.prepare('INSERT INTO requests VALUES (?,?)').run('new',JSON.stringify({id:'new',status:'success',total_tokens:2}));}finally{sql.close()}
+  }
   assert.equal(prepareLaunchDatabase({...f,apply:true}).alreadyApplied,true);
-  const reopened=createDatabase(f.filename);assert.equal(reopened.read().requests.length,1);reopened.close();
+  assert.equal(inspectV4(f.filename).requests.length,1);
 });
 test('unexpected paid subscriptions stop the operation before backup or data changes',t=>{
   const f=fixture(t),sql=new DatabaseSync(f.filename);sql.prepare('INSERT INTO subscriptions VALUES (?,?)').run('new',JSON.stringify({id:'new',plan_id:'2'}));sql.close();

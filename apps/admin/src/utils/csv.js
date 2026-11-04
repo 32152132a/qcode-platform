@@ -22,12 +22,9 @@ export async function importUsersCsv(api){
   if(file.size>256000)throw new Error('CSV 文件超过 256 KB');
   const rows=parseCsv(await file.text()),header=rows.shift()?.map(x=>x.trim());
   if(!header || !header.includes('用户名') || !header.includes('初始密码'))throw new Error('请使用模板，至少包含 用户名、初始密码 两列');
-  const departments=await api('/admin/departments');
-  const users=rows.map((row,index)=>{
+  const users=rows.map(row=>{
     const value=Object.fromEntries(header.map((key,i)=>[key,row[i]||'']));
-    const department=departments.find(d=>d.name===value['部门']);
-    if(value['部门']&&!department)throw new Error(`第 ${index+2} 行的部门不存在，请先创建部门`);
-    return {username:value['用户名'].trim(),password:value['初始密码'],departmentId:department?.id||null,quotaMode:'department'};
+    return {username:value['用户名'].trim(),password:value['初始密码']};
   });
   if(!users.length||users.length>100)throw new Error('每次导入 1–100 个员工');
   await api('/admin/users/import','POST',{users});

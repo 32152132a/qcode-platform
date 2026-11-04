@@ -50,7 +50,6 @@
       : []
   )
   async function edit(row?: Row) {
-    const departments = await request<Row[]>('/admin/departments')
     editor.value?.open(
       {
         title: row ? '编辑 Skill' : '发布 Skill',
@@ -65,14 +64,6 @@
             props: { autosize: { minRows: 8, maxRows: 18 } },
           },
           { prop: 'active', label: '启用', type: 'select', options: yesNo },
-          {
-            prop: 'departmentIds',
-            label: '适用部门（不选即全员）',
-            type: 'select',
-            multiple: true,
-            props: { multiple: true },
-            options: departments.map((d) => ({ label: String(d.name), value: String(d.id) })),
-          },
           { prop: 'files', label: '附加文件 JSON（可选）', type: 'textarea' },
         ],
         value: {
@@ -80,7 +71,6 @@
           description: row?.description || '',
           content: row?.content || '',
           active: String(row?.active ?? true),
-          departmentIds: row?.department_ids || [],
           files: JSON.stringify(
             Object.fromEntries(
               Object.entries((row?.files || {}) as Row).filter(([name]) => name !== 'SKILL.md')
@@ -95,7 +85,6 @@
             description: v.description,
             content: v.content,
             active: v.active === 'true',
-            departmentIds: v.departmentIds,
             files: JSON.parse(String(v.files || '{}')),
           }),
       },

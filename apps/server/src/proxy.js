@@ -3,7 +3,7 @@ import { subscriptionFor } from './entitlements.js';
 import { Transform, Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { now, id, fail, availableModels, consumption, period, integer } from './domain.js';
-import { effectiveKey, effectiveQuotas, effectiveConcurrency, departmentFor, departmentConsumption, checkQuota } from './policy.js';
+import { effectiveKey, effectiveQuotas, effectiveConcurrency, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
 import { providerRequest, chatResponse, responseStream } from './providers.js';
 import { configuredVisionModel } from './model-sources.js';
@@ -18,13 +18,12 @@ function parseUsage(value) {
 export async function complete(req, res, { db, vault, config, activeRequests = new Map() }) {
 
   const body = req.body;
-  const state = db.read(), models = availableModels(state, req.user), selectedModel = models.find(item => item.public_name === body?.model), department = departmentFor(state, req.user);
+  const state = db.read(), models = availableModels(state, req.user), selectedModel = models.find(item => item.public_name === body?.model);
   const subscription = subscriptionFor(state, req.user);
   if (subscription && subscription.expires_at <= now()) fail(403, 'SUBSCRIPTION_EXPIRED', '套餐已到期，请申请重新开通或联系管理员');
   if (subscription && !selectedModel && availableModels(state).some(item => item.public_name === body?.model)) fail(403, 'PLAN_MODEL_NOT_ALLOWED', '当前套餐不包含此模型，请刷新权益后重新选择');
   if (subscription && !models.length && availableModels(state).length) fail(403, 'PLAN_MODEL_NOT_ALLOWED', '当前套餐暂无可用对话模型，请联系管理员');
   let model = selectedModel;
-  if (department && !department.active) fail(403, 'DEPARTMENT_DISABLED', '所在部门已被停用');
   if (!models.length) fail(503, 'MODEL_UNAVAILABLE', '后台尚未启用模型，请联系管理员');
   if (!model) fail(400, 'INVALID_MODEL', '请选择 /v1/models 中已启用的模型');
   if (!Array.isArray(body.messages) || !body.messages.length || body.messages.some(m => !m || typeof m !== 'object')) fail(400, 'INVALID_MESSAGES', 'messages must be a non-empty array');
@@ -53,9 +52,8 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
     if (next.requests.filter(r => r.status === 'pending').length >= settingsFor(next).maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关当前繁忙，请稍后重试');
     if (next.requests.filter(r => r.user_id === user.id && r.status === 'pending').length >= effectiveConcurrency(next, user)) fail(429, 'REQUEST_IN_PROGRESS', '账号同时请求数量已达到上限');
     checkQuota(effectiveQuotas(next, user), used, reserved, '用户 ');
-    if (department) checkQuota(department.quotas, departmentConsumption(next, department, config.timezone, startedAt), reserved, '部门 ');
     next.requests.push({ id: requestId, subscription_id: subscription?.id || null, user_id: user.id, username: user.username, model: model.public_name, model_id: model.id, purpose: hasImages ? 'image_understanding' : 'chat',
-      department_id: department?.id || null, department_name: department?.name || '', key_id: key?.id || null, started_at: startedAt, status: 'pending', reserved_tokens: reserved, input_tokens: null, output_tokens: null, total_tokens: null });
+      key_id: key?.id || null, started_at: startedAt, status: 'pending', reserved_tokens: reserved, input_tokens: null, output_tokens: null, total_tokens: null });
   });
   const controller = new AbortController();
   const active = { userId: req.user.id, sessionId: req.session.id, controller, reason: null };

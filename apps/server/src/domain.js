@@ -4,28 +4,29 @@ import { effectiveQuotas, effectiveKey, permissions, effectiveConcurrency } from
 export const now = () => new Date().toISOString();
 export const id = () => randomBytes(16).toString('hex');
 export function fail(status, code, message) { throw Object.assign(new Error(message), { status, code }); }
+const fieldLabel = name => ({username:'账号',name:'名称',apiKey:'API Key',provider:'服务提供商',publicName:'公开模型标识',upstreamModel:'上游模型名称',maxOutputTokens:'最大输出 Token',contextWindow:'上下文上限',sessionLimit:'登录设备上限',maxConcurrentRequests:'并发请求上限',totalTokens:'总 Token 额度',totalRequests:'总请求额度',dailyTokens:'每日 Token 额度',dailyRequests:'每日请求额度',monthlyTokens:'每月 Token 额度',monthlyRequests:'每月请求额度'}[name] || name);
 export function text(value, name, max = 120) {
-  if (typeof value !== 'string' || !value.trim() || value.length > max) fail(400, 'INVALID_FIELD', `${name} is required (max ${max} characters)`);
+  if (typeof value !== 'string' || !value.trim() || value.length > max) fail(400, 'INVALID_FIELD', `${fieldLabel(name)}不能为空，且不能超过 ${max} 个字符`);
   return value.trim();
 }
 export function password(value) {
-  if (typeof value !== 'string' || value.length < 10 || value.length > 256) fail(400, 'INVALID_PASSWORD', 'Password must contain 10–256 characters');
+  if (typeof value !== 'string' || value.length < 10 || value.length > 256) fail(400, 'INVALID_PASSWORD', '密码须为 10～256 个字符');
   return value;
 }
 export function integer(value, name, max = Number.MAX_SAFE_INTEGER) {
-  if (!Number.isSafeInteger(value) || value < 0 || value > max) fail(400, 'INVALID_FIELD', `${name} must be an integer between 0 and ${max}`);
+  if (!Number.isSafeInteger(value) || value < 0 || value > max) fail(400, 'INVALID_FIELD', `${fieldLabel(name)}须为 0～${max} 之间的整数`);
   return value;
 }
 export function baseUrl(value) {
   let url;
-  try { url = new URL(value); } catch { fail(400, 'INVALID_URL', 'Invalid model base URL'); }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) fail(400, 'INVALID_URL', 'Use an HTTP(S) base URL without credentials or query');
+  try { url = new URL(value); } catch { fail(400, 'INVALID_URL', '模型服务地址格式不正确'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) fail(400, 'INVALID_URL', '请使用 HTTP 或 HTTPS 基础地址，不包含账号密码、查询参数或锚点');
   return url.href.replace(/\/$/, '');
 }
 export const quotaNames = ['totalTokens', 'totalRequests', 'dailyTokens', 'dailyRequests', 'monthlyTokens', 'monthlyRequests'];
 export function quotas(value = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(400, 'INVALID_QUOTA', 'quotas must be an object');
-  for (const key of Object.keys(value)) if (!quotaNames.includes(key)) fail(400, 'INVALID_QUOTA', `Unknown quota: ${key}`);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(400, 'INVALID_QUOTA', '额度配置格式不正确');
+  for (const key of Object.keys(value)) if (!quotaNames.includes(key)) fail(400, 'INVALID_QUOTA', `不支持的额度配置项：${key}`);
   return Object.fromEntries(quotaNames.map(name => [name, integer(value[name] ?? 0, name)]));
 }
 export function period(timestamp, timezone) {
@@ -56,13 +57,13 @@ export function consumption(state, user, timezone, timestamp = now()) {
 }
 export function publicUser(state, user, timezone) {
   const used = consumption(state, user, timezone);
-  const limits = effectiveQuotas(state, user);
+  const limits = effectiveQuotas(state, user), subscription=subscriptionFor(state,user);
   return { id: user.id, username: user.username, role: user.role, is_active: user.is_active,
-    department: state.departments.find(d => d.id === user.department_id)?.name || user.department, department_id: user.department_id,
+    plan_id: subscription?.plan_id || null, plan_name: subscription?.terms.name || null, plan_model_ids: subscription?.terms.model_ids || null,
     created_at: user.created_at, last_login_at: user.last_login_at || null,
     model_id: user.model_id, key_id: user.key_id, key_suffix: effectiveKey(state, user)?.suffix || null,
     session_limit: user.session_limit, active_sessions: state.tokens.filter(t => t.user_id === user.id && t.refresh_expires_at > now()).length,
-    permissions: permissions(user), max_concurrent_requests: effectiveConcurrency(state, user), quota_mode: user.quota_mode || 'custom',
+    permissions: permissions(user), max_concurrent_requests: effectiveConcurrency(state, user),
     quotas: user.quotas, effective_quotas: limits, used, remaining: Object.fromEntries(quotaNames.map(k => [k, limits[k] ? Math.max(0, limits[k] - used[k]) : null])) };
 }
 export function audit(state, actor, action, target) {
@@ -71,6 +72,5 @@ export function audit(state, actor, action, target) {
 export const availableModels = (state, user) => state.models.filter(model => model.model_type !== 'image' && (!user || modelAllowed(state, user, model)) && model.active && model.catalog_available !== false && (!model.source_id || (state.settings.modelSources || []).some(source => source.id === model.source_id && source.active)));
 export function resolveModel(state, user) {
   const models = availableModels(state, user);
-  const department = state.departments.find(d => d.id === user.department_id);
-  return models.find(model => model.id === user.model_id) || models.find(model => model.id === department?.model_id) || models.find(model => model.is_default) || models[0];
+  return models.find(model => model.id === user.model_id) || models.find(model => model.is_default) || models[0];
 }

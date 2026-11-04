@@ -4,11 +4,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { createVault } from '../src/database.js';
-import { emptyState, normalizeState } from '../src/state.js';
 
 const levels = { '基础版': 0, test: 1, plus: 2, pro: 3 };
 const clearedTables = ['planOrders', 'requests', 'audits', 'loginFailures'];
-const tables = Object.entries(emptyState()).filter(([, value]) => Array.isArray(value)).map(([name]) => name);
+
 
 export function prepareLaunchDatabase({ filename, secret, backupPath, apply = false }) {
   if (!fs.existsSync(filename)) throw new Error('Database not found');
@@ -24,6 +23,7 @@ export function prepareLaunchDatabase({ filename, secret, backupPath, apply = fa
       return { alreadyApplied: true, version: 4 };
     }
     if (version !== 3 || metadata.version !== 3) throw new Error('Expected the inspected v3 database; no changes made');
+    const tables = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'metadata'").all().map(row=>row.name);
     const state = { ...metadata };
     for (const table of tables) state[table] = sql.prepare('SELECT data FROM "' + table + '" ORDER BY rowid').all().map(row => JSON.parse(row.data));
     const sources = state.settings?.modelSources;
@@ -66,7 +66,7 @@ export function prepareLaunchDatabase({ filename, secret, backupPath, apply = fa
       sql.prepare('UPDATE plans SET data=? WHERE id=?').run(JSON.stringify(plan), String(plan.id));
     }
     for (const table of clearedTables) { sql.exec('DELETE FROM "' + table + '"'); state[table] = []; }
-    normalizeState(state, vault);
+    for (const key of state.keys) vault.decrypt(key.secret);
     sql.prepare('UPDATE metadata SET data=? WHERE id=1').run(JSON.stringify(metadataValue));
     sql.exec('PRAGMA user_version=4; COMMIT;');
     return { version: 4, removed, levels, defaultPlan: '基础版', backupPath };

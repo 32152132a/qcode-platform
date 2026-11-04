@@ -1,5 +1,5 @@
 import { keySource, sourceKeyIds, bindSourceKeys, configureKeyRecovery } from './key-pool.js';
-import { registerPlans, assignDefaultPlan } from './plans.js';
+import { registerPlans, assignUserPlan } from './plans.js';
 import { registerFeedback } from './feedback.js';
 import { registerImages } from './images.js';
 import { businessOperation, obsoleteBusinessRequest } from '../../client/api-contract.mjs';
@@ -58,7 +58,7 @@ export function createApp(config, database) {
       const username = text(config.adminUsername, 'username', 80);
       if (state.users.some(u => u.username === username)) throw new Error('Administrator username is already used');
       state.users.push({ id: state.nextUserId++, username, password_hash: hashPassword(password(config.adminPassword)), role: 'admin',
-        is_active: 1, department: '', department_id: null, quota_mode: 'custom', max_concurrent_requests: 2,
+        is_active: 1, max_concurrent_requests: 2,
         created_at: now(), session_limit: 2, model_id: null, key_id: null, quotas: quotas() });
     }
     if (!state.keys.length && config.upstreamKey && !config.upstreamKey.startsWith('replace-with-')) {
@@ -99,7 +99,7 @@ export function createApp(config, database) {
   });
   app.use(express.json({ limit: '4mb' }));
   app.use((req, _res, next) => {
-    if (req.body !== undefined && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))) fail(400, 'INVALID_REQUEST', 'Request body must be a JSON object');
+    if (req.body !== undefined && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))) fail(400, 'INVALID_REQUEST', '请求内容必须为 JSON 对象');
     next();
   });
   app.use((req, _res, next) => {
@@ -128,36 +128,36 @@ export function createApp(config, database) {
   registerReports(app, {db, config});
   const getUser = (state, userId) => {
     const user = state.users.find(u => u.id === Number(userId));
-    if (!user) fail(404, 'USER_NOT_FOUND', 'User not found');
+    if (!user) fail(404, 'USER_NOT_FOUND', '用户不存在');
     return user;
   };
   const validateAssignment = (state, body) => {
-    if (body.departmentId != null && !state.departments.some(d => d.id === body.departmentId && d.active)) fail(400, 'INVALID_DEPARTMENT', '请选择启用的部门');
-    if (body.keyId != null && !state.keys.some(k => k.id === body.keyId && k.active)) fail(400, 'INVALID_KEY', 'Choose an enabled key');
-    if (body.modelId != null && !state.models.some(m => m.id === body.modelId && m.active)) fail(400, 'INVALID_MODEL', 'Choose an enabled model');
+    if (body.keyId != null && !state.keys.some(k => k.id === body.keyId && k.active)) fail(400, 'INVALID_KEY', '请选择已启用的 Key');
+    if (body.modelId != null && !state.models.some(m => m.id === body.modelId && m.active)) fail(400, 'INVALID_MODEL', '请选择已启用的模型');
   };
+  app.post('/admin/users/options', (_req, res) => {
+    const state=db.read();res.json({plans:state.plans.filter(plan=>plan.active).map(plan=>({id:plan.id,name:plan.name,model_ids:plan.model_ids})),models:availableModels(state).map(model=>({id:model.id,name:model.name,active:model.active,model_type:model.model_type}))});
+  });
   app.post('/admin/users/list', (_req, res) => { const state = db.read(); res.json(state.users.map(u => publicUser(state, u, timezone))); });
   function createUser(state, body, actor) {
     const username = text(body.username, 'username', 80);
-    if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', 'Username contains unsupported characters');
-    if (state.users.some(u => u.username.toLowerCase() === username.toLowerCase())) fail(409, 'USER_EXISTS', 'Username already exists');
+    if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', '账号仅支持中文、字母、数字、下划线、点、@ 和短横线');
+    if (state.users.some(u => u.username.toLowerCase() === username.toLowerCase())) fail(409, 'USER_EXISTS', '账号已存在');
     validateAssignment(state, body);
     if (body.role && (!Object.hasOwn(rolePermissions, body.role) || (actor.role !== 'admin' && body.role !== 'user'))) fail(403, 'INVALID_ROLE', '角色配置无效');
-    if (body.quotaMode && !['custom','department'].includes(body.quotaMode)) fail(400, 'INVALID_QUOTA_MODE', '无效的配额模式');
     const maxConcurrent = integer(body.maxConcurrentRequests ?? 1, 'maxConcurrentRequests', 20);
     if (!maxConcurrent) fail(400, 'INVALID_FIELD', '并发请求数至少为 1');
     const user = { id: state.nextUserId++, username, password_hash: hashPassword(password(body.password)), role: body.role || 'user', is_active: 1,
-      department_id: body.departmentId || null, quota_mode: body.quotaMode || 'custom', max_concurrent_requests: maxConcurrent,
-      department: typeof body.department === 'string' ? body.department.slice(0, 80) : '', created_at: now(),
+      max_concurrent_requests: maxConcurrent, created_at: now(),
       model_id: body.modelId ?? null, key_id: body.keyId ?? null, session_limit: integer(body.sessionLimit ?? 1, 'sessionLimit', 20), quotas: quotas(body.quotas) };
-    if (!user.session_limit) fail(400, 'INVALID_FIELD', 'sessionLimit must be at least 1');
+    if (!user.session_limit) fail(400, 'INVALID_FIELD', '登录设备上限至少为 1');
     state.users.push(user); audit(state, actor, 'user.create', user.id);
-    assignDefaultPlan(state, user, actor);
+    assignUserPlan(state, user, actor, body.planId);
     return publicUser(state, user, timezone);
   }
   app.post('/admin/users/create', (req, res) => res.status(201).json(db.transaction(state => createUser(state, req.body || {}, req.user))));
   app.post('/admin/users/import', (req, res) => {
-    if (!Array.isArray(req.body?.users) || !req.body.users.length || req.body.users.length > 100) fail(400, 'INVALID_IMPORT', 'Provide 1–100 users');
+    if (!Array.isArray(req.body?.users) || !req.body.users.length || req.body.users.length > 100) fail(400, 'INVALID_IMPORT', '每次可导入 1～100 个用户');
     res.status(201).json(db.transaction(state => req.body.users.map(body => createUser(state, body, req.user))));
   });
   app.post('/admin/users/:id/update', (req, res) => res.json(db.transaction(state => {
@@ -170,22 +170,22 @@ export function createApp(config, database) {
       if (body.role !== user.role) state.tokens = state.tokens.filter(t => t.user_id !== user.id);
       user.role = body.role;
     }
-    if ('departmentId' in body) user.department_id = body.departmentId || null;
-    if ('quotaMode' in body) { if (!['custom','department'].includes(body.quotaMode)) fail(400, 'INVALID_QUOTA_MODE', '无效的配额模式'); user.quota_mode = body.quotaMode; }
     if ('maxConcurrentRequests' in body) { user.max_concurrent_requests = integer(body.maxConcurrentRequests, 'maxConcurrentRequests', 20); if (!user.max_concurrent_requests) fail(400, 'INVALID_FIELD', '并发请求数至少为 1'); }
     if ('username' in body) {
       const username = text(body.username, 'username', 80);
-      if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', 'Username contains unsupported characters');
-      if (state.users.some(u => u.id !== user.id && u.username.toLowerCase() === username.toLowerCase())) fail(409, 'USER_EXISTS', 'Username already exists');
+      if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', '账号仅支持中文、字母、数字、下划线、点、@ 和短横线');
+      if (state.users.some(u => u.id !== user.id && u.username.toLowerCase() === username.toLowerCase())) fail(409, 'USER_EXISTS', '账号已存在');
       user.username = username;
     }
-    if ('department' in body) user.department = typeof body.department === 'string' ? body.department.slice(0, 80) : '';
-    if ('modelId' in body) user.model_id = body.modelId;
+    if ('modelId' in body) {
+      if (body.modelId && !availableModels(state,user).some(model=>model.id===body.modelId)) fail(400,'PLAN_MODEL_NOT_ALLOWED','默认模型不在当前套餐内或已停用，请重新选择');
+      user.model_id = body.modelId;
+    }
     if ('keyId' in body) user.key_id = body.keyId;
     if ('quotas' in body) user.quotas = quotas(body.quotas);
     if ('sessionLimit' in body) {
       user.session_limit = integer(body.sessionLimit, 'sessionLimit', 20);
-      if (!user.session_limit) fail(400, 'INVALID_FIELD', 'sessionLimit must be at least 1');
+      if (!user.session_limit) fail(400, 'INVALID_FIELD', '登录设备上限至少为 1');
       state.tokens = state.tokens.filter(t => t.user_id !== user.id);
     }
     audit(state, req.user, 'user.update', user.id);
@@ -226,7 +226,7 @@ export function createApp(config, database) {
     db.transaction(state => {
       const user = getUser(state, req.params.id);
       if (user.role === 'admin') fail(400, 'ADMIN_PROTECTED', 'Administrator cannot be deleted');
-      if (state.requests.some(r => r.user_id === user.id && r.status === 'pending')) fail(409, 'REQUEST_IN_PROGRESS', 'Wait for active requests before deleting');
+      if (state.requests.some(r => r.user_id === user.id && r.status === 'pending')) fail(409, 'REQUEST_IN_PROGRESS', '请等待进行中的请求完成后再删除');
       state.users = state.users.filter(u => u.id !== user.id); state.tokens = state.tokens.filter(t => t.user_id !== user.id);
       audit(state, req.user, 'user.delete', user.id);
     }); res.json({ ok: true });
@@ -252,29 +252,29 @@ export function createApp(config, database) {
   app.post('/admin/keys/list', (_req, res) => { const state = db.read(); res.json(state.keys.map(k => publicKey(state, k))); });
   app.post('/admin/keys/create', (req, res) => {
     const entries = req.body?.keys || [req.body];
-    if (!Array.isArray(entries) || !entries.length || entries.length > 100) fail(400, 'INVALID_IMPORT', 'Provide 1–100 keys');
+    if (!Array.isArray(entries) || !entries.length || entries.length > 100) fail(400, 'INVALID_IMPORT', '每次可导入 1～100 个 Key');
     res.status(201).json(db.transaction(state => entries.map(entry => {
       const secret = text(entry?.apiKey, 'apiKey', 4096);
-      if (/[\r\n]/.test(secret)) fail(400, 'INVALID_KEY', 'Key cannot contain line breaks');
-      if (state.keys.some(k => vault.decrypt(k.secret) === secret)) fail(409, 'KEY_EXISTS', 'This key already exists');
+      if (/[\r\n]/.test(secret)) fail(400, 'INVALID_KEY', 'Key 不能包含换行');
+      if (state.keys.some(k => vault.decrypt(k.secret) === secret)) fail(409, 'KEY_EXISTS', '此 Key 已存在');
       const key = { id: id(), name: text(entry.name, 'name'), secret: vault.encrypt(secret), suffix: secret.slice(-4), active: true, health: 'unknown', created_at: now() };
       state.keys.push(key); configureKeyRecovery(key, entry); assignKeySource(state, key, entry.sourceId); audit(state, req.user, 'key.create', key.id); return publicKey(state, key);
     })));
   });
   app.post('/admin/keys/:id/update', (req, res) => {
-    if (!req.body) fail(400, 'INVALID_REQUEST', 'Request body is required');
+    if (!req.body) fail(400, 'INVALID_REQUEST', '请填写需要保存的内容');
     res.json(db.transaction(state => {
       const key = state.keys.find(k => k.id === req.params.id);
       if (!key) fail(404, 'KEY_NOT_FOUND', 'Key not found');
-      if ('active' in req.body) { if (typeof req.body.active !== 'boolean') fail(400, 'INVALID_FIELD', 'active must be boolean'); key.active = req.body.active; }
+      if ('active' in req.body) { if (typeof req.body.active !== 'boolean') fail(400, 'INVALID_FIELD', '启用状态必须为布尔值'); key.active = req.body.active; }
       configureKeyRecovery(key, req.body);
       if ('sourceId' in req.body) assignKeySource(state, key, req.body.sourceId);
       if ('active' in req.body) { key.restore_at = null; key.health = key.active ? 'unknown' : 'disabled'; if (!key.active) { key.disabled_reason = '管理员停用'; key.disabled_at = now(); } }
       if ('name' in req.body) key.name = text(req.body.name, 'name');
       if ('apiKey' in req.body) {
         const secret = text(req.body.apiKey, 'apiKey', 4096);
-        if (/[\r\n]/.test(secret)) fail(400, 'INVALID_KEY', 'Key cannot contain line breaks');
-        if (state.keys.some(k => k.id !== key.id && vault.decrypt(k.secret) === secret)) fail(409, 'KEY_EXISTS', 'This key already exists');
+        if (/[\r\n]/.test(secret)) fail(400, 'INVALID_KEY', 'Key 不能包含换行');
+        if (state.keys.some(k => k.id !== key.id && vault.decrypt(k.secret) === secret)) fail(409, 'KEY_EXISTS', '此 Key 已存在');
         key.secret = vault.encrypt(secret); key.suffix = secret.slice(-4); key.health = 'unknown';
       }
       if ('apiKey' in req.body || 'active' in req.body) for (const model of state.models) if (model.key_id === key.id || model.verification?.key_id === key.id || sourcesFor(state).some(source => source.id === model.source_id && sourceKeyIds(source).includes(key.id))) model.verification = null;
@@ -284,7 +284,7 @@ export function createApp(config, database) {
   app.post('/admin/keys/:id/delete', (req, res) => {
     db.transaction(state => {
       if (!state.keys.some(k => k.id === req.params.id)) fail(404, 'KEY_NOT_FOUND', 'Key not found');
-      if (sourcesFor(state).some(source=>sourceKeyIds(source).includes(req.params.id)) || state.users.some(u => u.key_id === req.params.id) || state.departments.some(d => d.key_id === req.params.id) || state.models.some(m => m.key_id === req.params.id) || state.requests.some(r => r.key_id === req.params.id && r.status === 'pending')) fail(409, 'KEY_IN_USE', '请先回收用户和部门的 Key，并等待进行中的请求完成');
+      if (sourcesFor(state).some(source=>sourceKeyIds(source).includes(req.params.id)) || state.users.some(u => u.key_id === req.params.id) || state.models.some(m => m.key_id === req.params.id) || state.requests.some(r => r.key_id === req.params.id && r.status === 'pending')) fail(409, 'KEY_IN_USE', '请先解除站点或用户的 Key 绑定，并等待进行中的请求完成');
       state.keys = state.keys.filter(k => k.id !== req.params.id); audit(state, req.user, 'key.delete', req.params.id);
     }); res.json({ ok: true });
   });
@@ -322,7 +322,7 @@ export function createApp(config, database) {
     if (!['max_tokens','max_completion_tokens'].includes(body.maxTokensField || 'max_tokens')) fail(400, 'INVALID_FIELD', '无效的输出上限字段');
     if(body.pricingKnown!==undefined&&typeof body.pricingKnown!=='boolean')fail(400,'INVALID_FIELD','pricingKnown 必须为布尔值');
     const protocol = body.protocol ?? existing?.protocol ?? 'chat-completions';
-    if (!protocols.includes(protocol)) fail(400, 'INVALID_PROTOCOL', 'Choose Chat Completions or Responses');
+    if (!protocols.includes(protocol)) fail(400, 'INVALID_PROTOCOL', '请选择 Chat Completions 或 Responses 协议');
     const keyId = body.keyId === undefined ? existing?.key_id || null : body.keyId || null;
     if (keyId && !state.keys.some(k => k.id === keyId)) fail(400, 'INVALID_KEY', '请选择存在的模型 Key');
     if (body.supportsVision !== undefined && typeof body.supportsVision !== 'boolean') fail(400, 'INVALID_FIELD', '识图能力必须为布尔值');
@@ -349,7 +349,7 @@ export function createApp(config, database) {
   })));
   app.post('/admin/models/:id/update', (req, res) => res.json(db.transaction(state => {
     const existing = state.models.find(m => m.id === req.params.id);
-    if (!existing) fail(404, 'MODEL_NOT_FOUND', 'Model not found');
+    if (!existing) fail(404, 'MODEL_NOT_FOUND', '模型不存在');
     const model = saveModel(state, req.body || {}, existing); audit(state, req.user, 'model.update', model.id); return model;
   })));
   app.post('/admin/usage/query', (req, res) => {const state=db.read();state.requests=filterRecords(state.requests,req.query,timezone);res.json(statistics(state, timezone));});
