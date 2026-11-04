@@ -4,7 +4,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
 import {createVault} from '../src/database.js';
-import {emptyState,normalizeState} from '../src/state.js';
+import {emptyState} from '../src/state.js';
 
 export function removeDepartments({filename,secret,backupPath,apply=false}) {
   if (!fs.existsSync(filename)) throw new Error('数据库不存在');
@@ -40,7 +40,6 @@ export function removeDepartments({filename,secret,backupPath,apply=false}) {
     for(const row of state.requests){delete row.department_id;delete row.department_name;}
     for(const skill of state.skills)delete skill.department_ids;
     delete state.departments;state.version=5;
-    normalizeState(state,vault);
     for(const table of tables) {
       const update=sql.prepare('UPDATE "'+table+'" SET data=? WHERE id=?');
       for(const row of state[table])update.run(JSON.stringify(row),String(table==='tokens'?row.token_hash:row.id));

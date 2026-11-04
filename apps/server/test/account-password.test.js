@@ -21,17 +21,16 @@ test('self password change validates current password in Chinese and revokes eve
  assert.equal((await f.request('/auth/login','POST',{username:'alice',password:'Qcode@2026'})).status,200);
 });
 
-test('user options expose active plans and safe models; selected plan restricts the default model on create and edit',async t=>{
+test('user options list plans without server-selected default models',async t=>{
  const f=await fixture(t),first=f.db.read().models[0];
- const second=(await f.request('/admin/models','POST',{name:'Other model',publicName:'other-model',upstreamModel:'other',baseUrl:first.base_url,keyId:f.key.id,active:true},f.admin)).body;
- const plan=(await f.request('/admin/plans','POST',{name:'Selected plan',price:0,durationDays:30,level:1,modelIds:[first.id],quotas:{totalTokens:1000}},f.admin)).body;
+ const plan=(await f.request('/admin/plans','POST',{name:'Selected plan',price:0,durationDays:30,level:1,modelIds:[first.id],tokenLimit:1000},f.admin)).body;
  const options=(await f.request('/admin/users/options','GET',undefined,f.admin)).body;
- assert.deepEqual(options.plans[0].model_ids,[first.id]);assert(!JSON.stringify(options).includes('secret'));
- const create=body=>f.request('/admin/users','POST',{username:'new-user',password:'Qcode@2026',planId:plan.id,...body},f.admin);
- assert.equal((await create({modelId:second.id})).status,400);
- assert(!f.db.read().users.some(user=>user.username==='new-user'));
- assert.equal((await create({planId:'missing'})).status,400);
- const created=await create({modelId:first.id});assert.equal(created.status,201);assert.equal(created.body.plan_id,plan.id);assert.deepEqual(created.body.plan_model_ids,[first.id]);
- assert.equal((await f.request('/admin/users/'+created.body.id,'PATCH',{modelId:second.id},f.admin)).status,400);
- assert.equal((await f.request('/admin/users/'+created.body.id,'PATCH',{modelId:null},f.admin)).status,200);
+ assert.deepEqual(options,{plans:[{id:plan.id,name:plan.name}]});
+ const created=await f.request('/admin/users','POST',{username:'new-user',password:'Qcode@2026',planId:plan.id},f.admin);
+ assert.equal(created.status,201);assert.equal(created.body.plan_id,plan.id);
+ assert(!Object.hasOwn(created.body,'model_id'));assert(!Object.hasOwn(created.body,'max_concurrent_requests'));
+ assert(!Object.hasOwn(f.db.read().users.at(-1),'model_id'));
+ const login=await f.request('/auth/login','POST',{username:'new-user',password:'Qcode@2026'});assert.equal(login.status,200);
+ const config=(await f.request('/client/config','GET',undefined,login.body.token)).body;
+ assert(!Object.hasOwn(config,'model'));
 });

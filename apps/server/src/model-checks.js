@@ -77,7 +77,7 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
       db.transaction(state=>{
         if (state.requests.filter(r=>r.status==='pending').length>=settingsFor(state).maxActiveRequests) fail(429,'GATEWAY_BUSY','网关繁忙');
         const user=state.users.find(u=>u.id===req.user.id);
-        if (state.requests.filter(r=>r.status==='pending'&&r.user_id===user.id).length>=(user.max_concurrent_requests||1)) fail(429,'REQUEST_IN_PROGRESS','已有请求正在进行');
+        if (state.requests.filter(r=>r.status==='pending'&&r.user_id===user.id).length>=1) fail(429,'REQUEST_IN_PROGRESS','已有请求正在进行');
         checkQuota(effectiveQuotas(state,user),consumption(state,user,config.timezone,start),reserved);
         state.requests.push({id:requestId,user_id:user.id,username:user.username,model:model.public_name,model_id:model.id,key_id:key?.id||null,started_at:start,status:'pending',reserved_tokens:reserved,input_tokens:null,output_tokens:null,total_tokens:null,purpose:'model_check'});
       });

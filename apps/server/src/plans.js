@@ -6,7 +6,6 @@ import {
   audit,
   text,
   integer,
-  quotas,
   publicUser,
 } from "./domain.js";
 
@@ -19,12 +18,11 @@ const terms = (plan, state) => ({
   price_cents: plan.price_cents,
   currency: "CNY",
   duration_days: plan.duration_days,
-  quotas: structuredClone(plan.quotas),
+  token_limit: plan.token_limit,
   model_ids: [...plan.model_ids],
   models: state.models
     .filter((model) => plan.model_ids.includes(model.id))
     .map((model) => ({ id: model.public_name, name: model.name })),
-  max_concurrent_requests: plan.max_concurrent_requests,
 });
 function savePlan(state, body, existing) {
   const name = text(body.name, "套餐名称", 40);
@@ -41,10 +39,9 @@ function savePlan(state, body, existing) {
     Number(body.price) > 1000000
   )
     fail(400, "INVALID_PRICE", "价格须为 0 至 1000000 元，最多两位小数");
-  const days = integer(Number(body.durationDays), "有效天数", 366),
-    concurrent = integer(Number(body.maxConcurrentRequests ?? 1), "并发数", 20);
-  if (!days || !concurrent)
-    fail(400, "INVALID_PLAN", "有效天数和并发数必须大于 0");
+  const days = integer(Number(body.durationDays), "有效天数", 366);
+  if (!days) fail(400, "INVALID_PLAN", "有效天数必须大于 0");
+  const tokenLimit = body.tokenLimit === null ? null : integer(body.tokenLimit, "总 Token 额度");
   if (
     !Array.isArray(body.modelIds) ||
     body.modelIds.length > 500 ||
@@ -81,8 +78,7 @@ function savePlan(state, body, existing) {
     currency: "CNY",
     duration_days: days,
     model_ids: [...body.modelIds],
-    quotas: quotas(body.quotas),
-    max_concurrent_requests: concurrent,
+    token_limit: tokenLimit,
     active: body.active ?? true,
     created_at: existing?.created_at || now(),
     updated_at: now(),
@@ -118,7 +114,6 @@ export function assignUserPlan(state, user, actor, planId) {
   const plan = planId ? state.plans.find(item=>item.id===planId && item.active) : state.plans.find(item=>item.is_default && item.active && item.price_cents===0);
   if (planId && !plan) fail(400,'INVALID_PLAN','请选择启用的套餐');
   if (plan) {
-    if (user.model_id && !plan.model_ids.includes(user.model_id)) fail(400,'PLAN_MODEL_NOT_ALLOWED','默认模型不在所选套餐内，请重新选择');
     grant(state, user.id, terms(plan, state), actor);
   }
 }

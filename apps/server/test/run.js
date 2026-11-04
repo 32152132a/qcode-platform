@@ -48,3 +48,5 @@ import './key-pool.test.js';
 import './account-password.test.js';
 
 import './remove-departments.test.js';
+
+import './simplify-plans.test.js';

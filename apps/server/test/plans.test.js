@@ -63,9 +63,8 @@ const plan = (overrides = {}) => ({
   price: 19.99,
   durationDays: 30,
   level: 0,
-  maxConcurrentRequests: 2,
   modelIds: [],
-  quotas: { totalTokens: 100000, totalRequests: 100 },
+  tokenLimit: 100000,
   description: "演示套餐",
   active: true,
   ...overrides,
@@ -140,7 +139,7 @@ test("plan application is private and idempotent; approval freezes agreed terms 
   );
   await f.call(
     "/admin/plans/" + id + "/update",
-    plan({ price: 39.99, quotas: { totalTokens: 500000 } }),
+    plan({ price: 39.99, tokenLimit: 500000 }),
     f.admin,
   );
   assert.equal(
@@ -154,7 +153,7 @@ test("plan application is private and idempotent; approval freezes agreed terms 
   );
   assert.equal(approved.status, 200);
   assert.equal(approved.body.terms.price_cents, 1999);
-  assert.equal(approved.body.terms.quotas.totalTokens, 100000);
+  assert.equal(approved.body.terms.token_limit, 100000);
   assert.equal(
     (
       await f.call(
@@ -351,8 +350,7 @@ test("purchased models, quota cycles and expiry are enforced server-side without
       "/admin/plans/create",
       plan({
         modelIds: ["allowed"],
-        quotas: { totalTokens: 100000, totalRequests: 1 },
-        maxConcurrentRequests: 1,
+        tokenLimit: 100000,
       }),
       f.admin,
     )
@@ -391,6 +389,7 @@ test("purchased models, quota cycles and expiry are enforced server-side without
     200,
   );
   assert.equal(calls, 1);
+  f.db.transaction(state => { state.subscriptions.at(-1).terms.token_limit = 13; });
   assert.equal(
     (await f.call("/v1/chat/completions", request("allowed"), f.user.token))
       .body.error.code,
@@ -399,7 +398,7 @@ test("purchased models, quota cycles and expiry are enforced server-side without
   assert.equal(calls, 1);
   const used = (await f.call("/client/billing/detail", {}, f.user.token)).body;
   assert.equal(used.usage.used.totalRequests, 1);
-  assert.equal(used.usage.remaining.totalRequests, 0);
+  assert.equal(used.usage.remaining.totalTokens, 0);
   await f.call(
     "/admin/plans/grants/create",
     { userId: f.user.id, planId: p.id, confirmed: true },
@@ -408,7 +407,7 @@ test("purchased models, quota cycles and expiry are enforced server-side without
   const renewed = (await f.call("/client/billing/detail", {}, f.user.token))
     .body;
   assert.equal(renewed.usage.used.totalRequests, 0);
-  assert.equal(renewed.usage.remaining.totalRequests, 1);
+  assert.equal(renewed.usage.remaining.totalTokens, 100000);
   assert.equal(f.db.read().requests.length, 1);
   f.db.transaction((state) => {
     state.subscriptions.at(-1).expires_at = new Date(
@@ -434,7 +433,7 @@ test("purchased models, quota cycles and expiry are enforced server-side without
   assert.equal((await clientConfig(f.other.token)).body.models.length, 2);
 });
 
-test("plan concurrency overrides a higher personal allowance and remains queued", async (t) => {
+test("account requests run sequentially without a configurable concurrency limit", async (t) => {
   const f = await fixture(t);
   let active = 0,
     maximum = 0;
@@ -464,7 +463,6 @@ test("plan concurrency overrides a higher personal allowance and remains queued"
     upstream.close();
   });
   f.db.transaction((state) => {
-    state.users.find((u) => u.id === f.user.id).max_concurrent_requests = 8;
     state.models.push({
       id: "local",
       name: "local",
@@ -479,7 +477,7 @@ test("plan concurrency overrides a higher personal allowance and remains queued"
   const p = (
     await f.call(
       "/admin/plans/create",
-      plan({ modelIds: ["local"], maxConcurrentRequests: 1 }),
+      plan({ modelIds: ["local"] }),
       f.admin,
     )
   ).body;
@@ -912,4 +910,18 @@ test("manual approvals allow omitted, empty and whitespace-only payment referenc
     assert.equal(f.db.read().planOrders.find(item => item.id === order.id).verified_transaction_id, null);
     assert.equal(f.db.read().subscriptions.length, 1);
   }
+});
+
+test('plan token limits distinguish unlimited from zero and reject invalid values',async t=>{
+ const f=await fixture(t);
+ for(const tokenLimit of [-1,1.5,'0',undefined])assert.equal((await f.call('/admin/plans/create',plan({tokenLimit}),f.admin)).status,400);
+ const zero=(await f.call('/admin/plans/create',plan({name:'Zero',tokenLimit:0}),f.admin)).body;
+ assert.equal(zero.token_limit,0);assert(!Object.hasOwn(zero,'quotas'));assert(!Object.hasOwn(zero,'max_concurrent_requests'));
+ await f.call('/admin/plans/grants/create',{userId:f.user.id,planId:zero.id,confirmed:true},f.admin);
+ const limited=(await f.call('/client/billing/detail',{},f.user.token)).body;
+ assert.equal(limited.usage.remaining.totalTokens,0);
+ const unlimited=(await f.call('/admin/plans/create',plan({name:'Unlimited',tokenLimit:null}),f.admin)).body;
+ await f.call('/admin/plans/grants/create',{userId:f.user.id,planId:unlimited.id,confirmed:true},f.admin);
+ const detail=(await f.call('/client/billing/detail',{},f.user.token)).body;
+ assert.equal(detail.usage.remaining.totalTokens,null);assert.equal(detail.subscription.terms.token_limit,null);
 });

@@ -429,8 +429,6 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
         Object.assign(images, { enabled: false, modelId: '', sourceId: '', model: '' })
       }
       state.models = state.models.filter((m) => m.id !== model.id)
-      for (const item of state.users)
-        if (item.model_id === model.id) item.model_id = null
       // Request records retain their model identity for usage and quota accounting.
       audit(state, req.user, 'model.delete', model.id)
     })

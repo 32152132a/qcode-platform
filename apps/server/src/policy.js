@@ -1,5 +1,4 @@
 import { subscriptionFor } from './entitlements.js';
-export { effectiveConcurrency } from './entitlements.js';
 import { sourceKey } from './key-pool.js';
 import { fail, quotaNames, resolveModel } from './domain.js';
 export const rolePermissions = {
@@ -12,8 +11,8 @@ rolePermissions.demo = rolePermissions.admin.filter(permission => permission.end
 export const permissions = user => Object.hasOwn(rolePermissions, user.role) ? rolePermissions[user.role] : [];
 export function effectiveQuotas(state, user) {
   const subscription = subscriptionFor(state, user);
-  if (subscription) return subscription.terms.quotas;
-  return user.quotas;
+  if (subscription) return { totalTokens: subscription.terms.token_limit };
+  return Object.fromEntries(Object.entries(user.quotas).map(([name, limit]) => [name, limit || null]));
 }
 export function effectiveKey(state, user, model = resolveModel(state, user)) {
   const source = state.settings.modelSources.find(source => source.id === model?.source_id);
@@ -25,7 +24,7 @@ export function effectiveKey(state, user, model = resolveModel(state, user)) {
 export function checkQuota(limits, used, reserved, label = '') {
   for (const name of quotaNames) {
     const required = name.endsWith('Tokens') ? reserved : 1;
-    if (limits[name] && used[name] + required > limits[name]) fail(429, 'QUOTA_EXCEEDED', `${label}${name} 额度不足，请降低输出上限或联系管理员`);
+    if (limits[name] !== null && limits[name] !== undefined && used[name] + required > limits[name]) fail(429, 'QUOTA_EXCEEDED', `${label}${name} 额度不足，请降低输出上限或联系管理员`);
   }
 }
 export function protectAdministrator(state, user, actor, changingRole = false) {

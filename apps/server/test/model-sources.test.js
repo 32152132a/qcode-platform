@@ -409,10 +409,10 @@ test('full catalog selection imports beyond thirty, is atomic, idempotent and re
   )
 })
 
-test('model deletion clears assignments, preserves usage and requires explicit reimport after sync', async (t) => {
+test('model deletion preserves usage and requires explicit reimport after sync', async (t) => {
   const f = await fixture(t)
   const model = f.db.read().models[0]
-  await f.create('alice', { modelId: model.id })
+  await f.create('alice')
   const token = await f.login()
   const route = '/admin/models/sources/' + model.source_id + '/models/' + model.id
   assert.equal((await f.chat(token)).status, 200)
@@ -429,7 +429,7 @@ test('model deletion clears assignments, preserves usage and requires explicit r
   assert.equal((await f.request(route, 'DELETE', undefined, f.admin)).status, 200)
   const state = f.db.read()
   assert.equal(state.models.length, 0)
-  assert.equal(state.users.find((user) => user.username === 'alice').model_id, null)
+  assert(!Object.hasOwn(state.users.find((user) => user.username === 'alice'), 'model_id'))
   assert.deepEqual(state.requests, history)
   assert.deepEqual((await f.request('/admin/usage', 'GET', undefined, f.admin)).body.totals, usage)
   assert(state.audits.some((entry) => entry.action === 'model.delete' && entry.target === model.id))

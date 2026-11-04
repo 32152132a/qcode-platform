@@ -16,10 +16,3 @@ export function modelAllowed(
       subscription.terms.model_ids.includes(model.id))
   );
 }
-export function effectiveConcurrency(state, user) {
-  return (
-    subscriptionFor(state, user)?.terms.max_concurrent_requests ||
-    user.max_concurrent_requests ||
-    1
-  );
-}

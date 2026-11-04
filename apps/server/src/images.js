@@ -58,7 +58,6 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
         Object.assign(value, {enabled: true, sourceId: source.id, model: model.upstream_model, modelId: model.id});
         if (value.visionModelId === model.id) value.visionModelId = '';
         model.model_type = 'image'; model.capabilities = ['image_generation']; model.is_default = false;
-        for (const item of state.users) if (item.model_id === model.id) item.model_id = null;
       }
       model.active = true;
     }

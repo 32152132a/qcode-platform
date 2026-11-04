@@ -34,10 +34,11 @@
       :rows="data || []"
       :columns="columns"
       :actions="actions"
-    /><EntityDialog ref="editor" /><PaymentSettings ref="paymentEditor" />
+    /><EntityDialog ref="editor" /><PlanDialog ref="planEditor" /><PaymentSettings ref="paymentEditor" />
   </PagePanel>
 </template>
 <script setup lang="ts">
+import PlanDialog from "./components/PlanDialog/index.vue";
 import PaymentSettings from "./components/PaymentSettings/index.vue";
 import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
@@ -49,16 +50,13 @@ import { useAuthStore } from "@/stores/auth";
 import { request } from "@/api/request";
 import {
   date,
-  quotaFields,
-  quotaValues,
-  quotaBody,
-  yesNo,
   confirmAction,
 } from "@/utils/forms";
-import type { Row, Column, Field } from "@/types";
+import type { Row, Column } from "@/types";
 const auth = useAuthStore(),
   tab = ref("plans"),
   editor = ref<InstanceType<typeof EntityDialog>>(),
+  planEditor = ref<InstanceType<typeof PlanDialog>>(),
   paymentEditor = ref<InstanceType<typeof PaymentSettings>>();
 const { data, loading, error, load } = useResource<Row[]>(
   () => "/admin/plans" + (tab.value === "plans" ? "" : "/" + tab.value),
@@ -89,6 +87,7 @@ const columns = computed<Column[]>(() =>
         },
         { prop: "price_cents", label: "价格", render: amount },
         { prop: "duration_days", label: "有效天数" },
+        { prop: "token_limit", label: "总 Token 额度", render: (row) => row.token_limit === null ? "∞" : Number(row.token_limit).toLocaleString() },
         {
           prop: "model_ids",
           label: "对话模型数",
@@ -220,107 +219,8 @@ function approve(row: Row) {
     load,
   );
 }
-async function edit(row?: Row) {
-  try {
-    const models = await request<Row[]>("/admin/models");
-    const fields: Field[] = [
-      {
-        prop: "level",
-        label: "套餐等级（越大越高级）",
-        required: true,
-        type: "number",
-        props: { min: 0, max: 1000, precision: 0 },
-      },
-      {
-        prop: "isDefault",
-        label: "新用户默认套餐",
-        type: "select",
-        options: yesNo,
-      },
-      {
-        prop: "name",
-        label: "套餐名称",
-        required: true,
-        props: { maxlength: 40 },
-      },
-      {
-        prop: "price",
-        label: "价格（元）",
-        type: "number",
-        required: true,
-        props: { min: 0, max: 1000000, precision: 2 },
-      },
-      {
-        prop: "durationDays",
-        label: "有效天数",
-        type: "number",
-        required: true,
-        props: { min: 1, max: 366 },
-      },
-      {
-        prop: "maxConcurrentRequests",
-        label: "并发上限",
-        type: "number",
-        props: { min: 1, max: 20 },
-      },
-      {
-        prop: "modelIds",
-        label: "可选对话模型",
-        type: "select",
-        multiple: true,
-        options: models
-          .filter((m) => m.model_type !== "image")
-          .map((m) => ({ label: String(m.name), value: String(m.id) })),
-      },
-      { prop: "active", label: "上架", type: "select", options: yesNo },
-      ...quotaFields,
-      {
-        prop: "description",
-        label: "套餐说明",
-        type: "textarea",
-        props: { maxlength: 400, autosize: { minRows: 3, maxRows: 6 } },
-      },
-    ];
-    editor.value?.open(
-      {
-        title: row ? "编辑套餐（仅影响后续开通）" : "创建套餐",
-        fields,
-        value: {
-          ...row,
-          level: row?.level || 0,
-          isDefault: String(row?.is_default ?? false),
-          price: Number(row?.price_cents || 0) / 100,
-          durationDays: row?.duration_days || 30,
-          maxConcurrentRequests: row?.max_concurrent_requests || 1,
-          modelIds: row?.model_ids || [],
-          active: String(row?.active ?? true),
-          ...quotaValues(row),
-        },
-        save: (v) =>
-          request(
-            "/admin/plans" + (row ? "/" + row.id : ""),
-            row ? "PUT" : "POST",
-            {
-              name: v.name,
-              level: v.level || 0,
-              isDefault: v.isDefault === "true",
-              description: v.description || "",
-              price: v.price,
-              durationDays: v.durationDays,
-              maxConcurrentRequests: v.maxConcurrentRequests,
-              modelIds: v.modelIds || [],
-              active: v.active === "true",
-              quotas: quotaBody(v),
-            },
-          ),
-      },
-      () => {
-        void load();
-      },
-    );
-  } catch (cause) {
-    ElMessage.error(cause instanceof Error ? cause.message : "加载模型失败");
-  }
+function edit(row?: Row) {
+  void planEditor.value?.open(row, load);
 }
 function reject(row: Row) {
   editor.value?.open(

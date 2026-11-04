@@ -18,7 +18,7 @@ export function ensureDemoUser(db, config) {
     }
     state.users.push({ id: state.nextUserId++, username, role: 'demo', password_hash: hashPassword(config.demoPassword),
       is_active: 1, created_at: now(), session_limit: 20,
-      model_id: null, key_id: null, quota_mode: 'custom', quotas: {}, max_concurrent_requests: 1 });
+      key_id: null, quotas: {}, });
   });
 }
 export function registerAuth(app, { db, config, cancelRequests }) {

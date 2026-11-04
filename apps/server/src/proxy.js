@@ -3,7 +3,7 @@ import { subscriptionFor } from './entitlements.js';
 import { Transform, Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { now, id, fail, availableModels, consumption, period, integer } from './domain.js';
-import { effectiveKey, effectiveQuotas, effectiveConcurrency, checkQuota } from './policy.js';
+import { effectiveKey, effectiveQuotas, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
 import { providerRequest, chatResponse, responseStream } from './providers.js';
 import { configuredVisionModel } from './model-sources.js';
@@ -50,7 +50,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   db.transaction(next => {
     const user = next.users.find(u => u.id === req.user.id), used = consumption(next, user, config.timezone, startedAt);
     if (next.requests.filter(r => r.status === 'pending').length >= settingsFor(next).maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关当前繁忙，请稍后重试');
-    if (next.requests.filter(r => r.user_id === user.id && r.status === 'pending').length >= effectiveConcurrency(next, user)) fail(429, 'REQUEST_IN_PROGRESS', '账号同时请求数量已达到上限');
+    if (next.requests.filter(r => r.user_id === user.id && r.status === 'pending').length >= 1) fail(429, 'REQUEST_IN_PROGRESS', '账号同时请求数量已达到上限');
     checkQuota(effectiveQuotas(next, user), used, reserved, '用户 ');
     next.requests.push({ id: requestId, subscription_id: subscription?.id || null, user_id: user.id, username: user.username, model: model.public_name, model_id: model.id, purpose: hasImages ? 'image_understanding' : 'chat',
       key_id: key?.id || null, started_at: startedAt, status: 'pending', reserved_tokens: reserved, input_tokens: null, output_tokens: null, total_tokens: null });

@@ -47,9 +47,9 @@ test('Ollama keyless chat, catalogue and connectivity retain gateway auth, quota
   assert.equal((await request('/v1/chat/completions','POST',{...body,model:'cloud'},session)).status,503,'cloud providers still require a key');
 });
 
-test('optional Ollama provisioning is once-only and preserves configured default and assignments',()=>{
+test('optional Ollama provisioning is once-only and preserves configured sources without account model defaults',()=>{
   const db=createDatabase(),config={encryptionSecret:'b'.repeat(64),adminUsername:'admin',adminPassword:'admin-password',baseUrl:'http://127.0.0.1:9/v1',upstreamModel:'existing',ollamaBaseUrl:'http://127.0.0.1:11434/v1'};
-  createApp(config,db);const before=db.read();assert.equal(before.models.length,2);assert.equal(before.models.find(m=>m.is_default).upstream_model,'existing');assert.equal(before.users[0].model_id,null);
+  createApp(config,db);const before=db.read();assert.equal(before.models.length,2);assert.equal(before.models.find(m=>m.is_default).upstream_model,'existing');assert(!Object.hasOwn(before.users[0],'model_id'));
   const local=before.models.find(m=>m.provider==='ollama');db.transaction(state=>{state.models.find(m=>m.id===local.id).base_url='http://updated.example/v1';});
   createApp(config,db);assert.equal(db.read().models.length,2);assert.equal(db.read().models.find(m=>m.id===local.id).base_url,'http://updated.example/v1');
   db.transaction(state=>{state.models=state.models.filter(m=>m.id!==local.id);});createApp(config,db);assert.equal(db.read().models.length,1,'deleted seed is not resurrected');

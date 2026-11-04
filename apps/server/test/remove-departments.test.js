@@ -41,14 +41,15 @@ test('department migration is explicit, backed up and atomic; preserves business
  assert.equal(removeDepartments({...f,apply:true}).version,5);
  const wrapper=JSON.parse(fs.readFileSync(f.backupPath));assert(!JSON.stringify(wrapper).includes('test-private-key'));
  const backup=JSON.parse(createVault(f.secret).decrypt(wrapper.ciphertext));assert.equal(backup.format,'qcode-backup-v4');assert.deepEqual(backup.state,f.original);
- const db=createDatabase(f.filename,{vault:createVault(f.secret)});try{
-  const state=db.read();assert.equal(state.version,5);assert(!Object.hasOwn(state,'departments'));
+ const migrated=new DatabaseSync(f.filename,{readOnly:true});try{
+  const metadata=JSON.parse(migrated.prepare('SELECT data FROM metadata WHERE id=1').get().data);
+  const state={...metadata};for(const table of Object.keys(f.original).filter(name=>Array.isArray(f.original[name])&&name!=='departments'))state[table]=migrated.prepare('SELECT data FROM "'+table+'" ORDER BY rowid').all().map(row=>JSON.parse(row.data));assert.equal(state.version,5);assert(!Object.hasOwn(state,'departments'));
   for(const user of state.users)for(const field of ['department','department_id','quota_mode'])assert(!Object.hasOwn(user,field));
   assert.deepEqual(state.users[0].quotas,{totalTokens:1000});assert.equal(state.users[0].model_id,'model');assert.equal(state.users[0].key_id,'key');assert.deepEqual(state.users[1].quotas,{totalTokens:500});
   for(const table of ['keys','models','tokens','plans','subscriptions','feedback','paymentSettings','audits','planOrders'])assert.deepEqual(state[table],f.original[table],table);
   assert.equal(state.requests[0].total_tokens,80);assert.equal(state.requests[0].cost_micros,3);assert(!Object.hasOwn(state.requests[0],'department_id'));assert(!Object.hasOwn(state.requests[0],'department_name'));
   assert(state.skills.every(skill=>!Object.hasOwn(skill,'department_ids')));assert.deepEqual(state.skills.map(skill=>skill.files),f.original.skills.map(skill=>skill.files));
- }finally{db.close()}
+ }finally{migrated.close()}
  const sql=new DatabaseSync(f.filename,{readOnly:true});try{assert.equal(sql.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('departments','request_department')").get().n,0)}finally{sql.close()}
  assert.equal(removeDepartments({...f,apply:true}).alreadyApplied,true);
 });

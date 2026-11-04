@@ -23,9 +23,9 @@ export function createSqliteDatabase(filename, { vault } = {}) {
     const existing = sql.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
     if (existing.length) {
       const names = new Set(existing.map(row => row.name));
-      if (sql.prepare('PRAGMA user_version').get().user_version !== 5 || !['metadata', ...tables].every(name => names.has(name))) throw new Error('Unsupported database version; see docs/ADMIN-ACCOUNTS.md and run the reviewed offline migration before starting.');
+      if (sql.prepare('PRAGMA user_version').get().user_version !== 6 || !['metadata', ...tables].every(name => names.has(name))) throw new Error('Unsupported database version; see docs/SIMPLIFY-PLANS.md and run the reviewed offline migration before starting.');
       const metadata = sql.prepare('SELECT data FROM metadata WHERE id=1').get();
-      if (!metadata || JSON.parse(metadata.data).version !== 5) throw new Error('Invalid database metadata');
+      if (!metadata || JSON.parse(metadata.data).version !== 6) throw new Error('Invalid database metadata');
     }
     // SQLite's OS lock is released even after a hard process crash; no stale PID file blocks restart.
     sql.exec('PRAGMA busy_timeout=100; PRAGMA locking_mode=EXCLUSIVE; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; BEGIN EXCLUSIVE; COMMIT;');
@@ -35,7 +35,7 @@ export function createSqliteDatabase(filename, { vault } = {}) {
       CREATE INDEX IF NOT EXISTS request_user_time ON requests(json_extract(data, '$.user_id'), json_extract(data, '$.started_at'));
       CREATE INDEX IF NOT EXISTS session_user ON tokens(json_extract(data, '$.user_id'));
       CREATE UNIQUE INDEX IF NOT EXISTS session_refresh ON tokens(json_extract(data, '$.refresh_hash'));
-      PRAGMA user_version=5;`);
+      PRAGMA user_version=6;`);
     if (sql.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw new Error('SQLite integrity check failed');
     let state = emptyState();
     const metadata = sql.prepare('SELECT data FROM metadata WHERE id=1').get();

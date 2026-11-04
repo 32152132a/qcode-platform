@@ -16,7 +16,7 @@ import { createDatabase, createVault, hashPassword } from './database.js';
 import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, audit, availableModels, resolveModel } from './domain.js';
 import { complete, statistics } from './proxy.js';
 import { registerAuth, ensureDemoUser } from './auth.js';
-import { adminPermission, rolePermissions, protectAdministrator, effectiveConcurrency } from './policy.js';
+import { adminPermission, rolePermissions, protectAdministrator } from './policy.js';
 import { registerEnterpriseRoutes } from './enterprise.js';
 import { registerDistribution } from './distribution.js';
 import { registerReports, filterRecords } from './reports.js';
@@ -58,8 +58,8 @@ export function createApp(config, database) {
       const username = text(config.adminUsername, 'username', 80);
       if (state.users.some(u => u.username === username)) throw new Error('Administrator username is already used');
       state.users.push({ id: state.nextUserId++, username, password_hash: hashPassword(password(config.adminPassword)), role: 'admin',
-        is_active: 1, max_concurrent_requests: 2,
-        created_at: now(), session_limit: 2, model_id: null, key_id: null, quotas: quotas() });
+        is_active: 1,
+        created_at: now(), session_limit: 2, key_id: null, quotas: quotas() });
     }
     if (!state.keys.length && config.upstreamKey && !config.upstreamKey.startsWith('replace-with-')) {
       const keyId = id();
@@ -133,10 +133,9 @@ export function createApp(config, database) {
   };
   const validateAssignment = (state, body) => {
     if (body.keyId != null && !state.keys.some(k => k.id === body.keyId && k.active)) fail(400, 'INVALID_KEY', '请选择已启用的 Key');
-    if (body.modelId != null && !state.models.some(m => m.id === body.modelId && m.active)) fail(400, 'INVALID_MODEL', '请选择已启用的模型');
   };
   app.post('/admin/users/options', (_req, res) => {
-    const state=db.read();res.json({plans:state.plans.filter(plan=>plan.active).map(plan=>({id:plan.id,name:plan.name,model_ids:plan.model_ids})),models:availableModels(state).map(model=>({id:model.id,name:model.name,active:model.active,model_type:model.model_type}))});
+    const state=db.read();res.json({plans:state.plans.filter(plan=>plan.active).map(plan=>({id:plan.id,name:plan.name}))});
   });
   app.post('/admin/users/list', (_req, res) => { const state = db.read(); res.json(state.users.map(u => publicUser(state, u, timezone))); });
   function createUser(state, body, actor) {
@@ -145,11 +144,9 @@ export function createApp(config, database) {
     if (state.users.some(u => u.username.toLowerCase() === username.toLowerCase())) fail(409, 'USER_EXISTS', '账号已存在');
     validateAssignment(state, body);
     if (body.role && (!Object.hasOwn(rolePermissions, body.role) || (actor.role !== 'admin' && body.role !== 'user'))) fail(403, 'INVALID_ROLE', '角色配置无效');
-    const maxConcurrent = integer(body.maxConcurrentRequests ?? 1, 'maxConcurrentRequests', 20);
-    if (!maxConcurrent) fail(400, 'INVALID_FIELD', '并发请求数至少为 1');
     const user = { id: state.nextUserId++, username, password_hash: hashPassword(password(body.password)), role: body.role || 'user', is_active: 1,
-      max_concurrent_requests: maxConcurrent, created_at: now(),
-      model_id: body.modelId ?? null, key_id: body.keyId ?? null, session_limit: integer(body.sessionLimit ?? 1, 'sessionLimit', 20), quotas: quotas(body.quotas) };
+      created_at: now(),
+      key_id: body.keyId ?? null, session_limit: integer(body.sessionLimit ?? 1, 'sessionLimit', 20), quotas: quotas(body.quotas) };
     if (!user.session_limit) fail(400, 'INVALID_FIELD', '登录设备上限至少为 1');
     state.users.push(user); audit(state, actor, 'user.create', user.id);
     assignUserPlan(state, user, actor, body.planId);
@@ -170,16 +167,11 @@ export function createApp(config, database) {
       if (body.role !== user.role) state.tokens = state.tokens.filter(t => t.user_id !== user.id);
       user.role = body.role;
     }
-    if ('maxConcurrentRequests' in body) { user.max_concurrent_requests = integer(body.maxConcurrentRequests, 'maxConcurrentRequests', 20); if (!user.max_concurrent_requests) fail(400, 'INVALID_FIELD', '并发请求数至少为 1'); }
     if ('username' in body) {
       const username = text(body.username, 'username', 80);
       if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', '账号仅支持中文、字母、数字、下划线、点、@ 和短横线');
       if (state.users.some(u => u.id !== user.id && u.username.toLowerCase() === username.toLowerCase())) fail(409, 'USER_EXISTS', '账号已存在');
       user.username = username;
-    }
-    if ('modelId' in body) {
-      if (body.modelId && !availableModels(state,user).some(model=>model.id===body.modelId)) fail(400,'PLAN_MODEL_NOT_ALLOWED','默认模型不在当前套餐内或已停用，请重新选择');
-      user.model_id = body.modelId;
     }
     if ('keyId' in body) user.key_id = body.keyId;
     if ('quotas' in body) user.quotas = quotas(body.quotas);
@@ -371,7 +363,7 @@ export function createApp(config, database) {
     waitMs: config.requestQueueWaitMs ?? 15000,
     canStart: userId => {
       const state = db.read(), user = state.users.find(item => item.id === userId);
-      return !user || state.requests.filter(item => item.user_id === userId && item.status === 'pending').length < effectiveConcurrency(state, user);
+      return !user || state.requests.filter(item => item.user_id === userId && item.status === 'pending').length < 1;
     },
   });
   registerImages(app, { db, vault, config, auth, activeRequests, queueRequest });
