@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fixture } from './gateway.test.js';
 import { createDatabase, createVault } from '../src/database.js';
-import { restoreDueKeys, suspendKey, sourceKeyIds } from '../src/key-pool.js';
+import { suspendKey, sourceKeyIds } from '../src/key-pool.js';
 
 async function poolFixture(t, statuses = [402, 429, 200]) {
   const f = await fixture(t); await f.create(); const token = await f.login();
@@ -52,25 +52,17 @@ test('five rejected keys stay disabled; following requests go straight to the si
   assert.equal(f.db.read().requests[0].key_attempts.length,6);
 });
 
-test('exhausted pools stop; manual enable retries only that key and recovery can be scheduled or cancelled',async t=>{
+test('exhausted pools stay stopped until manually enabled; enable is repeatable',async t=>{
   const f=await poolFixture(t,[402,429]);
   const update=(id,body)=>f.request('/admin/keys/'+id,'PATCH',body,f.admin);
-  assert.equal((await update(f.keys[0].id,{restoreHours:24})).status,200);
   assert.equal((await f.chat(f.token)).body.error.code,'KEY_UNAVAILABLE');assert.equal(f.calls.length,2);
   assert.equal((await f.chat(f.token)).status,503);assert.equal(f.calls.length,2);
-  let key=f.db.read().keys.find(key=>key.id===f.keys[0].id);assert(key.restore_at);
-  restoreDueKeys(f.db,new Date(Date.parse(key.restore_at)-1).toISOString());
-  assert.equal(f.db.read().keys.find(item=>item.id===key.id).active,false);
-  restoreDueKeys(f.db,key.restore_at);f.statuses[0]=200;
-  assert.equal((await f.chat(f.token)).status,200);assert.equal(f.calls.at(-1).index,0);
-  const future=new Date(Date.now()+60000).toISOString();
-  assert.equal((await update(key.id,{restoreAt:future})).status,200);
-  assert.equal((await update(key.id,{active:false})).status,200);
-  assert.equal(f.db.read().keys.find(item=>item.id===key.id).restore_at,null);
-  assert.equal((await update(key.id,{restoreHours:-1})).status,400);
-  assert.equal((await update(key.id,{restoreAt:'invalid'})).status,400);
-  assert.equal((await update(f.keys[1].id,{active:true})).status,200);
-  f.statuses[1]=200;assert.equal((await f.chat(f.token)).status,200);assert.equal(f.calls.at(-1).index,1);
+  f.statuses[1]=200;
+  for(let i=0;i<2;i++)assert.equal((await update(f.keys[1].id,{active:true})).status,200);
+  assert.equal((await f.chat(f.token)).status,200);assert.equal(f.calls.at(-1).index,1);
+  assert.equal(f.db.read().keys.find(key=>key.id===f.keys[0].id).active,false);
+  assert.equal((await update(f.keys[1].id,{active:false})).status,200);
+  assert.equal((await f.chat(f.token)).status,503);
 });
 
 test('invalid user requests do not disable keys, and accepted stream errors never replay with another key',async t=>{
@@ -107,15 +99,14 @@ test('catalog synchronization uses the next key and shares disabled status with 
   assert.equal((await f.chat(f.token)).status,200);assert.deepEqual(f.calls.map(call=>call.index),[0,1,2,2]);
 });
 
-test('suspension and recovery schedules survive SQLite reopen; stale failures cannot disable a replaced secret',()=>{
+test('suspension survives SQLite reopen; stale failures cannot disable a replaced secret',()=>{
   const folder=mkdtempSync(join(tmpdir(),'qcode-pool-')),file=join(folder,'test.sqlite'),vault=createVault('a'.repeat(64));
   let db;
   try {
-    db=createDatabase(file,{vault});const key={id:'key',name:'test',secret:vault.encrypt('test-secret'),active:true,restore_hours:24};
+    db=createDatabase(file,{vault});const key={id:'key',name:'test',secret:vault.encrypt('test-secret'),active:true};
     db.transaction(state=>state.keys.push(key));suspendKey(db,key,'余额或额度不足');db.close();db=createDatabase(file,{vault});
-    const saved=db.read().keys[0];assert.equal(saved.active,false);assert(saved.restore_at);
-    restoreDueKeys(db,saved.restore_at);assert.equal(db.read().keys[0].active,true);
-    db.transaction(state=>{state.keys[0].secret=vault.encrypt('replacement');});suspendKey(db,key,'旧请求失败');
+    const saved=db.read().keys[0];assert.equal(saved.active,false);
+    db.transaction(state=>{state.keys[0].secret=vault.encrypt('replacement');state.keys[0].active=true;});suspendKey(db,key,'旧请求失败');
     assert.equal(db.read().keys[0].active,true);
   } finally {db?.close();rmSync(folder,{recursive:true,force:true});}
 });

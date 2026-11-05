@@ -119,3 +119,30 @@ test('tiny Qwen defaults to no thinking and respects explicit choices', () => {
  assert.equal(request({reasoning:{effort:'low'}}).reasoning_effort,undefined);
  for(const other of [{...model,upstream_model:'qwen3:8b'},{...model,provider:'custom'}]) assert.equal(providerRequest({messages:[]},other,'test',32).payload.reasoning_effort,undefined);
 });
+
+test('Kimi thinking validation uses auto tools and preserves streamed reasoning in the tool follow-up',async t=>{
+ const received=[];
+ const upstream=http.createServer(async(req,res)=>{
+  let raw='';for await(const chunk of req)raw+=chunk;
+  const body=JSON.parse(raw);received.push(body);
+  assert.equal(body.reasoning_effort,'low');assert.equal(body.max_tokens,1024);
+  if(body.stream){
+   assert.equal(body.tool_choice,'auto');
+   res.setHeader('content-type','text/event-stream');
+   for(const delta of [{reasoning_content:'preserved thought'},{tool_calls:[{index:0,id:'test-call',type:'function',function:{name:'qcode_connection_check',arguments:'{"ok":true}'}}]}])res.write('data: '+JSON.stringify({choices:[{delta}]})+'\n\n');
+   res.end('data: [DONE]\n\n');
+  }else{
+   assert.equal(body.messages[1].reasoning_content,'preserved thought');
+   assert.equal(body.messages[2].tool_call_id,'test-call');
+   res.setHeader('content-type','application/json');res.end(JSON.stringify({choices:[{message:{role:'assistant',content:'OK'}}],usage:{prompt_tokens:10,completion_tokens:2,total_tokens:12}}));
+  }
+ });upstream.listen(0,'127.0.0.1');await once(upstream,'listening');
+ const db=createDatabase(),app=createApp({encryptionSecret:'a'.repeat(64),adminUsername:'admin',adminPassword:'test-password',baseUrl:'http://127.0.0.1:'+upstream.address().port+'/v1',upstreamKey:'mock-provider-key',upstreamModel:'kimi-k3.1-pro',publicModel:'test-kimi'},db);
+ db.transaction(state=>{state.models[0].provider='custom';state.models[0].max_output_tokens=8192;});
+ const server=http.createServer(app);server.listen(0,'127.0.0.1');await once(server,'listening');
+ t.after(()=>{server.closeAllConnections();server.close();upstream.closeAllConnections();upstream.close();db.close();});
+ const origin='http://127.0.0.1:'+server.address().port;
+ const login=await fetch(origin+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'admin',password:'test-password'})}).then(r=>r.json());
+ const response=await fetch(origin+'/admin/models/'+db.read().models[0].id+'/check',{method:'POST',headers:{Authorization:'Bearer '+login.token,'Content-Type':'application/json'},body:'{}'});
+ const result=await response.json();assert.equal(result.status,'verified');assert.equal(result.stream,true);assert.equal(result.tools,true);assert.equal(result.tool_result,true);assert.equal(received.length,2);
+});

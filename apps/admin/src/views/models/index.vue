@@ -33,14 +33,7 @@
         :key="source.id"
         :title="source.name"
         :address="source.base_url"
-        ><template #state>
-          <el-switch
-            :model-value="source.active"
-            :disabled="!auth.can('models:write') || busy === source.id"
-            active-text="启用"
-            inactive-text="关闭"
-            @change="toggle(source)"
-        /></template>
+        >
         <template #status>
           <el-tag v-if="source.kind !== 'local'" type="info">{{ (source.key_id ? 1 : 0) + (source.fallback_key_ids?.length || 0) }} 个 Key</el-tag>
           <el-tag :type="source.sync_status === 'failed' ? 'warning' : 'info'">{{
@@ -142,24 +135,6 @@
     } finally {
       busy.value = ''
     }
-  }
-  async function toggle(source: ModelSource) {
-    if (source.active) {
-      try {
-        await ElMessageBox.confirm(
-          '关闭后，此来源的所有模型立即停止接受新请求，保留配置和历史用量。',
-          '关闭服务来源',
-          { type: 'warning' }
-        )
-      } catch {
-        return
-      }
-    }
-    await run(source.id, () =>
-      request('/admin/models/sources/' + source.id, 'PUT', {
-        active: !source.active,
-      })
-    )
   }
   function sync(source: ModelSource) {
     syncDialog.value?.open(source, models.value, load)

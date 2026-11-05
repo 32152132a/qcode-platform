@@ -14,7 +14,7 @@ async function boundedJson(response) {
 }
 async function collectStream(stream) {
   const decoder = new TextDecoder(); let buffer = '', done = false, usage, size = 0;
-  const calls = new Map(); let content = '';
+  const calls = new Map(); let content = '', reasoning = '';
   for await (const chunk of stream) {
     const part = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
     size += Buffer.byteLength(part); if (size > 2*1024*1024) fail(502, 'INVALID_UPSTREAM_RESPONSE', 'Test response too large');
@@ -27,6 +27,7 @@ async function collectStream(stream) {
       if (value.error) fail(502,'UPSTREAM_STREAM_ERROR','Provider stream failed');
       usage = value.usage || usage;
       content += value.choices?.[0]?.delta?.content || '';
+      reasoning += value.choices?.[0]?.delta?.reasoning_content || '';
       for (const call of value.choices?.[0]?.delta?.tool_calls || []) {
         const saved = calls.get(call.index) || { id: '', type: 'function', function: { name: '', arguments: '' } };
         if (call.id) saved.id = call.id;
@@ -37,7 +38,7 @@ async function collectStream(stream) {
     }
   }
   if (!done) fail(502,'INCOMPLETE_STREAM','Test stream ended before completion');
-  return { usage, choices: [{ message: { role: 'assistant', content: content || null, tool_calls: [...calls.values()] } }] };
+  return { usage, choices: [{ message: { role: 'assistant', content: content || null, ...(reasoning ? { reasoning_content: reasoning } : {}), tool_calls: [...calls.values()] } }] };
 }
 export function registerModelChecks(app, { db, vault, config, activeRequests }) {
   function select(req) {
@@ -68,7 +69,8 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
   app.post('/admin/models/:id/check', async (req,res) => {
     const { model,key } = select(req);
     if (model.model_type === 'image') fail(400, 'IMAGE_CHECK_REQUIRED', '生图模型请在员工端通过生成图片试用，不执行对话工具验证');
-    const outputLimit = Math.min(model.max_output_tokens,model.provider==='ollama'?32:256);
+    const kimi = model.protocol !== 'responses' && /^kimi-/i.test(model.upstream_model);
+    const outputLimit = Math.min(model.max_output_tokens,model.provider==='ollama'?32:kimi?1024:256);
     async function perform(body) {
       const current=db.read(),currentKey=key&&current.keys.find(k=>k.id===key.id),currentModel=current.models.find(m=>m.id===model.id);
       if((key&&(!currentKey?.active||currentKey.secret!==key.secret))||JSON.stringify(currentModel)!==JSON.stringify(model))fail(409,'MODEL_CHECK_STALE','模型或 Key 已变化，测试已停止');
@@ -119,14 +121,14 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         verification.stream=true;verification.status='connected';verification.message='本地模型聊天连通，工具调用未验证。';
       }else{
       // DeepSeek defaults to thinking mode, where named tool_choice returns HTTP 400.
-      const body={...(nonThinking?{thinking:{type:'disabled'}}:{}),messages:[{role:'user',content:'Call qcode_connection_check with ok=true. Do not call any other tool.'}],tools:[{type:'function',function:{name:'qcode_connection_check',description:'Checks model tool calling without running code.',parameters:{type:'object',properties:{ok:{type:'boolean'}},required:['ok'],additionalProperties:false}}}],tool_choice:{type:'function',function:{name:'qcode_connection_check'}},stream:true};
+      const body={...(nonThinking?{thinking:{type:'disabled'}}:{}),messages:[{role:'user',content:'Call qcode_connection_check with ok=true. Do not call any other tool.'}],tools:[{type:'function',function:{name:'qcode_connection_check',description:'Checks model tool calling without running code.',parameters:{type:'object',properties:{ok:{type:'boolean'}},required:['ok'],additionalProperties:false}}}],tool_choice:kimi?'auto':{type:'function',function:{name:'qcode_connection_check'}},...(kimi?{reasoning_effort:'low'}:{}),stream:true};
       const result=await perform(body);verification.stream=true;
       const call=result.choices[0]?.message?.tool_calls?.[0];
       if(!call?.id||call.function?.name!=='qcode_connection_check')fail(502,'TOOL_CALL_UNSUPPORTED','流式响应成功，但工具调用未通过');
       let args;try{args=JSON.parse(call.function.arguments);}catch{fail(502,'TOOL_CALL_INVALID','工具调用参数不是有效 JSON');}
       if(args.ok!==true)fail(502,'TOOL_CALL_INVALID','工具调用参数不符合测试要求');
       verification.tools=true;
-      const follow=await perform({...(nonThinking?{thinking:{type:'disabled'}}:{}),messages:[...body.messages,result.choices[0].message,{role:'tool',tool_call_id:call.id,content:'{"ok":true}'},{role:'user',content:'The tool succeeded. Reply with OK, do not call tools.'}],stream:false});
+      const follow=await perform({...(nonThinking?{thinking:{type:'disabled'}}:{}),...(kimi?{reasoning_effort:'low'}:{}),messages:[...body.messages,result.choices[0].message,{role:'tool',tool_call_id:call.id,content:'{"ok":true}'},{role:'user',content:'The tool succeeded. Reply with OK, do not call tools.'}],stream:false});
       if(!follow.choices[0]?.message?.content)fail(502,'TOOL_RESULT_UNSUPPORTED','工具结果回传后未获得文本回复');
       verification.tool_result=true;verification.status='verified';if(nonThinking){verification.test_mode='non-thinking';verification.message='非思考模式下，流式输出、工具调用和结果回传验证通过。';}
       }

@@ -20,34 +20,12 @@ export function bindSourceKeys(state, source, ids) {
   for (const model of state.models.filter(model => changed && model.source_id === source.id)) { model.key_id = source.key_id; model.verification = null; }
 }
 
-export function configureKeyRecovery(key, body) {
-  if (body.restoreHours !== undefined) {
-    if (!Number.isInteger(body.restoreHours) || body.restoreHours < 0 || body.restoreHours > 8760) fail(400, 'INVALID_RECOVERY', '恢复间隔应为 0～8760 小时，0 表示不自动恢复');
-    key.restore_hours = body.restoreHours;
-  }
-  if (body.restoreAt !== undefined) {
-    if (body.restoreAt && (typeof body.restoreAt !== 'string' || !Number.isFinite(Date.parse(body.restoreAt)) || Date.parse(body.restoreAt) <= Date.now())) fail(400, 'INVALID_RECOVERY', '请选择未来的恢复时间');
-    key.restore_at = body.restoreAt ? new Date(body.restoreAt).toISOString() : null;
-  }
-}
-
 export function suspendKey(db, key, reason) {
   if (!key) return;
   db.transaction(state => {
     const saved = state.keys.find(item => item.id === key.id);
     if (!saved?.active || saved.secret !== key.secret) return;
     Object.assign(saved, { active: false, health: 'suspended', disabled_reason: reason, disabled_at: now() });
-    if (saved.restore_at && saved.restore_at <= now()) saved.restore_at = null;
-    if (!saved.restore_at && saved.restore_hours) saved.restore_at = new Date(Date.now() + saved.restore_hours * 3600000).toISOString();
-  });
-}
-
-export function restoreDueKeys(db, timestamp = now()) {
-  if (!db.read().keys.some(key => !key.active && key.restore_at && key.restore_at <= timestamp)) return;
-  db.transaction(state => {
-    for (const key of state.keys) if (!key.active && key.restore_at && key.restore_at <= timestamp) {
-      Object.assign(key, { active: true, restore_at: null, health: 'unknown' });
-    }
   });
 }
 

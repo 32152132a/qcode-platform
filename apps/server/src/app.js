@@ -1,4 +1,4 @@
-import { keySource, sourceKeyIds, bindSourceKeys, configureKeyRecovery } from './key-pool.js';
+import { keySource, sourceKeyIds, bindSourceKeys } from './key-pool.js';
 import { registerPlans, assignUserPlan } from './plans.js';
 import { registerFeedback } from './feedback.js';
 import { registerImages } from './images.js';
@@ -226,7 +226,7 @@ export function createApp(config, database) {
   const publicKey = (state, key) => ({ id: key.id, name: key.name, suffix: key.suffix, active: key.active, health: key.health,
     checked_at: key.checked_at, created_at: key.created_at, assigned_users: state.users.filter(u => u.key_id === key.id).map(u => u.username),
     source_id: keySource(state, key.id)?.id || null, source_name: keySource(state, key.id)?.name || null,
-    disabled_reason: key.disabled_reason, disabled_at: key.disabled_at, restore_at: key.restore_at, restore_hours: key.restore_hours || 0,
+    disabled_reason: key.disabled_reason, disabled_at: key.disabled_at,
     tokens: state.requests.filter(r => r.key_id === key.id).reduce((sum, row) => sum + (row.total_tokens || 0), 0),
     unknown_usage: state.requests.filter(r => r.status !== 'pending' && (r.key_id === key.id ? r.total_tokens == null : r.key_attempts?.some(attempt => attempt.key_id === key.id))).length,
     requests: state.requests.filter(r => r.key_id === key.id || r.key_attempts?.some(attempt => attempt.key_id === key.id)).length });
@@ -250,7 +250,7 @@ export function createApp(config, database) {
       if (/[\r\n]/.test(secret)) fail(400, 'INVALID_KEY', 'Key 不能包含换行');
       if (state.keys.some(k => vault.decrypt(k.secret) === secret)) fail(409, 'KEY_EXISTS', '此 Key 已存在');
       const key = { id: id(), name: text(entry.name, 'name'), secret: vault.encrypt(secret), suffix: secret.slice(-4), active: true, health: 'unknown', created_at: now() };
-      state.keys.push(key); configureKeyRecovery(key, entry); assignKeySource(state, key, entry.sourceId); audit(state, req.user, 'key.create', key.id); return publicKey(state, key);
+      state.keys.push(key); assignKeySource(state, key, entry.sourceId); audit(state, req.user, 'key.create', key.id); return publicKey(state, key);
     })));
   });
   app.post('/admin/keys/:id/update', (req, res) => {
@@ -259,9 +259,8 @@ export function createApp(config, database) {
       const key = state.keys.find(k => k.id === req.params.id);
       if (!key) fail(404, 'KEY_NOT_FOUND', 'Key not found');
       if ('active' in req.body) { if (typeof req.body.active !== 'boolean') fail(400, 'INVALID_FIELD', '启用状态必须为布尔值'); key.active = req.body.active; }
-      configureKeyRecovery(key, req.body);
       if ('sourceId' in req.body) assignKeySource(state, key, req.body.sourceId);
-      if ('active' in req.body) { key.restore_at = null; key.health = key.active ? 'unknown' : 'disabled'; if (!key.active) { key.disabled_reason = '管理员停用'; key.disabled_at = now(); } }
+      if ('active' in req.body) { key.health = key.active ? 'unknown' : 'disabled'; if (!key.active) { key.disabled_reason = '管理员停用'; key.disabled_at = now(); } }
       if ('name' in req.body) key.name = text(req.body.name, 'name');
       if ('apiKey' in req.body) {
         const secret = text(req.body.apiKey, 'apiKey', 4096);
