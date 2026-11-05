@@ -15,6 +15,9 @@ defineProps<{ title: string; address: string }>();
 </script>
 <style scoped lang="scss">
 .source-card {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding: 0 var(--admin-gap);
   border: 1px solid var(--el-border-color-light);
   border-radius: var(--el-border-radius-base);

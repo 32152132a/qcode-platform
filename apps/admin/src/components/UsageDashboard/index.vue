@@ -7,6 +7,7 @@
     :error="error"
   >
     <template #actions><el-button @click="load">刷新</el-button></template>
+    <div class="usage-controls">
     <QyqForm
       v-model="filters"
       :columns="3"
@@ -23,6 +24,7 @@
           end-placeholder="结束日期"
       /></template>
     </QyqForm>
+    <el-text type="info" size="small">已删除模型的历史用量统一汇总为“已删除模型”，不影响总消耗；停用但未删除的模型仍单独统计。</el-text>
     <el-space
       ><el-button type="primary" @click="apply">查询</el-button
       ><el-button @click="reset">重置</el-button></el-space
@@ -44,7 +46,10 @@
         }}
         个请求成本未知；未知部分不按零消耗计算。</el-text
       >
-      <el-card class="trend-panel" shadow="never"><UsageTrend :days="data.days" /></el-card>
+      <el-collapse class="trend-panel"><el-collapse-item title="查看 Token 趋势" name="trend"><UsageTrend :days="data.days" /></el-collapse-item></el-collapse>
+    </template>
+    </div>
+    <template v-if="data">
       <el-tabs v-model="tab" class="usage-tabs"
         ><el-tab-pane label="按用户" name="users" /><el-tab-pane
           label="按模型"
@@ -150,10 +155,18 @@
 </script>
 <style scoped lang="scss">
   .page-panel.usage-dashboard {
-    flex: 1 0 auto;
-    :deep(.data-table) {
-      min-height: 420px;
+    overflow: hidden;
+    :deep(.table), :deep(.page-content) { overflow: hidden; }
+    .usage-controls {
+      display: grid;
+      gap: 16px;
       flex-shrink: 0;
+      max-height: 50%;
+      min-height: 0;
+      overflow: auto;
+    }
+    :deep(.data-table) {
+      min-height: 0;
     }
     .metrics {
       display: grid;

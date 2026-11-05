@@ -10,7 +10,7 @@ test('usage distinguishes actual tokens, unknown usage, pending requests and cur
     {user_id:1,username:'a',model_id:'m1',model:'one',started_at:'2026-10-14T02:00:00Z',status:'pending',reserved_tokens:50},
     {user_id:2,username:'b',model_id:'m2',model:'two',started_at:'2026-10-12T12:00:00Z',status:'success',total_tokens:0,charged_tokens:0,cost_micros:2000000,currency:'CNY'},
   ];
-  const result=statistics({requests:rows},'Asia/Shanghai');
+  const result=statistics({requests:rows,models:[{id:'m1',name:'Model One'},{id:'m2',name:'Model Two'}]},'Asia/Shanghai');
   assert.equal(result.totals.tokens,100);assert.equal('chargedTokens' in result.totals,false);
   assert.equal('conservativeTokens' in result.totals,false);assert.equal(result.totals.unknownUsage,1);
   assert.equal(result.totals.success,2);assert.equal(result.totals.failed,1);assert.equal(result.totals.pending,1);
@@ -45,4 +45,15 @@ test('historical estimates never consume quota or inflate actual statistics; pen
  assert.equal(rows[0].charged_tokens,90000,'historical raw values are preserved');
  assert.deepEqual(filterRecords(rows,{status:'errors'},'Asia/Shanghai').map(r=>r.status),['failed','cancelled']);
  assert.equal(filterRecords([{...rows[0],model_id:'one'}, {...rows[1],model_id:'two'}],{modelId:'two'},'Asia/Shanghai').length,1);
+});
+
+test('deleted models form one historical group without leaking internal names or losing usage',()=>{
+ const state={models:[{id:'live',name:'DeepSeek',active:false}],requests:[
+ {model_id:'live',model:'qcode-live',started_at:'2026-11-01',status:'success',total_tokens:10},
+ {model_id:'removed-a',model:'qcode-a',started_at:'2026-11-01',status:'success',total_tokens:20,cost_micros:1000000,currency:'CNY'},
+ {model_id:'removed-b',model:'qcode-b',started_at:'2026-11-01',status:'success',total_tokens:30,cost_micros:2000000,currency:'CNY'}]};
+ const result=statistics(state,'Asia/Shanghai');
+ assert.equal(result.models.length,2);assert.equal(result.totals.tokens,60);
+ const deleted=result.models.find(row=>row.name==='已删除模型');assert.equal(deleted.tokens,50);assert.equal(deleted.requests,2);assert.deepEqual(deleted.costs,{CNY:3});
+ assert(result.models.some(row=>row.name==='DeepSeek'));assert(!JSON.stringify(result.models).includes('qcode-'));
 });

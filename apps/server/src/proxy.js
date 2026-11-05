@@ -166,6 +166,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   }
 }
 
+export const deletedModelId = '__deleted_models__';
 export function statistics(state, timezone) {
   const empty = () => ({ requests: 0, success: 0, failed: 0, pending: 0, tokens: 0, inputTokens: 0, outputTokens: 0, unknownUsage: 0, costs: {}, unknownCost: 0 });
   const totals = empty(), users = new Map(), days = new Map(), models = new Map();
@@ -183,10 +184,13 @@ export function statistics(state, timezone) {
   }
   for (const row of state.requests) {
     add(totals, row);
+    const model = state.models?.find(model => model.id === row.model_id);
+    const modelId = model?.id || deletedModelId;
+    const modelName = model?.name || '已删除模型';
     for (const [map, key, identity] of [
       [users, row.user_id, { userId: row.user_id, username: row.username }],
       [days, period(row.started_at, timezone), { date: period(row.started_at, timezone) }],
-      [models, row.model_id ?? row.model ?? '', { modelId: row.model_id, name: row.model || '未知模型' }],
+      [models, modelId, { modelId, name: modelName }],
     ]) {
       if (!map.has(key)) map.set(key, { ...identity, ...empty() });
       add(map.get(key), row);

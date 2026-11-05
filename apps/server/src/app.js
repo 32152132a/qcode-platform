@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
 import { createDatabase, createVault, hashPassword } from './database.js';
 import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, audit, availableModels, resolveModel } from './domain.js';
-import { complete, statistics } from './proxy.js';
+import { complete, statistics, deletedModelId } from './proxy.js';
 import { registerAuth, ensureDemoUser } from './auth.js';
 import { adminPermission } from './policy.js';
 import { registerEnterpriseRoutes } from './enterprise.js';
@@ -335,7 +335,11 @@ export function createApp(config, database) {
     if (!existing) fail(404, 'MODEL_NOT_FOUND', '模型不存在');
     const model = saveModel(state, req.body || {}, existing); audit(state, req.user, 'model.update', model.id); return model;
   })));
-  app.post('/admin/usage/query', (req, res) => {const state=db.read();state.requests=filterRecords(state.requests,req.query,timezone);res.json(statistics(state, timezone));});
+  app.post('/admin/usage/query', (req, res) => {
+    const state = db.read(), deleted = req.query.modelId === deletedModelId;
+    const requests = deleted ? state.requests.filter(row => !state.models.some(model => model.id === row.model_id)) : state.requests;
+    res.json(statistics({...state, requests: filterRecords(requests, deleted ? {...req.query, modelId: undefined} : req.query, timezone)}, timezone));
+  });
   const page = (items, query) => {
     const offset = integer(Number(query.offset || 0), 'offset'), limit = integer(Number(query.limit || 50), 'limit', 200);
     return { total: items.length, items: items.slice().reverse().slice(offset, offset + limit) };

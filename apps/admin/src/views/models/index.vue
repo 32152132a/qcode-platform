@@ -299,7 +299,9 @@
 </script>
 <style scoped lang="scss">
   .page-panel.models-page {
-    flex: 1 0 auto;
+    overflow: hidden;
+    :deep(.table), :deep(.page-content) { overflow: hidden; }
+    :deep(.el-tabs) { flex-shrink: 0; }
   }
   .source-tab-label {
     display: inline-grid;
@@ -309,6 +311,13 @@
   }
   .source-list {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: max-content;
+    align-content: start;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
     gap: var(--admin-gap);
   }
 </style>
