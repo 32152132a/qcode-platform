@@ -139,9 +139,10 @@ test('key import atomicity, encryption, replacement and model reassignment', asy
   await f.chat(token); assert.equal(f.received().body.model, 'changed-model');
 });
 
-test('invalid batch rolls back and malformed fields are rejected', async t => {
+test('removed user import cannot create accounts and malformed fields are rejected', async t => {
   const f = await fixture(t);
-  assert.equal((await f.request('/admin/users/import', 'POST', { users: [{ username: 'bob', password: 'user-password' }, { username: 'bob', password: 'user-password' }] }, f.admin)).status, 409);
+  const removed = await fetch(f.url + '/admin/users/import', {method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+f.admin},body:JSON.stringify({users:[{username:'bob',password:'user-password'}]})});
+  assert.equal(removed.status,404);await removed.body?.cancel();
   assert.equal(f.db.read().users.length, 1);
   assert.equal((await f.request('/admin/users', 'POST', { username: '../escape', password: 'user-password' }, f.admin)).status, 400);
   assert.equal((await f.request('/admin/users', 'POST', { username: 'test', password: 'user-password', quotas: { totalTokens: -1 } }, f.admin)).status, 400);

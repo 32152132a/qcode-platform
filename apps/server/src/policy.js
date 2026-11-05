@@ -3,8 +3,6 @@ import { sourceKey } from './key-pool.js';
 import { fail, quotaNames, resolveModel } from './domain.js';
 export const rolePermissions = {
   admin: ['plans:read','plans:write','feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
-  operator: ['users:read','users:write','models:read','skills:read','skills:write','usage:read','requests:read','system:read'],
-  auditor: ['users:read','usage:read','requests:read','audits:read','system:read'],
   user: [],
 };
 rolePermissions.demo = rolePermissions.admin.filter(permission => permission.endsWith(':read') && !permission.startsWith('feedback:'));
@@ -27,23 +25,12 @@ export function checkQuota(limits, used, reserved, label = '') {
     if (limits[name] !== null && limits[name] !== undefined && used[name] + required > limits[name]) fail(429, 'QUOTA_EXCEEDED', `${label}${name} 额度不足，请降低输出上限或联系管理员`);
   }
 }
-export function protectAdministrator(state, user, actor, changingRole = false) {
-  if (user.role === 'admin' && actor.role !== 'admin') fail(403, 'ADMIN_PROTECTED', '仅管理员可以修改管理员账号');
-  if (changingRole && user.role === 'admin' && !state.users.some(u => u.id !== user.id && u.role === 'admin' && u.is_active)) fail(409, 'LAST_ADMIN', '必须保留至少一个启用的管理员');
-}
-export function adminPermission(db, config) {
+export function adminPermission(config) {
   return (req, _res, next) => {
     const resource = req.path.split('/')[1], action = req.businessOperation?.[3] || (['GET','HEAD'].includes(req.method) ? 'read' : 'write');
     if (!permissions(req.user).includes(`${resource}:${action}`)) fail(403, 'PERMISSION_DENIED', '当前角色没有此操作权限');
     const address = req.ip?.replace(/^::ffff:/, '');
     if (config.adminAddresses.length && !config.adminAddresses.includes(address)) fail(403, 'ADMIN_SOURCE_DENIED', '此来源地址不允许访问后台');
-    const userId = resource === 'users' && req.path.match(/^\/users\/(\d+)(?:\/|$)/)?.[1];
-    if (userId && action === 'write') {
-      const user = db.read().users.find(u => u.id === Number(userId));
-      if (user) protectAdministrator(db.read(), user, req.user);
-    }
-    // Operators can manage ordinary staff but cannot grant roles or access secrets.
-    if (action === 'write' && req.user.role !== 'admin' && (req.body?.role || req.body?.users?.some?.(u => u?.role && u.role !== 'user'))) fail(403, 'ROLE_ADMIN_REQUIRED', '只有管理员可以设置角色');
     next();
   };
 }

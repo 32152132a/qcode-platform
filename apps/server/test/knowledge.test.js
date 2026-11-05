@@ -7,9 +7,9 @@ async function fixture(t,database=createDatabase()){
  const url=`http://127.0.0.1:${server.address().port}`;
  async function request(route,method='GET',body,token){const encoded=businessRequest(route,method,body);body=encoded.data;const r=await fetch(url+encoded.url,{method:encoded.method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,body:await r.json()};}
  const admin=(await request('/auth/login','POST',{username:'admin',password:'admin-password'})).body.token;
- for(const [username,role]of [['employee','user'],['operator','operator']])await request('/admin/users','POST',{username,role,password:'user-password'},admin);
+ await request('/admin/users','POST',{username:'employee',password:'user-password'},admin);
  const login=async username=>(await request('/auth/login','POST',{username,password:'user-password'})).body.token;
- return {request,admin,employee:await login('employee'),operator:await login('operator'),db:database};
+ return {request,admin,employee:await login('employee'),db:database};
 }
 const document={title:'企业部署说明',filename:'部署.md',summary:'网关地址和部署检查规范',content:'# 团队知识\n\n网关通过 Docker 部署。发布之前必须检查服务健康状态。\n\n成员只能使用网关分配的模型。',active:true};
 test('knowledge upload searches and syncs readable references; updates and deletes only managed files',async t=>{
@@ -29,11 +29,11 @@ test('knowledge upload searches and syncs readable references; updates and delet
  await f.request('/admin/knowledge/'+id,'DELETE',undefined,f.admin);await syncSkills(root,[]);assert.equal(fs.existsSync(reference),false);assert.equal(fs.readFileSync(path.join(root,'skills','personal-note.txt'),'utf8'),'keep');assert.ok(f.db.read().audits.some(a=>a.action==='knowledge.delete'));
 });
 test('knowledge management rejects unauthorized uploads, alternate skill edits, binary and oversized data',async t=>{
- const f=await fixture(t);assert.equal((await f.request('/admin/knowledge','POST',document,f.employee)).status,403);assert.equal((await f.request('/admin/knowledge','POST',document,f.operator)).status,403);assert.equal((await f.request('/client/knowledge/search?q=hello')).status,401);
+ const f=await fixture(t);assert.equal((await f.request('/admin/knowledge','POST',document,f.employee)).status,403);assert.equal((await f.request('/client/knowledge/search?q=hello')).status,401);
  for(const changes of [{filename:'../secret.md'},{filename:'image.pdf'},{content:'binary\0text'},{content:'字'.repeat(22000)},{active:'false'},{content:''}])assert.equal((await f.request('/admin/knowledge','POST',{...document,...changes},f.admin)).status,400);
  const created=await f.request('/admin/knowledge','POST',document,f.admin);assert.equal(created.status,201);
- assert.equal((await f.request('/admin/skills/'+created.body.id,'DELETE',undefined,f.operator)).status,404);
- assert.equal((await f.request('/admin/skills/'+created.body.id,'PUT',{name:'bypass',description:'bad',content:'changed'},f.operator)).status,404);
+ assert.equal((await f.request('/admin/skills/'+created.body.id,'DELETE',undefined,f.employee)).status,403);
+ assert.equal((await f.request('/admin/skills/'+created.body.id,'PUT',{name:'bypass',description:'bad',content:'changed'},f.employee)).status,403);
  assert.equal((await f.request('/admin/knowledge/'+created.body.id,'GET',undefined,f.admin)).body.content,document.content);
 });
 test('knowledge survives SQLite reopen without a new schema or external vector service',async t=>{

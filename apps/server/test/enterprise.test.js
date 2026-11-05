@@ -18,20 +18,21 @@ test('refresh credential renews expired access; replay and disabled sessions are
   assert.equal((await f.request('/auth/refresh','POST',{refreshToken:renewed.body.refreshToken})).status,401);
 });
 
-test('roles constrain both UI data access and direct write endpoints', async t => {
-  const f = await fixture(t);
-  await f.create('operator',{role:'operator'}); const operator = await f.login('operator');
-  await f.create('auditor',{role:'auditor'}); const auditor = await f.login('auditor');
-  assert.equal((await f.request('/admin/users','GET',undefined,operator)).status,200);
-  assert.equal((await f.request('/admin/keys','GET',undefined,operator)).status,403);
-  assert.equal((await f.request('/admin/users/1/password','POST',{password:'hijack-password'},operator)).status,403);
-  assert.equal((await f.request('/admin/users','POST',{username:'other',password:'other-password',role:'admin'},operator)).status,403);
-  assert.equal((await f.request('/admin/users/import','POST',{users:[{username:'bad',password:'other-password',role:'admin'}]},operator)).status,403);
-  assert.equal((await f.request('/admin/users','POST',{username:'staff',password:'other-password'},operator)).status,201);
-  assert.equal((await f.request('/admin/usage','GET',undefined,auditor)).status,200);
-  assert.equal((await f.request('/admin/users','POST',{username:'staff2',password:'other-password'},auditor)).status,403);
-  assert.equal((await f.request('/admin/users/1','PATCH',{role:'user'},f.admin)).body.error.code,'LAST_ADMIN');
-  assert.equal((await f.request('/admin/users','POST',{username:'prototype',password:'other-password',role:'constructor'},f.admin)).status,403);
+test('only ordinary users can be created and account roles remain fixed', async t => {
+  const f = await fixture(t); const user = await f.create();
+  assert.equal(user.role,'user');
+  assert.equal((await f.request('/admin/users/1/password','POST',{password:'reset-password'},f.admin)).status,403);
+  assert.equal((await f.request('/admin/users/'+user.id+'/password','POST',{password:'reset-password'},f.admin)).status,200);
+  const tokenAfterReset=await f.request('/auth/login','POST',{username:'alice',password:'reset-password'});assert.equal(tokenAfterReset.status,200);
+  assert.equal((await f.request('/admin/users','GET',undefined,tokenAfterReset.body.token)).status,403);
+  for(const role of ['admin','demo','operator','auditor','constructor']) {
+    assert.equal((await f.request('/admin/users','POST',{username:'blocked',password:'other-password',role},f.admin)).status,403);
+    assert.equal((await f.request('/admin/users/'+user.id,'PATCH',{role},f.admin)).status,403);
+  }
+  assert.equal((await f.request('/admin/users/1','PATCH',{role:'user'},f.admin)).body.error.code,'ROLE_FIXED');
+  assert.equal((await f.request('/admin/users/1/status','PATCH',{isActive:false},f.admin)).status,400);
+  assert.equal((await f.request('/admin/users/1','DELETE',undefined,f.admin)).status,400);
+  assert.equal((await f.request('/admin/users/'+user.id,'PATCH',{role:'user',sessionLimit:2},f.admin)).status,200);
 });
 
 test('skills publish to all users, update by revision and reject unsafe paths', async t => {

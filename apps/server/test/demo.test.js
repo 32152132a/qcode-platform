@@ -22,7 +22,7 @@ test('demo can query real records and open forms but cannot mutate or consume mo
   const keys = (await f.request('/admin/keys', 'GET', undefined, login.token)).body;
   assert(!JSON.stringify(keys).includes('secret-provider-key'));
   const before = JSON.stringify(f.db.read());
-  for (const [route, method] of [['/admin/users', 'POST'], ['/admin/users/1', 'PATCH'], ['/admin/users/1', 'DELETE'], ['/admin/users/1/password', 'POST'], ['/admin/users/import', 'POST'], ['/admin/settings', 'PUT'], ['/admin/models', 'POST'], ['/admin/models/missing/check', 'POST'], ['/admin/models/sources/missing/sync', 'POST'], ['/admin/keys/missing/check', 'POST'], ['/admin/knowledge', 'POST'], ['/auth/password', 'POST'], ['/v1/chat/completions', 'POST']]) {
+  for (const [route, method] of [['/admin/users', 'POST'], ['/admin/users/1', 'PATCH'], ['/admin/users/1', 'DELETE'], ['/admin/users/1/password', 'POST'], ['/admin/settings', 'PUT'], ['/admin/models', 'POST'], ['/admin/models/missing/check', 'POST'], ['/admin/models/sources/missing/sync', 'POST'], ['/admin/keys/missing/check', 'POST'], ['/admin/knowledge', 'POST'], ['/auth/password', 'POST'], ['/v1/chat/completions', 'POST']]) {
     const result = await f.request(route, method, {}, login.token);
     assert.equal(result.status, 403, route);
     assert.equal(result.body.error.code, 'DEMO_READ_ONLY', route);
@@ -34,20 +34,22 @@ test('demo can query real records and open forms but cannot mutate or consume mo
   assert.equal((await f.request('/auth/logout', 'POST', {}, renewed.body.token)).status, 200);
 });
 
-test('demo provisioning is repeatable, cannot reuse an administrator or be promoted, and can be disabled', async t => {
+test('demo provisioning is repeatable, cannot reuse an administrator or be promoted, and cannot be deleted or disabled through user management', async t => {
   const f = await fixture(t, { demoEnabled: true });
   const count = f.db.read().users.length;
   ensureDemoUser(f.db, { demoEnabled: true, demoUsername: 'demo', demoPassword: 'qcode-demo-2026' });
   assert.equal(f.db.read().users.length, count);
   assert.throws(() => ensureDemoUser(f.db, { demoEnabled: true, demoUsername: 'admin', demoPassword: 'qcode-demo-2026' }), /conflicts/);
   const demo = f.db.read().users.find(user => user.role === 'demo');
+  assert.equal((await f.request('/admin/users/' + demo.id + '/password','POST',{password:'reset-password'},f.admin)).status,403);
   assert.equal((await f.request('/admin/users/' + demo.id, 'PATCH', { role: 'admin' }, f.admin)).status, 403);
   const first = (await f.request('/auth/login', 'POST', { username: 'demo', password: 'qcode-demo-2026' })).body;
   await f.request('/auth/login', 'POST', { username: 'demo', password: 'qcode-demo-2026' });
   assert.equal((await f.request('/auth/me', 'GET', undefined, first.token)).status, 200);
-  assert.equal((await f.request('/admin/users/' + demo.id + '/status', 'PATCH', { isActive: false }, f.admin)).status, 200);
-  assert.deepEqual((await f.request('/auth/demo')).body, { enabled: false });
-  assert.equal((await f.request('/auth/me', 'GET', undefined, first.token)).status, 401);
+  assert.equal((await f.request('/admin/users/' + demo.id + '/status', 'PATCH', { isActive: false }, f.admin)).status, 400);
+  assert.equal((await f.request('/admin/users/' + demo.id, 'DELETE', undefined, f.admin)).status, 400);
+  assert.equal((await f.request('/auth/demo')).body.enabled, true);
+  assert.equal((await f.request('/auth/me', 'GET', undefined, first.token)).status, 200);
   const ordinary = await f.create();
   assert.equal(ordinary.role, 'user');
 });

@@ -28,7 +28,6 @@ export const businessApi = [
   ["GET","/admin/users/options","/admin/users/options","read"],
   ["GET","/admin/users","/admin/users/list","read"],
   ["POST","/admin/users","/admin/users/create","write"],
-  ["POST","/admin/users/import","/admin/users/import","write"],
   ["PATCH","/admin/users/:id","/admin/users/:id/update","write"],
   ["PATCH","/admin/users/:id/status","/admin/users/:id/status","write"],
   ["POST","/admin/users/:id/password","/admin/users/:id/password","write"],

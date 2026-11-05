@@ -16,7 +16,7 @@ import { createDatabase, createVault, hashPassword } from './database.js';
 import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, audit, availableModels, resolveModel } from './domain.js';
 import { complete, statistics } from './proxy.js';
 import { registerAuth, ensureDemoUser } from './auth.js';
-import { adminPermission, rolePermissions, protectAdministrator } from './policy.js';
+import { adminPermission } from './policy.js';
 import { registerEnterpriseRoutes } from './enterprise.js';
 import { registerDistribution } from './distribution.js';
 import { registerReports, filterRecords } from './reports.js';
@@ -120,7 +120,7 @@ export function createApp(config, database) {
     }
   };
   const auth = registerAuth(app, { db, config, cancelRequests });
-  app.use('/admin', auth, adminPermission(db, config));
+  app.use('/admin', auth, adminPermission(config));
   registerEnterpriseRoutes(app, { db, config, auth, cancelRequests });
   registerKnowledge(app, { db, auth });
   registerFeedback(app, { db, auth, config });
@@ -143,8 +143,8 @@ export function createApp(config, database) {
     if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', '账号仅支持中文、字母、数字、下划线、点、@ 和短横线');
     if (state.users.some(u => u.username.toLowerCase() === username.toLowerCase())) fail(409, 'USER_EXISTS', '账号已存在');
     validateAssignment(state, body);
-    if (body.role && (!Object.hasOwn(rolePermissions, body.role) || (actor.role !== 'admin' && body.role !== 'user'))) fail(403, 'INVALID_ROLE', '角色配置无效');
-    const user = { id: state.nextUserId++, username, password_hash: hashPassword(password(body.password)), role: body.role || 'user', is_active: 1,
+    if (body.role !== undefined && body.role !== 'user') fail(403, 'INVALID_ROLE', '只能创建普通用户，管理员和演示账号由系统配置');
+    const user = { id: state.nextUserId++, username, password_hash: hashPassword(password(body.password)), role: 'user', is_active: 1,
       created_at: now(),
       key_id: body.keyId ?? null, session_limit: integer(body.sessionLimit ?? 1, 'sessionLimit', 20), quotas: quotas(body.quotas) };
     if (!user.session_limit) fail(400, 'INVALID_FIELD', '登录设备上限至少为 1');
@@ -153,20 +153,10 @@ export function createApp(config, database) {
     return publicUser(state, user, timezone);
   }
   app.post('/admin/users/create', (req, res) => res.status(201).json(db.transaction(state => createUser(state, req.body || {}, req.user))));
-  app.post('/admin/users/import', (req, res) => {
-    if (!Array.isArray(req.body?.users) || !req.body.users.length || req.body.users.length > 100) fail(400, 'INVALID_IMPORT', '每次可导入 1～100 个用户');
-    res.status(201).json(db.transaction(state => req.body.users.map(body => createUser(state, body, req.user))));
-  });
   app.post('/admin/users/:id/update', (req, res) => res.json(db.transaction(state => {
     const user = getUser(state, req.params.id), body = req.body || {};
     validateAssignment(state, body);
-    if (user.role === 'demo' && 'role' in body && body.role !== 'demo') fail(403, 'DEMO_PROTECTED', '演示账号不能提升为其他角色，请创建独立账号');
-    if ('role' in body) {
-      if (req.user.role !== 'admin' || !Object.hasOwn(rolePermissions, body.role)) fail(403, 'INVALID_ROLE', '角色配置无效');
-      protectAdministrator(state, user, req.user, body.role !== 'admin');
-      if (body.role !== user.role) state.tokens = state.tokens.filter(t => t.user_id !== user.id);
-      user.role = body.role;
-    }
+    if ('role' in body && body.role !== user.role) fail(403, 'ROLE_FIXED', '账号角色由系统固定，不支持修改');
     if ('username' in body) {
       const username = text(body.username, 'username', 80);
       if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', '账号仅支持中文、字母、数字、下划线、点、@ 和短横线');
@@ -187,7 +177,7 @@ export function createApp(config, database) {
     if (typeof req.body?.isActive !== 'boolean') fail(400, 'INVALID_FIELD', 'isActive must be boolean');
     db.transaction(state => {
       const user = getUser(state, req.params.id);
-      if (user.role === 'admin') fail(400, 'ADMIN_PROTECTED', '请先将管理员调整为其他角色再停用');
+      if (user.role !== 'user') fail(400, 'ACCOUNT_PROTECTED', '系统账号不支持停用');
       user.is_active = Number(req.body.isActive);
       state.tokens = state.tokens.filter(t => t.user_id !== user.id);
       audit(state, req.user, user.is_active ? 'user.enable' : 'user.disable', user.id);
@@ -198,7 +188,9 @@ export function createApp(config, database) {
   app.post('/admin/users/:id/password', (req, res) => {
     const hashed = hashPassword(password(req.body?.password));
     db.transaction(state => {
-      const user = getUser(state, req.params.id); user.password_hash = hashed;
+      const user = getUser(state, req.params.id);
+      if (user.role !== 'user') fail(403, 'ACCOUNT_PROTECTED', '管理员和演示账号不支持后台重置密码');
+      user.password_hash = hashed;
       state.tokens = state.tokens.filter(t => t.user_id !== user.id);
       audit(state, req.user, 'user.password.reset', user.id);
     }); cancelRequests(Number(req.params.id), 'SESSION_REVOKED'); res.json({ ok: true });
@@ -217,7 +209,7 @@ export function createApp(config, database) {
   app.post('/admin/users/:id/delete', (req, res) => {
     db.transaction(state => {
       const user = getUser(state, req.params.id);
-      if (user.role === 'admin') fail(400, 'ADMIN_PROTECTED', 'Administrator cannot be deleted');
+      if (user.role !== 'user') fail(400, 'ACCOUNT_PROTECTED', '系统账号不支持删除');
       if (state.requests.some(r => r.user_id === user.id && r.status === 'pending')) fail(409, 'REQUEST_IN_PROGRESS', '请等待进行中的请求完成后再删除');
       state.users = state.users.filter(u => u.id !== user.id); state.tokens = state.tokens.filter(t => t.user_id !== user.id);
       audit(state, req.user, 'user.delete', user.id);
