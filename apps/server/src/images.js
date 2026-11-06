@@ -45,7 +45,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
     } else {
       const source = sourcesFor(state).find(item => item.id === model.source_id);
       if (!source?.active || model.catalog_available === false) fail(409, 'MODEL_UNAVAILABLE', '请先启用服务来源，并确认模型未下架');
-      if (source.kind !== 'local' && !state.keys.some(item => item.id === source.key_id && item.active)) fail(400, 'INVALID_KEY', '请先配置有效的服务 Key');
+      if (source.kind !== 'local' && !sourceKey(state, source)) fail(400, 'INVALID_KEY', '请先配置有效的服务 Key');
       if (purpose === 'vision') {
         if (model.model_type === 'image') fail(400, 'INVALID_VISION_MODEL', '生图模型不能用作识图对话模型');
         value.visionModelId = model.id;
@@ -111,6 +111,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
     const close = () => { if (!res.writableFinished) controller.abort(); }; res.on('close', close);
     try {
       const payload = { model: selected.model, prompt, n: 1, ...(/^gpt-image-/i.test(selected.model) ? { output_format: 'png' } : { response_format: 'b64_json' }) };
+      if (/seedream/i.test(selected.model)) payload.output_format = 'png';
       const snapshot = db.read();
       const response = await fetchWithKeys({db, keys: selected.key ? sourceKeyIds(selected.source).map(id => snapshot.keys.find(key => key.id === id)).filter(key => key?.active) : [null], signal: controller.signal,
         build: key => ({url: selected.source.base_url + '/images/generations', method: 'POST', headers: {'Content-Type': 'application/json', ...(key ? {Authorization: 'Bearer ' + vault.decrypt(key.secret)} : {})}, body: JSON.stringify(payload)}),

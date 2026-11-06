@@ -2,6 +2,7 @@ export const navigationEntries = [
   ['overview', '工作台概览', 'usage', '工作空间'],
   ['users', '用户管理', 'users', '组织与访问'],
   ['models', '模型与服务', 'models', 'AI 资源'],
+  ['capabilities', '能力配置', 'models', 'AI 资源'],
   ['keys', 'Key 管理', 'keys', 'AI 资源'],
   ['skills', '共享 Skill', 'skills', 'AI 资源'],
   ['knowledge', '知识库', 'knowledge', 'AI 资源'],

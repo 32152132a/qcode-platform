@@ -26,7 +26,7 @@ function family(value) {
 }
 export function catalogModelIssue(model, kind) {
   const image = catalogDisplayFields(model).capabilities?.includes('image_generation')
-  if (/(embedding|rerank|video|audio|tts|whisper)/i.test(model.id))
+  if (catalogDisplayFields(model).capabilities?.includes('embedding') || /(embedding|rerank|video|audio|tts|whisper)/i.test(model.id))
     return '暂不支持该类模型'
   if (
     !image && kind !== 'local' &&

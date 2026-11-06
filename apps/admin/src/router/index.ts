@@ -4,6 +4,7 @@ const pages = {
   overview: () => import('@/views/overview/index.vue'),
   users: () => import('@/views/users/index.vue'),
   models: () => import('@/views/models/index.vue'),
+  capabilities: () => import('@/views/capabilities/index.vue'),
   keys: () => import('@/views/keys/index.vue'),
   skills: () => import('@/views/skills/index.vue'),
   plans: () => import('@/views/plans/index.vue'),
@@ -34,7 +35,7 @@ const routes = [
       ...Object.entries(pages).map(([page, component]) => ({
         path: page,
         component,
-        meta: { permission: (page === 'overview' ? 'usage' : page) + ':read' },
+        meta: { permission: (page === 'overview' ? 'usage' : page === 'capabilities' ? 'models' : page) + ':read' },
       })),
     ],
   },

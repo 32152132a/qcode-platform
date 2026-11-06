@@ -40,7 +40,6 @@
       <template #actions-cell="{ row }"
         ><div class="row-actions">
           <el-button link type="primary" @click="emit('edit', row)">编辑</el-button
-          ><el-button link type="primary" @click="emit('purpose', row)">设置用途</el-button
           ><el-button v-if="row.model_type !== 'image'" link type="primary" :loading="busy === row.id" @click="emit('check', row)"
             >验证</el-button
           ><el-button link type="primary" @click="emit('toggle', row)">{{
@@ -74,7 +73,6 @@
   const emit = defineEmits<{
     edit: [model: Model]
     check: [model: Model]
-    purpose: [model: Model]
     toggle: [model: Model]
     remove: [model: Model]
   }>()
@@ -84,7 +82,7 @@
     { prop: 'status', label: '状态', width: 160 },
     { prop: 'verification', label: '能力验证', minWidth: 150 },
     ...(props.canWrite
-      ? [{ prop: 'actions', label: '操作', width: 310, fixed: 'right' as const }]
+      ? [{ prop: 'actions', label: '操作', width: 250, fixed: 'right' as const }]
       : []),
   ])
   const pageRows = computed(() =>

@@ -46,6 +46,7 @@
     overview: Grid,
     users: User,
     models: Connection,
+    capabilities: Setting,
     keys: Key,
     skills: Files,
     knowledge: Collection,

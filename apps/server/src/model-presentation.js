@@ -36,7 +36,8 @@ export function catalogDisplayFields(raw) {
   if (endpoints.some(value => ['image', 'images', 'images/generations', 'image-generation'].includes(value))
       || (Array.isArray(raw.output_modalities) && raw.output_modalities.includes('image'))
       || /(?:gpt-image|dall-e|seedream|flux|stable-diffusion|sdxl|imagen)/i.test(identity)) capabilities.add('image_generation')
-  const supported = ['chat', 'vision', 'thinking', 'image_generation'].filter(value => capabilities.has(value))
+  if (endpoints.some(value => ['embeddings','embedding'].includes(value)) || /embedding|nomic-embed|mxbai-embed|bge-m3/i.test(identity)) capabilities.add('embedding')
+  const supported = ['chat', 'vision', 'thinking', 'image_generation', 'embedding'].filter(value => capabilities.has(value))
   if (supported.length) result.capabilities = supported
   return result
 }

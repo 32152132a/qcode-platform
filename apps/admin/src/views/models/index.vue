@@ -65,12 +65,11 @@
           :busy="busy"
           @edit="(model) => modelEditor?.open(model, load)"
           @check="check"
-          @purpose="(model) => purposeDialog?.open(model, load)"
           @toggle="toggleModel"
           @remove="removeModel"
       /></SourceCard>
     </div>
-    <ModelPurposeDialog ref="purposeDialog" /><ModelSyncDialog ref="syncDialog" /><EntityDialog ref="editor" /><ModelDialog ref="modelEditor"
+    <ModelSyncDialog ref="syncDialog" /><EntityDialog ref="editor" /><ModelDialog ref="modelEditor"
   /></PagePanel>
 </template>
 <script setup lang="ts">
@@ -82,7 +81,6 @@
   import ModelSyncDialog from './components/ModelSyncDialog/index.vue'
   import SourceModelTable from './components/SourceModelTable/index.vue'
   import SourceCard from './components/SourceCard/index.vue'
-  import ModelPurposeDialog from './components/ModelPurposeDialog/index.vue'
   import { verificationLabel as verification } from './model-status'
   import { request } from '@/api/request'
   import { useAuthStore } from '@/stores/auth'
@@ -106,7 +104,6 @@
     kind.value === 'relay' ? '添加中转站' : kind.value === 'local' ? '添加本地服务' : '添加官网服务'
   )
   const syncDialog = ref<InstanceType<typeof ModelSyncDialog>>()
-  const purposeDialog = ref<InstanceType<typeof ModelPurposeDialog>>()
   const visibleSources = computed(() => sources.value.filter((s) => s.kind === kind.value))
   function displayModels(source: ModelSource) {
     return models.value.filter((model) => model.source_id === source.id)

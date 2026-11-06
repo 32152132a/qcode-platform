@@ -1,3 +1,4 @@
+import { registerEmbeddingSettings } from './embeddings.js';
 import { keySource, sourceKeyIds, bindSourceKeys } from './key-pool.js';
 import { registerPlans, assignUserPlan } from './plans.js';
 import { registerFeedback } from './feedback.js';
@@ -362,6 +363,7 @@ export function createApp(config, database) {
     },
   });
   registerImages(app, { db, vault, config, auth, activeRequests, queueRequest });
+  registerEmbeddingSettings(app, {db, vault, config});
   app.post('/v1/chat/completions', (req, res) => queueRequest(req, res, () => {
     auth(req, res, () => {});
     return complete(req, res, { db, vault, config, activeRequests });

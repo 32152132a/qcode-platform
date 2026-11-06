@@ -50,3 +50,7 @@ import './account-password.test.js';
 import './remove-departments.test.js';
 
 import './simplify-plans.test.js';
+
+import './sqlite-vector.test.js';
+import './knowledge-store.test.js';
+import './embeddings.test.js';

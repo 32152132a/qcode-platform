@@ -177,3 +177,9 @@ test('purpose assignment enforces permissions, demo restrictions, model availabi
   assert.equal(f.received.at(-1).auth, undefined);
   assert.equal(f.db.read().requests.at(-1).key_id, null);
 });
+
+test('Seedream requests PNG Base64 through the existing image gateway',async t=>{
+ const f=await fixture(t);assert.equal((await f.configure({model:'doubao-seedream-5-0-flash-260915'})).status,200);
+ assert.equal((await f.post('/v1/images/generations',{prompt:'test'},f.session.token)).status,200);
+ assert.deepEqual(f.received[0].body,{model:'doubao-seedream-5-0-flash-260915',prompt:'test',n:1,response_format:'b64_json',output_format:'png'});
+});
