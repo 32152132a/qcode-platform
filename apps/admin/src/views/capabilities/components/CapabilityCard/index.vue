@@ -3,11 +3,11 @@
     <template #header><strong>{{ title }}</strong></template>
     <p>{{ description }}</p>
     <QyqForm ref="form" v-model="selection" :form-options="fields" :columns="2" :show-btn="false" :disabled="saving || !canWrite" @change="changed">
-      <template #model><el-select v-model="selection.model" filterable allow-create default-first-option placeholder="选择或输入向量模型"><el-option v-for="item in embeddingOptions" :key="item.id" :label="item.id" :value="item.id" /></el-select></template>
+      <template #model><el-select v-model="selection.model" filterable allow-create default-first-option placeholder="选择或输入模型ID"><el-option v-for="item in textOptions" :key="item.id" :label="item.id" :value="item.id" /></el-select></template>
     </QyqForm>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-text v-if="kind === 'embedding' && value?.dimensions" type="info">当前向量维度：{{ value.dimensions }}</el-text>
-    <el-button v-if="canWrite" type="primary" :loading="saving" @click="save">{{ kind === 'embedding' ? '验证并保存' : '保存' }}</el-button>
+    <el-button v-if="canWrite" type="primary" :loading="saving" @click="save">{{ textModel ? '验证并保存' : '保存' }}</el-button>
   </el-card>
 </template>
 <script setup lang="ts">
@@ -21,18 +21,19 @@ const props=defineProps<{kind:string;title:string;description:string;sources:Mod
 const emit=defineEmits<{saved:[]}>()
 const selection=ref<Row>({}),saving=ref(false),error=ref(''),form=ref<{validate:()=>Promise<boolean>}>()
 const source=computed(()=>props.sources.find(source=>source.id===selection.value.sourceId))
-const embeddingOptions=computed(()=>source.value?.catalog?.filter(model=>model.capabilities?.includes('embedding'))||[])
+const textModel=computed(()=>['embedding','knowledge'].includes(props.kind))
+const textOptions=computed(()=>source.value?.catalog?.filter(model=>props.kind==='embedding'?model.capabilities?.includes('embedding'):!model.capabilities?.some(value=>['embedding','image_generation'].includes(value)))||[])
 const candidates=computed(()=>props.models.filter(model=>model.source_id===selection.value.sourceId&&model.catalog_available!==false&&(props.kind==='vision'?model.model_type!=='image'&&model.capabilities?.includes('vision'):model.model_type==='image'||model.capabilities?.includes('image_generation'))))
 const fields=computed<Field[]>(()=>[
  {prop:'sourceId',label:'渠道',type:'select',required:true,options:props.sources.filter(source=>source.active).map(source=>({label:source.name,value:source.id}))},
- props.kind==='embedding'?{prop:'model',label:'向量模型',type:'custom',required:true}:{prop:'modelId',label:'模型',type:'select',required:true,options:candidates.value.map(model=>({label:model.name,value:model.id}))},
+ textModel.value?{prop:'model',label:props.kind==='embedding'?'向量模型':'整理模型',type:'custom',required:true}:{prop:'modelId',label:'模型',type:'select',required:true,options:candidates.value.map(model=>({label:model.name,value:model.id}))},
  ...(props.kind==='image_generation'?[{prop:'dailyImagesPerUser',label:'每人每日生图张数',type:'number',min:1,max:1000}]:[]),
 ].map(field=>({...field,allowSpecialChars:true})))
 async function save(){
  if(saving.value||!await form.value?.validate())return
  saving.value=true;error.value=''
  const previous=props.value||{},model=String(selection.value.model||'').trim()
- const changing=props.kind==='embedding'
+ const changing=textModel.value
   ? Boolean(previous.model&&(previous.sourceId!==selection.value.sourceId||previous.model!==model))
   : Boolean(previous.modelId&&previous.modelId!==selection.value.modelId)
  if(changing){
@@ -42,7 +43,7 @@ async function save(){
   )}catch{saving.value=false;return}
  }
  try{
-  if(props.kind==='embedding')await request('/admin/models/embeddings/settings','PUT',{sourceId:selection.value.sourceId,model,confirmChange:changing})
+  if(textModel.value)await request(props.kind==='embedding'?'/admin/models/embeddings/settings':'/admin/knowledge/settings','PUT',{sourceId:selection.value.sourceId,model,confirmChange:changing})
   else await request('/admin/models/'+selection.value.modelId+'/purpose','POST',{purpose:props.kind,...(props.kind==='image_generation'?{dailyImagesPerUser:Number(selection.value.dailyImagesPerUser||10)}:{})})
   ElMessage.success('配置已保存');emit('saved')
  }catch(cause){error.value=cause instanceof Error?cause.message:'保存失败'}finally{saving.value=false}

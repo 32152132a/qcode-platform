@@ -9,7 +9,7 @@ try {
   void app.locals.modelSources.refreshAll();
   server.on('error', error => { console.error(`Gateway failed to listen (${error.code || 'UNKNOWN'})`); db.close(); process.exitCode = 1; });
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
-    server.close(() => { db.close(); process.exit(0); });
+    server.close(async () => { await app.locals.knowledge.close(); db.close(); process.exit(0); });
     server.closeIdleConnections();
     setTimeout(() => { server.closeAllConnections(); db.close(); process.exit(0); }, 5000).unref();
   });

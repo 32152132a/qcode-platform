@@ -41,13 +41,13 @@ test('skills publish to all users, update by revision and reject unsafe paths', 
   const alice = await f.login('alice'), bob = await f.login('bob');
   const data = {name:'team-review',description:'Review code carefully',content:'Check tests and explain risks.',files:{'references/rules.md':'Use small changes.'}};
   const skill = (await f.request('/admin/skills','POST',data,f.admin)).body;
-  assert.equal((await f.request('/client/skills','GET',undefined,alice)).body.skills.length,1);
-  assert.equal((await f.request('/client/skills','GET',undefined,bob)).body.skills.length,1);
+  assert.deepEqual((await f.request('/client/skills','GET',undefined,alice)).body.skills.map(item=>item.name).sort(),['qcode-knowledge','team-review']);
+  assert.deepEqual((await f.request('/client/skills','GET',undefined,bob)).body.skills.map(item=>item.name).sort(),['qcode-knowledge','team-review']);
   assert.equal((await f.request('/admin/skills','POST',{...data,name:'bad',files:{'../escape.md':'bad'}},f.admin)).status,400);
   assert.equal((await f.request('/admin/skills','POST',{...data,name:'bad',files:{'CON.txt':'bad'}},f.admin)).status,400);
   const updated = await f.request(`/admin/skills/${skill.id}`,'PUT',{...data,content:'New rules.',active:false},f.admin);
   assert.notEqual(updated.body.revision,skill.revision);
-  assert.equal((await f.request('/client/skills','GET',undefined,alice)).body.skills.length,0);
+  assert.deepEqual((await f.request('/client/skills','GET',undefined,alice)).body.skills.map(item=>item.name),['qcode-knowledge']);
 });
 
 test('disabling user aborts active upstream request and records cancellation', async t => {

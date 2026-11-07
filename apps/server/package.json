@@ -15,7 +15,10 @@
     "backup": "node --env-file=.env scripts/maintenance.js backup"
   },
   "dependencies": {
+    "exceljs": "4.4.0",
     "express": "5.1.0",
+    "mammoth": "1.13.0",
+    "pdfjs-dist": "6.5.438",
     "sqlite-vec": "0.1.9"
   }
 }

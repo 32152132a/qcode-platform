@@ -13,6 +13,7 @@ COPY apps/server/package.json apps/server/package-lock.json ./
 RUN npm ci --omit=dev
 COPY apps/server/src ./src
 COPY apps/client/api-contract.mjs /app/apps/client/api-contract.mjs
+COPY apps/client/knowledge-tools.mjs /app/apps/client/knowledge-tools.mjs
 COPY apps/server/public ./public
 COPY --from=admin-build /admin/dist ./public/console
 COPY apps/server/scripts ./scripts

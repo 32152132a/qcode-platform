@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
+import { knowledgeSkill } from './knowledge-runtime.js';
 import { configuredVisionModel } from './model-sources.js';
 import { modelPresentation } from './model-presentation.js';
 import { now, id, text, integer, fail, audit, availableModels, publicUser } from './domain.js';
 export const clientVersion = '0.3.0';
 const defaults = { organizationName: 'QCode', supportMessage: '遇到问题请联系管理员', minimumClientVersion: '0.3.0', maxActiveRequests: 64, auditRetentionDays: 180 };
 export const settingsFor = state => ({ ...defaults, ...state.settings });
-export const assignedSkills = state => state.skills.filter(skill => skill.active);
+export const assignedSkills = state => [...state.skills.filter(skill => skill.active && skill.kind !== 'knowledge'), knowledgeSkill()];
 export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests }) {
   app.post('/client/config', auth, (req, res) => {
     const state = db.read(), settings = settingsFor(state);
@@ -15,7 +16,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       organizationName: settings.organizationName, supportMessage: settings.supportMessage,
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
   });
-  app.post('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read()).map(s => ({ id: s.id, name: s.name, kind: s.kind === 'knowledge' ? 'knowledge' : 'skill', title: s.knowledge?.title || s.name, description: s.description, revision: s.revision, files: s.files })) }));
+  app.post('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read()).map(s => ({ id: s.id, name: s.name, kind: 'skill', title: s.name, description: s.description, revision: s.revision, files: s.files })) }));
   app.post('/admin/skills/list', (_req, res) => res.json(db.read().skills.filter(s=>s.kind!=='knowledge')));
   function saveSkill(state, body, actor, existing) {
     const name = text(body.name, 'Skill 名称', 64);

@@ -22,7 +22,7 @@ test('demo can query real records and open forms but cannot mutate or consume mo
   const keys = (await f.request('/admin/keys', 'GET', undefined, login.token)).body;
   assert(!JSON.stringify(keys).includes('secret-provider-key'));
   const before = JSON.stringify(f.db.read());
-  for (const [route, method] of [['/admin/users', 'POST'], ['/admin/users/1', 'PATCH'], ['/admin/users/1', 'DELETE'], ['/admin/users/1/password', 'POST'], ['/admin/settings', 'PUT'], ['/admin/models', 'POST'], ['/admin/models/missing/check', 'POST'], ['/admin/models/sources/missing/sync', 'POST'], ['/admin/keys/missing/check', 'POST'], ['/admin/knowledge', 'POST'], ['/auth/password', 'POST'], ['/v1/chat/completions', 'POST']]) {
+  for (const [route, method] of [['/admin/users', 'POST'], ['/admin/users/1', 'PATCH'], ['/admin/users/1', 'DELETE'], ['/admin/users/1/password', 'POST'], ['/admin/settings', 'PUT'], ['/admin/models', 'POST'], ['/admin/models/missing/check', 'POST'], ['/admin/models/sources/missing/sync', 'POST'], ['/admin/keys/missing/check', 'POST'], ['/admin/knowledge/upload', 'POST'], ['/auth/password', 'POST'], ['/v1/chat/completions', 'POST']]) {
     const result = await f.request(route, method, {}, login.token);
     assert.equal(result.status, 403, route);
     assert.equal(result.body.error.code, 'DEMO_READ_ONLY', route);

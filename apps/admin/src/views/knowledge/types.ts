@@ -1,0 +1,4 @@
+export type KnowledgeNode = { id: string; parentId: string | null; title: string; summary: string; text: string; source: { page?: number; sheet?: string; rowStart?: number; rowEnd?: number; lineStart?: number; lineEnd?: number } }
+export type KnowledgeChange = { operation:'add'|'update';documentId:string;documentTitle:string;nodeId:string|null;parentId:string|null;baseRevision:string;before:{title:string;summary:string;text:string}|null;title:string;summary:string;text:string;reason:string;sourceNodeIds:string[] }
+export type KnowledgeDocument = { id: string; title: string; filename: string; status: string; error: string; draft_revision: string; published_revision: string | null; published: boolean; nodes: KnowledgeNode[]; sections:number;changes:number;proposals:KnowledgeChange[] }
+export type KnowledgeProgress = { stage:'uploading'|'parsing';completed:number;total:number;filename:string;failed:number }

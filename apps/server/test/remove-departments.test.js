@@ -68,5 +68,5 @@ test('runtime has no department endpoints or permissions and shares enabled skil
  const admin=(await f.request('/auth/me','GET',undefined,f.admin)).body;assert(admin.permissions.every(value=>!value.startsWith('departments:')));
  const response=await fetch(f.url+'/admin/departments/list',{method:'POST',headers:{Authorization:'Bearer '+f.admin}});assert.notEqual(response.status,200);
  await f.request('/admin/skills','POST',{name:'shared-test',description:'Shared',content:'Test skill'},f.admin);
- assert.equal((await f.request('/client/skills','GET',undefined,token)).body.skills.length,1);
+ assert.deepEqual((await f.request('/client/skills','GET',undefined,token)).body.skills.map(item=>item.name).sort(),['qcode-knowledge','shared-test']);
 });
