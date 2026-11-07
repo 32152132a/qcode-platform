@@ -21,17 +21,18 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
   function saveSkill(state, body, actor, existing) {
     const name = text(body.name, 'Skill 名称', 64);
     if (!/^[a-z][a-z0-9-]*$/.test(name)) fail(400, 'INVALID_SKILL_NAME', 'Skill 名称只能使用小写字母、数字和短横线，并以字母开头');
+    if (name === knowledgeSkill().name) fail(400, 'SKILL_NAME_RESERVED', '此名称由内置知识库技能使用，请换一个名称');
     if (state.skills.some(s => s.name === name && s.id !== existing?.id)) fail(409, 'SKILL_EXISTS', 'Skill 名称已存在');
     const description = text(body.description, 'Skill 描述', 500), content = text(body.content, 'Skill 内容', 256000);
     const extraFiles = body.files || {};
-    if (typeof extraFiles !== 'object' || Array.isArray(extraFiles) || Object.keys(extraFiles).length > 30) fail(400, 'INVALID_SKILL_FILES', '附加文件最多 30 个');
+    if (typeof extraFiles !== 'object' || Array.isArray(extraFiles) || Object.keys(extraFiles).length > 255) fail(400, 'INVALID_SKILL_FILES', '附加文件最多 255 个，含 SKILL.md 共 256 个');
     const files = { 'SKILL.md': `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${content}\n` };
     for (const [filename, value] of Object.entries(extraFiles)) {
       if (filename === 'SKILL.md' || !/^[a-zA-Z0-9_./-]+$/.test(filename) || filename.startsWith('/') || filename.split('/').some(part => !part || part === '.' || part === '..' || /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(part)) || typeof value !== 'string') fail(400, 'INVALID_SKILL_FILE', '附加文件路径或内容无效');
       if (Object.keys(files).some(other => other.toLowerCase() === filename.toLowerCase() || other.startsWith(filename + '/') || filename.startsWith(other + '/'))) fail(400, 'INVALID_SKILL_FILE', '附加文件路径冲突');
       files[filename] = value;
     }
-    if (Buffer.byteLength(JSON.stringify(files)) > 1024 * 1024) fail(400, 'SKILL_TOO_LARGE', '每个 Skill 文件总大小上限为 1 MB');
+    if (Buffer.byteLength(JSON.stringify(files)) > 8 * 1024 * 1024) fail(400, 'SKILL_TOO_LARGE', '每个 Skill 文件总大小上限为 8 MB');
     const skill = { id: existing?.id || id(), name, description, content, files, active: body.active !== false,
       revision: createHash('sha256').update(JSON.stringify(files)).digest('hex'), created_at: existing?.created_at || now(), updated_at: now() };
     if (existing) Object.assign(existing, skill); else state.skills.push(skill);

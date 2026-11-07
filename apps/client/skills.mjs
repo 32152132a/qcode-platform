@@ -9,7 +9,7 @@ async function ordinaryDirectory(directory) {
 function within(root,value) { const target=path.resolve(root,value); if(!target.startsWith(path.resolve(root)+path.sep))throw new Error('Skill 路径越界'); return target; }
 function validate(skill) {
   if(!/^[a-f0-9]{32}$/.test(skill.id)||!/^[a-z][a-z0-9-]{0,63}$/.test(skill.name)||!skill.files||typeof skill.files!=='object'||Array.isArray(skill.files))throw new Error('无效的 Skill 清单');
-  if(!Object.hasOwn(skill.files,'SKILL.md')||Object.keys(skill.files).length>31||Buffer.byteLength(JSON.stringify(skill.files))>1024*1024)throw new Error('Skill 内容缺失或超过限制');
+  if(!Object.hasOwn(skill.files,'SKILL.md')||Object.keys(skill.files).length>256||Buffer.byteLength(JSON.stringify(skill.files))>8*1024*1024)throw new Error('Skill 内容缺失，或超过256个文件、8 MB的限制');
   const names=[];
   for(const [filename,content]of Object.entries(skill.files)){
     if(!/^[a-zA-Z0-9_./-]+$/.test(filename)||filename.startsWith('/')||filename.split('/').some(p=>!p||p==='.'||p==='..'||/^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(p))||typeof content!=='string')throw new Error('Skill 文件路径不安全');

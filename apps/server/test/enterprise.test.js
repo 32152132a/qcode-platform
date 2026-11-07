@@ -41,6 +41,12 @@ test('skills publish to all users, update by revision and reject unsafe paths', 
   const alice = await f.login('alice'), bob = await f.login('bob');
   const data = {name:'team-review',description:'Review code carefully',content:'Check tests and explain risks.',files:{'references/rules.md':'Use small changes.'}};
   const skill = (await f.request('/admin/skills','POST',data,f.admin)).body;
+  for (const [route,method] of [['/admin/skills','POST'],[`/admin/skills/${skill.id}`,'PUT']]) {
+    const result = await f.request(route,method,{...data,name:'qcode-knowledge'},f.admin);
+    assert.equal(result.status,400);
+    assert.equal(result.body.error.code,'SKILL_NAME_RESERVED');
+  }
+  assert.equal(f.db.read().skills.find(item=>item.id===skill.id).name,data.name);
   assert.deepEqual((await f.request('/client/skills','GET',undefined,alice)).body.skills.map(item=>item.name).sort(),['qcode-knowledge','team-review']);
   assert.deepEqual((await f.request('/client/skills','GET',undefined,bob)).body.skills.map(item=>item.name).sort(),['qcode-knowledge','team-review']);
   assert.equal((await f.request('/admin/skills','POST',{...data,name:'bad',files:{'../escape.md':'bad'}},f.admin)).status,400);
