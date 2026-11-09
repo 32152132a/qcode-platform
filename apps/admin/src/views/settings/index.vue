@@ -1,7 +1,7 @@
 <template>
   <PagePanel
     title="系统设置"
-    description="统一设置组织信息、员工支持提示和网关运行限制。"
+    description="设置产品名称和网关运行限制。"
     :loading="loading"
     :error="error"
     ><template #actions
@@ -16,7 +16,7 @@
         }}</el-descriptions-item></el-descriptions
       ></el-card
     ><el-text type="info" size="small"
-      >组织名称仅用于组织信息，不会更改 QCode 产品名称、安装包或桌面快捷方式。</el-text
+      >产品名称在客户端下次启动时生效。</el-text
     >
     <el-collapse
       ><el-collapse-item title="高级设置" name="advanced"
@@ -44,8 +44,7 @@
     { data, loading, error, load } = useResource<Row>(() => '/admin/settings'),
     editor = ref<InstanceType<typeof EntityDialog>>()
   const labels: Record<string, string> = {
-    organizationName: '组织名称',
-    supportMessage: '员工支持提示',
+    productName: '产品名称',
   }
   const advancedLabels: Record<string, string> = {
     minimumClientVersion: '最低客户端版本',
@@ -55,12 +54,13 @@
   function edit(advanced = false) {
     editor.value?.open(
       {
-        title: advanced ? '高级设置' : '组织设置',
+        title: advanced ? '高级设置' : '产品设置',
         fields: Object.entries(advanced ? advancedLabels : labels).map(([prop, label]) => ({
           prop,
           label,
           type: ['maxActiveRequests', 'auditRetentionDays'].includes(prop) ? 'number' : 'input',
           required: true,
+          ...(prop === 'productName' ? { props: { maxlength: 32 } } : {}),
         })),
         value: { ...data.value },
         save: (v) =>
@@ -73,7 +73,7 @@
                   maxActiveRequests: Number(v.maxActiveRequests),
                   auditRetentionDays: Number(v.auditRetentionDays),
                 }
-              : { organizationName: v.organizationName, supportMessage: v.supportMessage },
+              : { productName: v.productName },
           ),
       },
       load,

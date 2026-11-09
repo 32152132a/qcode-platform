@@ -4,8 +4,8 @@ import { configuredVisionModel } from './model-sources.js';
 import { modelPresentation } from './model-presentation.js';
 import { now, id, text, integer, fail, audit, availableModels, publicUser } from './domain.js';
 export const clientVersion = '0.3.0';
-const defaults = { organizationName: 'QCode', supportMessage: '遇到问题请联系管理员', minimumClientVersion: '0.3.0', maxActiveRequests: 64, auditRetentionDays: 180 };
-export const settingsFor = state => ({ ...defaults, ...state.settings });
+const defaults = { productName: 'QCode', minimumClientVersion: '0.3.0', maxActiveRequests: 64, auditRetentionDays: 180 };
+export const settingsFor = state => Object.fromEntries(Object.entries(defaults).map(([key,value]) => [key,state.settings[key] ?? value]));
 export const assignedSkills = state => [...state.skills.filter(skill => skill.active && skill.kind !== 'knowledge'), knowledgeSkill()];
 export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests }) {
   app.post('/client/config', auth, (req, res) => {
@@ -13,7 +13,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
     res.json({
       models: availableModels(state, req.user).map(item => ({ id: item.public_name, name: item.name, ...modelPresentation(item), imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
       minimumClientVersion: settings.minimumClientVersion,
-      organizationName: settings.organizationName, supportMessage: settings.supportMessage,
+      productName: settings.productName,
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
   });
   app.post('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read()).map(s => ({ id: s.id, name: s.name, kind: 'skill', title: s.name, description: s.description, revision: s.revision, files: s.files })) }));
@@ -50,15 +50,17 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
   app.post('/admin/settings/detail', (_req, res) => res.json(settingsFor(db.read())));
   app.post('/admin/settings/update', (req, res) => res.json(db.transaction(state => {
     const body = req.body || {}, current = settingsFor(state);
-    if (body.organizationName !== undefined) current.organizationName = text(body.organizationName, '组织名称', 80);
-    if (body.supportMessage !== undefined) current.supportMessage = text(body.supportMessage, '支持提示', 500);
+    if (body.productName !== undefined) {
+      current.productName = text(body.productName, '产品名称', 32);
+      if (/[\u0000-\u001f\u007f-\u009f]/.test(current.productName)) fail(400, 'INVALID_FIELD', '产品名称不能包含换行或控制字符');
+    }
     if (body.minimumClientVersion !== undefined) {
       if (!/^\d+\.\d+\.\d+$/.test(body.minimumClientVersion)) fail(400, 'INVALID_VERSION', '客户端版本必须为 x.y.z');
       current.minimumClientVersion = body.minimumClientVersion;
     }
     if (body.maxActiveRequests !== undefined) { current.maxActiveRequests = integer(body.maxActiveRequests, '并发请求数', 1000); if (!current.maxActiveRequests) fail(400, 'INVALID_FIELD', '并发数至少为 1'); }
     if (body.auditRetentionDays !== undefined) current.auditRetentionDays = integer(body.auditRetentionDays, '日志保留天数', 3650);
-    state.settings = current; audit(state, req.user, 'settings.update', 'system'); return current;
+    state.settings = { ...state.settings, ...current }; audit(state, req.user, 'settings.update', 'system'); return current;
   })));
   app.post('/admin/users/:id/sessions/list', (req, res) => {
     const state = db.read(), user = state.users.find(u => u.id === Number(req.params.id));
