@@ -51,6 +51,7 @@ export const businessApi = [
   ["GET","/admin/system","/admin/system/detail","read"],
   ["GET","/auth/demo","/auth/demo","read"],
   ["POST","/auth/login","/auth/login","session"],
+  ["POST","/auth/register","/auth/register","session"],
   ["POST","/auth/refresh","/auth/refresh","session"],
   ["GET","/auth/me","/auth/me","read"],
   ["GET","/auth/sessions","/auth/sessions/list","read"],

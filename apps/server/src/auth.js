@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword, tokenHash } from './database.js';
-import { now, id, password, fail, publicUser, audit } from './domain.js';
+import { now, id, password, text, fail, publicUser, audit } from './domain.js';
+import { assignUserPlan } from './plans.js';
 export function ensureDemoUser(db, config) {
   if (!config.demoEnabled) return;
   const username = config.demoUsername;
@@ -22,6 +23,7 @@ export function ensureDemoUser(db, config) {
   });
 }
 export function registerAuth(app, { db, config, cancelRequests }) {
+  const registrations = new Map();
   const sessionAlive = session => session.refresh_expires_at > now();
   function issue(state, user, previous) {
     const token = randomBytes(32).toString('base64url'), refreshToken = randomBytes(48).toString('base64url');
@@ -49,6 +51,30 @@ export function registerAuth(app, { db, config, cancelRequests }) {
     const user = config.demoEnabled && db.read().users.find(user => user.username === config.demoUsername && user.role === 'demo' && user.is_active);
     res.json(user && verifyPassword(config.demoPassword, user.password_hash)
       ? { enabled: true, username: user.username, password: config.demoPassword } : { enabled: false });
+  });
+  app.post('/auth/register', (req, res) => {
+    const current = Date.now();
+    for (const [address, entry] of registrations) if (entry.until <= current) registrations.delete(address);
+    const entry = registrations.get(req.ip) || { count: 0, until: current + 900000 };
+    if (entry.count >= 5 || (!registrations.has(req.ip) && registrations.size >= 10000))
+      fail(429, 'REGISTER_RATE_LIMIT', '注册过于频繁，请 15 分钟后重试');
+    entry.count++; registrations.set(req.ip, entry);
+    const username = text(req.body?.username, 'username', 80);
+    if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', '账号仅支持中文、字母、数字、下划线、点、@ 和短横线');
+    const supplied = password(req.body?.password);
+    db.transaction(state => {
+      if ([config.adminUsername, config.demoUsername].some(name => name?.toLowerCase() === username.toLowerCase()) ||
+          state.users.some(user => user.username.toLowerCase() === username.toLowerCase()))
+        fail(409, 'USER_EXISTS', '账号已存在或不可使用');
+      const plan = state.plans.find(item => item.is_default && item.active && item.price_cents === 0);
+      if (!plan) fail(503, 'REGISTRATION_UNAVAILABLE', '注册暂未开放，请联系管理员设置免费默认套餐');
+      const user = { id: state.nextUserId++, username, role: 'user', password_hash: hashPassword(supplied),
+        is_active: 1, created_at: now(), session_limit: 1, key_id: null, quotas: {} };
+      state.users.push(user);
+      assignUserPlan(state, user, user, plan.id);
+      audit(state, user, 'user.register', user.id);
+    });
+    res.status(201).json({ ok: true });
   });
   app.post('/auth/login', (req, res) => {
     const address = req.ip, current = Date.now();
