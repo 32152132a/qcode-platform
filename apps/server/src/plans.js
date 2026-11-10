@@ -1,4 +1,5 @@
 import { registerBillingPayment } from "./billing-payment.js";
+import { moneyMicros, creditUsage } from './billing.js';
 import {
   id,
   now,
@@ -6,7 +7,6 @@ import {
   audit,
   text,
   integer,
-  publicUser,
 } from "./domain.js";
 
 const terms = (plan, state) => ({
@@ -18,7 +18,7 @@ const terms = (plan, state) => ({
   price_cents: plan.price_cents,
   currency: "CNY",
   duration_days: plan.duration_days,
-  token_limit: plan.token_limit,
+  credit_limit_micros: plan.credit_limit_micros,
   model_ids: [...plan.model_ids],
   models: state.models
     .filter((model) => plan.model_ids.includes(model.id))
@@ -41,7 +41,7 @@ function savePlan(state, body, existing) {
     fail(400, "INVALID_PRICE", "价格须为 0 至 1000000 元，最多两位小数");
   const days = integer(Number(body.durationDays), "有效天数", 366);
   if (!days) fail(400, "INVALID_PLAN", "有效天数必须大于 0");
-  const tokenLimit = body.tokenLimit === null ? null : integer(body.tokenLimit, "总 Token 额度");
+  const creditLimit = moneyMicros(body.creditAmount === undefined ? 5 : body.creditAmount);
   if (
     !Array.isArray(body.modelIds) ||
     body.modelIds.length > 500 ||
@@ -78,7 +78,7 @@ function savePlan(state, body, existing) {
     currency: "CNY",
     duration_days: days,
     model_ids: [...body.modelIds],
-    token_limit: tokenLimit,
+    credit_limit_micros: creditLimit,
     active: body.active ?? true,
     created_at: existing?.created_at || now(),
     updated_at: now(),
@@ -88,6 +88,8 @@ function savePlan(state, body, existing) {
   return plan;
 }
 function grant(state, userId, snapshot, actor, orderId = null) {
+  if (!Number.isSafeInteger(snapshot.credit_limit_micros) || snapshot.credit_limit_micros < 0)
+    fail(409, 'BILLING_SETUP_REQUIRED', '套餐计费配置需更新，请联系管理员');
   const user = state.users.find((item) => item.id === Number(userId));
   if (!user || user.role !== "user" || !user.is_active)
     fail(400, "INVALID_PLAN_USER", "只能为启用的普通用户开通套餐");
@@ -98,6 +100,7 @@ function grant(state, userId, snapshot, actor, orderId = null) {
     username: user.username,
     plan_id: snapshot.id,
     terms: structuredClone(snapshot),
+    spent_micros: 0,
     started_at: started,
     expires_at: new Date(
       Date.parse(started) + snapshot.duration_days * 86400000,
@@ -151,8 +154,10 @@ export function registerPlans(app, { db, auth, config }) {
     const activePlan = findPlan(state, active.plan_id);
     if (!Number.isSafeInteger(activePlan.level))
       fail(409, "PLAN_LEVEL_REQUIRED", "请管理员先配置当前套餐等级");
-    if (active.plan_id === candidate.id)
-      fail(409, "PLAN_ALREADY_ACTIVE", "已在使用此套餐，请勿重复开通");
+    if (active.plan_id === candidate.id) {
+      if (candidate.price_cents > 0) return;
+      fail(409, "PLAN_ALREADY_ACTIVE", "免费套餐有效期内不可重复领取额度");
+    }
     if (candidate.level <= activePlan.level)
       fail(409, "PLAN_NOT_UPGRADE", "当前有效期内只能升级到更高等级套餐");
   }
@@ -319,7 +324,6 @@ export function registerPlans(app, { db, auth, config }) {
   app.post("/client/billing/detail", auth, (req, res) => {
     const state = db.read(),
       subscription = current(state, req.user.id);
-    const account = publicUser(state, req.user, config.timezone);
     res.json({
       user: {
         id: req.user.id,
@@ -351,11 +355,7 @@ export function registerPlans(app, { db, auth, config }) {
       orders: state.planOrders
         .filter((item) => item.user_id === req.user.id)
         .toReversed(),
-      usage: {
-        used: account.used,
-        remaining: account.remaining,
-        effective_quotas: account.effective_quotas,
-      },
+      usage: creditUsage(state, req.user),
       paymentMode: "manual",
       payment: paymentFor(state, req.user),
     });

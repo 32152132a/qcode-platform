@@ -50,7 +50,8 @@ export function providerRequest(body, model, secret, outputLimit) {
 }
 export function responseUsage(usage) {
   if (!Number.isSafeInteger(usage?.input_tokens) || !Number.isSafeInteger(usage?.output_tokens)) return undefined;
-  return { prompt_tokens: usage.input_tokens, completion_tokens: usage.output_tokens, total_tokens: usage.total_tokens ?? usage.input_tokens + usage.output_tokens };
+  return { prompt_tokens: usage.input_tokens, completion_tokens: usage.output_tokens, total_tokens: usage.total_tokens ?? usage.input_tokens + usage.output_tokens,
+    prompt_tokens_details: usage.input_tokens_details };
 }
 export function chatResponse(result, model) {
   if (model.protocol !== 'responses') return result;

@@ -21,7 +21,11 @@
       <template #active><el-switch v-model="form.active" aria-label="启用模型" /></template>
       <template #isDefault><el-switch v-model="form.isDefault" aria-label="设为默认" /></template>
     </QyqForm>
-    <el-collapse v-if="model?.model_type !== 'image'"
+    <QyqForm v-if="model?.model_type === 'image'" v-model="form" :columns="1" :show-btn="false"
+      :form-options="[{prop:'imagePrice',label:'每张图片单价（元）',type:'number',min:0,precision:4},{prop:'pricingKnown',label:'已确认计价',type:'custom'}]">
+      <template #pricingKnown><el-switch v-model="form.pricingKnown" /></template>
+    </QyqForm>
+    <el-collapse v-else
       ><el-collapse-item title="高级配置" name="advanced">
         <QyqForm
           @submit.prevent
@@ -78,6 +82,8 @@
     maxTokensField: 'max_tokens',
     streamUsage: true,
     inputPrice: 0,
+    cachedInputPrice: 0,
+    imagePrice: 0,
     outputPrice: 0,
     currency: 'CNY',
     pricingKnown: false,
@@ -102,7 +108,7 @@
     { prop: 'isDefault', label: '设为默认', type: 'custom' },
   ]
   const numericFields: {
-    prop: 'contextWindow' | 'maxOutputTokens' | 'inputPrice' | 'outputPrice'
+    prop: 'contextWindow' | 'maxOutputTokens' | 'inputPrice' | 'cachedInputPrice' | 'outputPrice'
     label: string
     min: number
     max?: number
@@ -110,7 +116,8 @@
   }[] = [
     { prop: 'contextWindow', label: '上下文长度', min: 1, max: 2000000 },
     { prop: 'maxOutputTokens', label: '最大输出 Token', min: 1, max: 131072 },
-    { prop: 'inputPrice', label: '每百万输入 Token 单价', min: 0, precision: 6 },
+    { prop: 'inputPrice', label: '每百万普通输入 Token 单价', min: 0, precision: 6 },
+    { prop: 'cachedInputPrice', label: '每百万缓存输入 Token 单价', min: 0, precision: 6 },
     { prop: 'outputPrice', label: '每百万输出 Token 单价', min: 0, precision: 6 },
   ]
   const advancedFields: FormItemProp[] = [
@@ -155,6 +162,7 @@
   let success: (() => void) | undefined
   function open(value: Model, onSuccess: () => void) {
     model.value = value
+    const reference = value.pricing_known === false ? value.reference_price : null
     form.value = {
       upstreamModel: value.upstream_model,
       publicName: value.public_name,
@@ -166,10 +174,12 @@
       maxOutputTokens: value.max_output_tokens,
       maxTokensField: value.max_tokens_field,
       streamUsage: value.stream_usage,
-      inputPrice: value.input_price,
-      outputPrice: value.output_price,
-      currency: value.currency,
-      pricingKnown: value.pricing_known !== false,
+      inputPrice: reference?.inputPrice ?? value.input_price,
+      cachedInputPrice: reference?.cachedInputPrice ?? value.cached_input_price,
+      imagePrice: value.image_price,
+      outputPrice: reference?.outputPrice ?? value.output_price,
+      currency: reference?.currency ?? value.currency,
+      pricingKnown: reference?.pricingKnown ?? value.pricing_known !== false,
       supportsVision: value.capabilities?.includes('vision') === true,
     }
     error.value = ''

@@ -1,0 +1,79 @@
+import { fail, now } from './domain.js';
+import { subscriptionFor } from './entitlements.js';
+
+// Fixed CNY tariffs checked 2026-11-10; source links and chosen tiers are in CREDIT-BILLING.md.
+const officialPrices = {
+  'deepseek-flash': [2, 0.04, 8], 'deepseek-v4-pro': [9, 0.3, 27],
+  'glm-5.3': [8, 2, 28], 'doubao-seed-2-1-pro-260915': [6, 1.2, 30],
+  'qwen3.8-max': [12, 1.5, 36], 'qwen3.8-max-0902': [12, 1.5, 36],
+  'qwen3.8-flash': [0.8, 0.1, 2.7], 'MiniMax-M3': [4.2, 0.84, 16.8],
+  'kimi-k3.1-pro': [13, 1.3, 68],
+};
+export function officialPrice(source, model) {
+  if (source?.kind !== 'official') return null;
+  const host = new URL(source.base_url).hostname;
+  const expected = model.startsWith('deepseek') ? 'api.deepseek.com' : model.startsWith('qwen') ? 'dashscope.aliyuncs.com'
+    : model.startsWith('glm') ? 'open.bigmodel.cn' : model.startsWith('doubao') ? 'ark.cn-beijing.volces.com'
+    : model.startsWith('kimi') ? 'api.moonshot.cn' : 'api.minimaxi.com';
+  const price = host === expected && officialPrices[model];
+  return price ? { inputPrice: price[0], cachedInputPrice: price[1], outputPrice: price[2], currency: 'CNY', pricingKnown: true } : null;
+}
+
+export function moneyMicros(value, label = '使用额度') {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1000000 || Math.abs(value * 1000000 - Math.round(value * 1000000)) > 0.0001)
+    fail(400, 'INVALID_AMOUNT', `${label}数值无效`);
+  return Math.round(value * 1000000);
+}
+const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+export function parseUsage(value) {
+  if (!value || count(value.total_tokens) === null) return null;
+  const input = count(value.prompt_tokens), output = count(value.completion_tokens);
+  const cached = count(value.prompt_cache_hit_tokens ?? value.prompt_tokens_details?.cached_tokens);
+  return { input_tokens: input, output_tokens: output, total_tokens: Math.max(value.total_tokens, (input || 0) + (output || 0)),
+    cached_input_tokens: input !== null && cached !== null && cached <= input ? cached : null };
+}
+export function creditUsage(state, user) {
+  const subscription = subscriptionFor(state, user);
+  if (!subscription) return null;
+  const limit = subscription.terms.credit_limit_micros;
+  if (!Number.isSafeInteger(limit) || limit < 0) fail(409, 'BILLING_SETUP_REQUIRED', '套餐计费配置需更新，请联系管理员');
+  const used = subscription.spent_micros || 0;
+  const reserved = state.requests.filter(row => row.subscription_id === subscription.id && row.status === 'pending')
+    .reduce((sum, row) => sum + (row.reserved_cost_micros || 0), 0);
+  return { limit, used, remaining: subscription.expires_at <= now() ? 0 : Math.max(0, limit - used - reserved) };
+}
+export function reserveCredit(state, user, model, inputTokens, outputTokens, image = false) {
+  const subscription = subscriptionFor(state, user);
+  if (!subscription) return { subscription_id: null, reserved_cost_micros: 0 };
+  if (subscription.expires_at <= now()) fail(403, 'SUBSCRIPTION_EXPIRED', '额度已到期，请重新开通套餐');
+  if (!model || model.pricing_known !== true || model.currency !== 'CNY')
+    fail(409, 'MODEL_PRICE_REQUIRED', '模型尚未配置人民币单价，请联系管理员');
+  const reserved = Math.ceil(image ? model.image_price * 1000000 : inputTokens * model.input_price + outputTokens * model.output_price);
+  if (!Number.isSafeInteger(reserved) || reserved < 0) fail(409, 'MODEL_PRICE_REQUIRED', '模型计价配置无效，请联系管理员');
+  const available = creditUsage(state, user).remaining;
+  if (available <= 0 || reserved > available)
+    fail(429, 'CREDIT_EXHAUSTED', '剩余额度不足，请缩短内容或开通更高额度的套餐');
+  return { subscription_id: subscription.id, reserved_cost_micros: reserved };
+}
+export function settleCredit(state, record, model, usage, imageCount = 0) {
+  if (record.billing_settled) return;
+  // Fixed public tariff: a cache discount applies only to explicitly reported cache hits.
+  const cached = usage?.cached_input_tokens ?? 0;
+  let value = null;
+  if (model?.pricing_known === true) {
+    if (imageCount) value = imageCount * model.image_price * 1000000;
+    else if (usage?.input_tokens != null && usage?.output_tokens != null)
+      value = (usage.input_tokens - cached) * model.input_price + cached * model.cached_input_price + usage.output_tokens * model.output_price;
+  }
+  const cost = value == null ? null : Math.ceil(value);
+  record.cost_micros = Number.isSafeInteger(cost) && cost >= 0 ? cost : null;
+  record.currency = model?.currency || 'CNY';
+  record.input_price = model?.input_price; record.cached_input_price = model?.cached_input_price; record.output_price = model?.output_price;
+  if (imageCount) record.image_price = model.image_price;
+  record.billing_settled = true;
+  const subscription = state.subscriptions.find(item => item.id === record.subscription_id);
+  if (subscription && record.cost_micros !== null && record.currency === 'CNY') {
+    record.charged_micros = Math.min(record.cost_micros, Math.max(0, subscription.terms.credit_limit_micros - (subscription.spent_micros || 0)));
+    subscription.spent_micros = (subscription.spent_micros || 0) + record.charged_micros;
+  }
+}

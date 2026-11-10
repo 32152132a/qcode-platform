@@ -3,6 +3,7 @@ import { fail, now, id, audit, consumption, baseUrl } from './domain.js';
 import { effectiveQuotas, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
 import { providerRequest, chatResponse, responseStream } from './providers.js';
+import { parseUsage, settleCredit } from './billing.js';
 
 async function boundedJson(response) {
   const chunks = []; let size = 0;
@@ -99,8 +100,7 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         if(!type.includes(body.stream?'text/event-stream':'application/json')){await response.body?.cancel();fail(502,'INVALID_UPSTREAM_RESPONSE','上游响应格式不匹配');}
         result=body.stream?await collectStream(model.protocol==='responses'?responseStream(response.body,model):response.body):chatResponse(await boundedJson(response),model);
         if(!Array.isArray(result.choices))fail(502,'INVALID_UPSTREAM_RESPONSE','上游未返回模型响应');
-        const tokens=result.usage;
-        if(Number.isSafeInteger(tokens?.total_tokens)&&tokens.total_tokens>=0){usage={input_tokens:tokens.prompt_tokens??null,output_tokens:tokens.completion_tokens??null,total_tokens:Math.max(tokens.total_tokens,(tokens.prompt_tokens||0)+(tokens.completion_tokens||0))};}
+        usage=parseUsage(result.usage);
         status='success';return result;
       }catch(error){errorCode=controller.signal.aborted?'UPSTREAM_TIMEOUT':error.code||'UPSTREAM_UNAVAILABLE';if(error.status)throw error;fail(502,errorCode,errorCode === 'UPSTREAM_TIMEOUT' ? '模型生成超时；服务可能已连接，请检查推理负载和模型设置' : '模型测试未完成，请检查服务状态');}
       finally{
@@ -108,7 +108,7 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
         db.transaction(state=>{
           const record=state.requests.find(r=>r.id===requestId);
           Object.assign(record,{...usage,status,error_code:errorCode||null,upstream_status:upstreamStatus??null,duration_ms:Date.now()-started,finished_at:now(),charged_tokens:usage?.total_tokens??0,usage_source:usage?'provider':'unknown',currency:model.currency||'CNY',input_price:model.input_price||0,output_price:model.output_price||0});
-          record.cost_micros=model.pricing_known!==false&&usage?.input_tokens!=null&&usage?.output_tokens!=null?Math.round(usage.input_tokens*(model.input_price||0)+usage.output_tokens*(model.output_price||0)):null;
+          settleCredit(state,record,model,usage);
         });
       }
     }

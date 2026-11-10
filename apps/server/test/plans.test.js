@@ -64,7 +64,7 @@ const plan = (overrides = {}) => ({
   durationDays: 30,
   level: 0,
   modelIds: [],
-  tokenLimit: 100000,
+  creditAmount: 5,
   description: "演示套餐",
   active: true,
   ...overrides,
@@ -139,7 +139,7 @@ test("plan application is private and idempotent; approval freezes agreed terms 
   );
   await f.call(
     "/admin/plans/" + id + "/update",
-    plan({ price: 39.99, tokenLimit: 500000 }),
+    plan({ price: 39.99, creditAmount: 50 }),
     f.admin,
   );
   assert.equal(
@@ -153,7 +153,7 @@ test("plan application is private and idempotent; approval freezes agreed terms 
   );
   assert.equal(approved.status, 200);
   assert.equal(approved.body.terms.price_cents, 1999);
-  assert.equal(approved.body.terms.token_limit, 100000);
+  assert.equal(approved.body.terms.credit_limit_micros, 5000000);
   assert.equal(
     (
       await f.call(
@@ -340,6 +340,7 @@ test("purchased models, quota cycles and expiry are enforced server-side without
         base_url: "http://127.0.0.1:" + upstream.address().port + "/v1",
         max_output_tokens: 128,
         context_window: 131072,
+        pricing_known: true, currency: 'CNY', input_price: 1, cached_input_price: 0.1, output_price: 2,
         active: true,
       });
   });
@@ -350,7 +351,7 @@ test("purchased models, quota cycles and expiry are enforced server-side without
       "/admin/plans/create",
       plan({
         modelIds: ["allowed"],
-        tokenLimit: 100000,
+        creditAmount: 5,
       }),
       f.admin,
     )
@@ -389,16 +390,16 @@ test("purchased models, quota cycles and expiry are enforced server-side without
     200,
   );
   assert.equal(calls, 1);
-  f.db.transaction(state => { state.subscriptions.at(-1).terms.token_limit = 13; });
+  f.db.transaction(state => { state.subscriptions.at(-1).terms.credit_limit_micros = 16; });
   assert.equal(
     (await f.call("/v1/chat/completions", request("allowed"), f.user.token))
       .body.error.code,
-    "QUOTA_EXCEEDED",
+    "CREDIT_EXHAUSTED",
   );
   assert.equal(calls, 1);
   const used = (await f.call("/client/billing/detail", {}, f.user.token)).body;
-  assert.equal(used.usage.used.totalRequests, 1);
-  assert.equal(used.usage.remaining.totalTokens, 0);
+  assert.equal(used.usage.used, 16);
+  assert.equal(used.usage.remaining, 0);
   await f.call(
     "/admin/plans/grants/create",
     { userId: f.user.id, planId: p.id, confirmed: true },
@@ -406,8 +407,8 @@ test("purchased models, quota cycles and expiry are enforced server-side without
   );
   const renewed = (await f.call("/client/billing/detail", {}, f.user.token))
     .body;
-  assert.equal(renewed.usage.used.totalRequests, 0);
-  assert.equal(renewed.usage.remaining.totalTokens, 100000);
+  assert.equal(renewed.usage.used, 0);
+  assert.equal(renewed.usage.remaining, 5000000);
   assert.equal(f.db.read().requests.length, 1);
   f.db.transaction((state) => {
     state.subscriptions.at(-1).expires_at = new Date(
@@ -471,6 +472,7 @@ test("account requests run sequentially without a configurable concurrency limit
       provider: "ollama",
       base_url: "http://127.0.0.1:" + upstream.address().port + "/v1",
       max_output_tokens: 128,
+      pricing_known: true, currency: 'CNY', input_price: 0, cached_input_price: 0, output_price: 0,
       active: true,
     });
   });
@@ -849,7 +851,7 @@ test("free plans activate immediately, cannot be replayed to refill quota, and P
         f.user.token,
       )
     ).status,
-    409,
+    201,
   );
   const upgrade = await f.call(
     "/client/billing/apply",
@@ -912,16 +914,16 @@ test("manual approvals allow omitted, empty and whitespace-only payment referenc
   }
 });
 
-test('plan token limits distinguish unlimited from zero and reject invalid values',async t=>{
+test('plan credit limits distinguish zero from the five-yuan default and reject invalid amounts',async t=>{
  const f=await fixture(t);
- for(const tokenLimit of [-1,1.5,'0',undefined])assert.equal((await f.call('/admin/plans/create',plan({tokenLimit}),f.admin)).status,400);
- const zero=(await f.call('/admin/plans/create',plan({name:'Zero',tokenLimit:0}),f.admin)).body;
- assert.equal(zero.token_limit,0);assert(!Object.hasOwn(zero,'quotas'));assert(!Object.hasOwn(zero,'max_concurrent_requests'));
+ for(const creditAmount of [-1,0.0000001,'0',null])assert.equal((await f.call('/admin/plans/create',plan({creditAmount}),f.admin)).status,400);
+ const zero=(await f.call('/admin/plans/create',plan({name:'Zero',creditAmount:0}),f.admin)).body;
+ assert.equal(zero.credit_limit_micros,0);assert(!Object.hasOwn(zero,'token_limit'));assert(!Object.hasOwn(zero,'max_concurrent_requests'));
  await f.call('/admin/plans/grants/create',{userId:f.user.id,planId:zero.id,confirmed:true},f.admin);
  const limited=(await f.call('/client/billing/detail',{},f.user.token)).body;
- assert.equal(limited.usage.remaining.totalTokens,0);
- const unlimited=(await f.call('/admin/plans/create',plan({name:'Unlimited',tokenLimit:null}),f.admin)).body;
- await f.call('/admin/plans/grants/create',{userId:f.user.id,planId:unlimited.id,confirmed:true},f.admin);
+ assert.equal(limited.usage.remaining,0);
+ const standard=(await f.call('/admin/plans/create',plan({name:'Default',creditAmount:undefined}),f.admin)).body;
+ await f.call('/admin/plans/grants/create',{userId:f.user.id,planId:standard.id,confirmed:true},f.admin);
  const detail=(await f.call('/client/billing/detail',{},f.user.token)).body;
- assert.equal(detail.usage.remaining.totalTokens,null);assert.equal(detail.subscription.terms.token_limit,null);
+ assert.equal(detail.usage.remaining,5000000);assert.equal(detail.subscription.terms.credit_limit_micros,5000000);
 });

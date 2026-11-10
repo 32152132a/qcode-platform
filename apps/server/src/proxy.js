@@ -7,20 +7,14 @@ import { effectiveKey, effectiveQuotas, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
 import { providerRequest, chatResponse, responseStream } from './providers.js';
 import { configuredVisionModel } from './model-sources.js';
-
-function parseUsage(value) {
-  if (!value || !Number.isSafeInteger(value.total_tokens) || value.total_tokens < 0) return null;
-  const input = Number.isSafeInteger(value.prompt_tokens) && value.prompt_tokens >= 0 ? value.prompt_tokens : null;
-  const output = Number.isSafeInteger(value.completion_tokens) && value.completion_tokens >= 0 ? value.completion_tokens : null;
-  return { input_tokens: input, output_tokens: output, total_tokens: Math.max(value.total_tokens, (input || 0) + (output || 0)) };
-}
+import { parseUsage, reserveCredit, settleCredit } from './billing.js';
 
 export async function complete(req, res, { db, vault, config, activeRequests = new Map() }) {
 
   const body = req.body;
   const state = db.read(), models = availableModels(state, req.user), selectedModel = models.find(item => item.public_name === body?.model);
   const subscription = subscriptionFor(state, req.user);
-  if (subscription && subscription.expires_at <= now()) fail(403, 'SUBSCRIPTION_EXPIRED', '套餐已到期，请申请重新开通或联系管理员');
+  if (subscription && subscription.expires_at <= now()) fail(403, 'SUBSCRIPTION_EXPIRED', '额度已到期，请重新开通套餐');
   if (subscription && !selectedModel && availableModels(state).some(item => item.public_name === body?.model)) fail(403, 'PLAN_MODEL_NOT_ALLOWED', '当前套餐不包含此模型，请刷新权益后重新选择');
   if (subscription && !models.length && availableModels(state).length) fail(403, 'PLAN_MODEL_NOT_ALLOWED', '当前套餐暂无可用对话模型，请联系管理员');
   let model = selectedModel;
@@ -52,7 +46,8 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
     if (next.requests.filter(r => r.status === 'pending').length >= settingsFor(next).maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关当前繁忙，请稍后重试');
     if (next.requests.filter(r => r.user_id === user.id && r.status === 'pending').length >= 1) fail(429, 'REQUEST_IN_PROGRESS', '账号同时请求数量已达到上限');
     checkQuota(effectiveQuotas(next, user), used, reserved, '用户 ');
-    next.requests.push({ id: requestId, subscription_id: subscription?.id || null, user_id: user.id, username: user.username, model: model.public_name, model_id: model.id, purpose: hasImages ? 'image_understanding' : 'chat',
+    const credit = reserveCredit(next, user, model, reserved - outputLimit, outputLimit);
+    next.requests.push({ id: requestId, ...credit, user_id: user.id, username: user.username, model: model.public_name, model_id: model.id, purpose: hasImages ? 'image_understanding' : 'chat',
       key_id: key?.id || null, started_at: startedAt, status: 'pending', reserved_tokens: reserved, input_tokens: null, output_tokens: null, total_tokens: null });
   });
   const controller = new AbortController();
@@ -153,10 +148,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
       Object.assign(record, { ...usage, status, error_code: errorCode, upstream_status: upstreamStatus,
         duration_ms: Date.now() - started, finished_at: now(), usage_source: usage ? 'provider' : 'unknown',
         charged_tokens: usage?.total_tokens ?? 0 });
-      const cost = model.pricing_known !== false && usage?.input_tokens != null && usage?.output_tokens != null ? Math.round(usage.input_tokens * (model.input_price || 0) + usage.output_tokens * (model.output_price || 0)) : null;
-      record.cost_micros = Number.isSafeInteger(cost) ? cost : null;
-      record.currency = model.currency || 'CNY';
-      record.input_price = model.input_price || 0; record.output_price = model.output_price || 0;
+      settleCredit(next, record, model, usage);
       const saved = key && next.keys.find(k => k.id === key.id);
       if (saved && saved.secret === key.secret) {
         if ([401, 403].includes(upstreamStatus)) saved.health = 'rejected';

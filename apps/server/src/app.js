@@ -18,6 +18,7 @@ import { createDatabase, createVault, hashPassword } from './database.js';
 import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, audit, availableModels, resolveModel } from './domain.js';
 import { complete, statistics, deletedModelId } from './proxy.js';
 import { registerAuth, ensureDemoUser } from './auth.js';
+import { officialPrice } from './billing.js';
 import { adminPermission } from './policy.js';
 import { registerEnterpriseRoutes } from './enterprise.js';
 import { registerDistribution } from './distribution.js';
@@ -316,13 +317,13 @@ export function createApp(config, database) {
   app.post('/admin/models/ollama-preset', (_req,res) => res.json({baseUrl:config.ollamaBaseUrl || 'http://localhost:11434/v1',upstreamModel:'qwen:0.5b',maxOutputTokens:256,contextWindow:32768}));
   app.post('/admin/models/list', (_req, res) => {
     const state = db.read(), images = state.settings.imageGeneration;
-    res.json(state.models.map(model => ({...model, purposes: [
+    res.json(state.models.map(model => ({...model, reference_price: officialPrice(state.settings.modelSources.find(source => source.id === model.source_id), model.upstream_model), purposes: [
       ...(images?.enabled && images.sourceId === model.source_id && images.model === model.upstream_model ? ['image_generation'] : []),
       ...(images?.visionModelId === model.id ? ['vision'] : [])
     ]})));
   });
   function saveModel(state, body, existing) {
-    for (const price of [body.inputPrice ?? 0, body.outputPrice ?? 0]) if (typeof price !== 'number' || !Number.isFinite(price) || price < 0 || price > 100000) fail(400, 'INVALID_PRICE', '单价必须在 0 到 100000 之间');
+    for (const price of [body.inputPrice ?? 0, body.cachedInputPrice ?? 0, body.outputPrice ?? 0, body.imagePrice ?? 0]) if (typeof price !== 'number' || !Number.isFinite(price) || price < 0 || price > 100000) fail(400, 'INVALID_PRICE', '单价必须在 0 到 100000 之间');
     if (!['CNY','USD'].includes(body.currency || 'CNY')) fail(400, 'INVALID_CURRENCY', '币种只支持 CNY 或 USD');
     if (!['max_tokens','max_completion_tokens'].includes(body.maxTokensField || 'max_tokens')) fail(400, 'INVALID_FIELD', '无效的输出上限字段');
     if(body.pricingKnown!==undefined&&typeof body.pricingKnown!=='boolean')fail(400,'INVALID_FIELD','pricingKnown 必须为布尔值');
@@ -336,7 +337,7 @@ export function createApp(config, database) {
     const model = { ...existing, pricing_known:body.pricingKnown??existing?.pricing_known??true, protocol, provider, key_id: keyId, id: existing?.id || id(), name: text(body.name, 'name'), public_name: text(body.publicName, 'publicName', 80),
       upstream_model: text(body.upstreamModel, 'upstreamModel'), base_url: baseUrl(body.baseUrl),
       max_output_tokens: integer(body.maxOutputTokens ?? 8192, 'maxOutputTokens', 131072),
-      context_window: integer(body.contextWindow ?? 131072, 'contextWindow', 2000000), input_price: body.inputPrice ?? 0, output_price: body.outputPrice ?? 0, currency: body.currency || 'CNY', max_tokens_field: body.maxTokensField || 'max_tokens',
+      context_window: integer(body.contextWindow ?? 131072, 'contextWindow', 2000000), input_price: body.inputPrice ?? 0, cached_input_price: body.cachedInputPrice ?? body.inputPrice ?? 0, output_price: body.outputPrice ?? 0, image_price: body.imagePrice ?? 0, currency: body.currency || 'CNY', max_tokens_field: body.maxTokensField || 'max_tokens',
       stream_usage: body.streamUsage !== false, active: body.active !== false, is_default: body.isDefault === true, created_at: existing?.created_at || now() };
     if (body.supportsVision !== undefined) model.capabilities = [...new Set([...(existing?.capabilities || []).filter(value => value !== 'vision'), ...(body.supportsVision ? ['vision'] : [])])];
     if (!/^[a-zA-Z0-9_.-]+$/.test(model.public_name) || !model.max_output_tokens || model.context_window < model.max_output_tokens) fail(400, 'INVALID_MODEL', '公开模型名称或上下文/输出上限配置无效');

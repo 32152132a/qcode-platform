@@ -6,6 +6,7 @@ import { splitKnowledge, summarizeKnowledge, knowledgeCatalogue, readKnowledgeNo
 import { fetchWithKeys, sourceKeyIds } from './key-pool.js';
 import { fail, text, now, audit, consumption } from './domain.js';
 import { checkQuota, effectiveQuotas } from './policy.js';
+import { parseUsage, reserveCredit, settleCredit } from './billing.js';
 
 // A restored business database can reuse numeric IDs for newly created accounts.
 const ownerKey = user => parseInt(revisionOf(`${user.id}:${user.username}:${user.created_at}`).slice(0,13),16)+1;
@@ -33,19 +34,18 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
     if(!keys.length)fail(503,'KEY_UNAVAILABLE','知识整理渠道暂无可用Key');
     const requestId=randomBytes(16).toString('hex'),started=Date.now(),model=state.models.find(model=>model.source_id===source.id&&model.upstream_model===selection.model);
     const reserved=Buffer.byteLength(JSON.stringify(messages))+4096;
-    db.transaction(next=>{checkQuota(effectiveQuotas(next,user),consumption(next,user,config.timezone||'Asia/Shanghai',now()),reserved);next.requests.push({id:requestId,user_id:user.id,username:user.username,model:model?.public_name||selection.model,model_id:model?.id||null,key_id:null,purpose:'knowledge_index',status:'pending',started_at:now(),reserved_tokens:reserved,total_tokens:null,input_tokens:null,output_tokens:null});});
+    db.transaction(next=>{checkQuota(effectiveQuotas(next,user),consumption(next,user,config.timezone||'Asia/Shanghai',now()),reserved);const credit=reserveCredit(next,user,model,reserved-4096,4096);next.requests.push({id:requestId,...credit,user_id:user.id,username:user.username,model:model?.public_name||selection.model,model_id:model?.id||null,key_id:null,purpose:'knowledge_index',status:'pending',started_at:now(),reserved_tokens:reserved,total_tokens:null,input_tokens:null,output_tokens:null});});
     let usage=null,errorCode=null;
     try{
       const response=await fetchWithKeys({db,keys,signal:signal?AbortSignal.any([signal,AbortSignal.timeout(Math.min(config.timeoutMs||120000,120000))]):AbortSignal.timeout(120000),attempt:key=>db.transaction(next=>{next.requests.find(item=>item.id===requestId).key_id=key?.id||null;}),build:key=>({url:source.base_url+'/chat/completions',method:'POST',headers:{'Content-Type':'application/json',...(key?{Authorization:'Bearer '+vault.decrypt(key.secret)}:{})},body:JSON.stringify({model:selection.model,messages,max_tokens:4096})})});
       if(!response.ok){await response.body?.cancel();fail(502,'KNOWLEDGE_UPSTREAM_ERROR','知识整理接口返回HTTP '+response.status);}
       const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.length;if(size>2*1024*1024)fail(502,'KNOWLEDGE_RESPONSE_TOO_LARGE','知识整理响应过大');chunks.push(chunk);}
       let value;try{value=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(502,'INVALID_KNOWLEDGE_SUMMARY','知识整理接口返回格式无效');}
-      const counts=value.usage;
-      if(counts&&[counts.prompt_tokens,counts.completion_tokens,counts.total_tokens].every(value=>Number.isSafeInteger(value)&&value>=0))usage={input_tokens:counts.prompt_tokens,output_tokens:counts.completion_tokens,total_tokens:counts.total_tokens};
+      usage=parseUsage(value.usage);
       if(typeof value.choices?.[0]?.message?.content!=='string')fail(502,'INVALID_KNOWLEDGE_SUMMARY','模型没有返回整理内容');
       return value.choices[0].message.content;
     }catch(error){errorCode=error.code||'KNOWLEDGE_PROCESSING_FAILED';throw error;}
-    finally{db.transaction(next=>{const record=next.requests.find(item=>item.id===requestId);if(record)Object.assign(record,usage||{},{status:errorCode?'failed':'success',error_code:errorCode,finished_at:now(),duration_ms:Date.now()-started,usage_source:usage?'provider':'unknown',charged_tokens:usage?.total_tokens||0,cost_micros:model?.pricing_known&&usage?Math.round(usage.input_tokens*(model.input_price||0)+usage.output_tokens*(model.output_price||0)):null,currency:model?.currency||'CNY'});});}
+    finally{db.transaction(next=>{const record=next.requests.find(item=>item.id===requestId);if(record){Object.assign(record,usage||{},{status:errorCode?'failed':'success',error_code:errorCode,finished_at:now(),duration_ms:Date.now()-started,usage_source:usage?'provider':'unknown',charged_tokens:usage?.total_tokens||0});settleCredit(next,record,model,usage);}});}
   }
   function schedule(){
     if(running||stopped)return;

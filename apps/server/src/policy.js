@@ -9,7 +9,7 @@ rolePermissions.demo = rolePermissions.admin.filter(permission => permission.end
 export const permissions = user => Object.hasOwn(rolePermissions, user.role) ? rolePermissions[user.role] : [];
 export function effectiveQuotas(state, user) {
   const subscription = subscriptionFor(state, user);
-  if (subscription) return { totalTokens: subscription.terms.token_limit };
+  if (subscription) return {};
   return Object.fromEntries(Object.entries(user.quotas).map(([name, limit]) => [name, limit || null]));
 }
 export function effectiveKey(state, user, model = resolveModel(state, user)) {

@@ -87,7 +87,7 @@ const columns = computed<Column[]>(() =>
         },
         { prop: "price_cents", label: "价格", render: amount },
         { prop: "duration_days", label: "有效天数" },
-        { prop: "token_limit", label: "总 Token 额度", render: (row) => row.token_limit === null ? "∞" : Number(row.token_limit).toLocaleString() },
+        { prop: "credit_limit_micros", label: "使用额度", render: (row) => (Number(row.credit_limit_micros)/1000).toLocaleString('zh-CN', { maximumFractionDigits: 2 }) },
         {
           prop: "model_ids",
           label: "对话模型数",

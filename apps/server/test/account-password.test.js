@@ -23,7 +23,7 @@ test('self password change validates current password in Chinese and revokes eve
 
 test('user options list plans without server-selected default models',async t=>{
  const f=await fixture(t),first=f.db.read().models[0];
- const plan=(await f.request('/admin/plans','POST',{name:'Selected plan',price:0,durationDays:30,level:1,modelIds:[first.id],tokenLimit:1000},f.admin)).body;
+ const plan=(await f.request('/admin/plans','POST',{name:'Selected plan',price:0,durationDays:30,level:1,modelIds:[first.id],creditAmount:5},f.admin)).body;
  const options=(await f.request('/admin/users/options','GET',undefined,f.admin)).body;
  assert.deepEqual(options,{plans:[{id:plan.id,name:plan.name}]});
  const created=await f.request('/admin/users','POST',{username:'new-user',password:'Qcode@2026',planId:plan.id},f.admin);

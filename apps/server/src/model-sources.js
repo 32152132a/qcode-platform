@@ -1,4 +1,5 @@
 import { bindSourceKeys, sourceKey, sourceKeyIds, fetchWithKeys } from './key-pool.js';
+import { officialPrice } from './billing.js';
 import { catalogDisplayFields } from './model-presentation.js'
 import { createHash } from 'node:crypto'
 import { id, now, text, baseUrl, fail, audit, availableModels } from './domain.js'
@@ -52,6 +53,8 @@ export function modelBody(model) {
     maxOutputTokens: model.max_output_tokens,
     contextWindow: model.context_window,
     inputPrice: model.input_price,
+    cachedInputPrice: model.cached_input_price,
+    imagePrice: model.image_price,
     outputPrice: model.output_price,
     currency: model.currency,
     pricingKnown: model.pricing_known ?? true,
@@ -355,7 +358,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           const model = saveModel(state, {
             name: displayName,
             publicName,
-            pricingKnown: false,
+            pricingKnown: current.kind === 'local',
             upstreamModel: candidate.id,
             baseUrl: current.base_url,
             keyId: current.key_id,
@@ -372,6 +375,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
             maxOutputTokens: current.kind === 'local' ? 256 : 8192,
             contextWindow: current.kind === 'local' ? 32768 : 131072,
             active: false,
+            ...officialPrice(current, candidate.id),
           })
           Object.assign(model, catalogDisplayFields(candidate))
           model.model_type = model.capabilities?.includes('image_generation') ? 'image' : 'chat'
@@ -396,8 +400,9 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
         if (state.models.some((m) => m.source_id === source.id && m.upstream_model === upstream))
           fail(409, 'MODEL_EXISTS', '此来源已经添加该模型')
         const model = saveModel(state, {
+          ...officialPrice(source, upstream),
           ...body,
-          pricingKnown: body.pricingKnown ?? false,
+          pricingKnown: body.pricingKnown ?? (source.kind === 'local' || Boolean(officialPrice(source, upstream))),
           name: body.name || upstream,
           publicName: body.publicName || 'qcode-' + id().slice(0, 24),
           baseUrl: source.base_url,

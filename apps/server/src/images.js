@@ -4,6 +4,7 @@ import { now, id, text, integer, fail, audit, consumption, period, availableMode
 import { effectiveQuotas, checkQuota } from './policy.js';
 import { settingsFor } from './enterprise.js';
 import { sourcesFor } from './model-sources.js';
+import { reserveCredit, settleCredit } from './billing.js';
 
 const defaults = { enabled: false, sourceId: '', model: '', modelId: '', dailyImagesPerUser: 10, visionModelId: '' };
 const settings = state => ({ ...defaults, ...state.settings.imageGeneration });
@@ -12,7 +13,7 @@ function configuredSource(state, value) {
   const key = source && sourceKey(state, source);
   const model = value.modelId && state.models.find(item => item.id === value.modelId && item.source_id === value.sourceId && item.upstream_model === value.model);
   if (!source || (source.kind !== 'local' && !key) || (value.modelId && (!model?.active || model.catalog_available === false))) fail(503, 'IMAGE_SERVICE_UNAVAILABLE', '生图服务未配置或已停用，请联系管理员');
-  return { source, key };
+  return { source, key, pricedModel: model };
 }
 export async function readImageResponse(response) {
   const chunks = []; let bytes = 0;
@@ -93,16 +94,17 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
     let selected;
     db.transaction(state => {
       const subscription = subscriptionFor(state, req.user);
-      if (subscription && subscription.expires_at <= now()) fail(403, 'SUBSCRIPTION_EXPIRED', '套餐已到期，请申请重新开通或联系管理员');
+      if (subscription && subscription.expires_at <= now()) fail(403, 'SUBSCRIPTION_EXPIRED', '额度已到期，请重新开通套餐');
       const value = settings(state);
       if (!value.enabled) fail(503, 'IMAGE_GENERATION_DISABLED', '管理员尚未启用生图服务');
-      const { source, key } = configuredSource(state, value), user = state.users.find(item => item.id === req.user.id);
+      const { source, key, pricedModel } = configuredSource(state, value), user = state.users.find(item => item.id === req.user.id);
       if (state.requests.filter(item => item.status === 'pending').length >= settingsFor(state).maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关繁忙，请稍后重试');
       const used = state.requests.filter(item => item.user_id === user.id && item.purpose === 'image_generation' && ['pending','success'].includes(item.status) && period(item.started_at, config.timezone) === period(startedAt, config.timezone)).length;
       if (used >= value.dailyImagesPerUser) fail(429, 'IMAGE_QUOTA_EXCEEDED', '今日生图张数已达上限');
       checkQuota(effectiveQuotas(state, user), consumption(state, user, config.timezone, startedAt), 0, '用户 ');
-      selected = { model: value.model, source: structuredClone(source), key: structuredClone(key) };
-      state.requests.push({ id: requestId, subscription_id: subscription?.id || null, user_id: user.id, username: user.username, model: value.model, model_id: value.modelId || null, key_id: key?.id || null, started_at: startedAt, status: 'pending', purpose: 'image_generation', reserved_tokens: 0, charged_tokens: 0, total_tokens: null, input_tokens: null, output_tokens: null });
+      const credit = reserveCredit(state, user, pricedModel, 0, 0, true);
+      selected = { model: value.model, pricedModel, source: structuredClone(source), key: structuredClone(key) };
+      state.requests.push({ id: requestId, ...credit, user_id: user.id, username: user.username, model: value.model, model_id: value.modelId || null, key_id: key?.id || null, started_at: startedAt, status: 'pending', purpose: 'image_generation', reserved_tokens: 0, charged_tokens: 0, total_tokens: null, input_tokens: null, output_tokens: null });
     });
     const controller = new AbortController(), active = { userId: req.user.id, sessionId: req.session.id, controller, reason: null };
     activeRequests.set(requestId, active);
@@ -127,7 +129,11 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
       fail(502, errorCode, timedOut ? '图片生成超时，请稍后再试；未自动重发' : '图片生成失败，请检查生图服务；未自动重发');
     } finally {
       clearTimeout(timer); res.off('close', close); activeRequests.delete(requestId);
-      db.transaction(state => Object.assign(state.requests.find(item => item.id === requestId), { status, error_code: errorCode || null, upstream_status: upstreamStatus ?? null, duration_ms: Date.now() - started, finished_at: now(), generated_images: status === 'success' ? 1 : 0, usage_source: 'images', cost_micros: null }));
+      db.transaction(state => {
+        const record = state.requests.find(item => item.id === requestId);
+        Object.assign(record, { status, error_code: errorCode || null, upstream_status: upstreamStatus ?? null, duration_ms: Date.now() - started, finished_at: now(), generated_images: status === 'success' ? 1 : 0, usage_source: 'images' });
+        settleCredit(state, record, selected.pricedModel, null, status === 'success' ? 1 : 0);
+      });
     }
   }));
 }
