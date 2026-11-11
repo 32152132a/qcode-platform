@@ -200,6 +200,30 @@ test("plan application is private and idempotent; approval freezes agreed terms 
     403,
   );
 });
+test("plan deletion preserves approved orders and expired subscriptions", async (t) => {
+  const f = await fixture(t);
+  const { body: p } = await f.call("/admin/plans/create", plan(), f.admin);
+  const { body: order } = await f.call(
+    "/client/billing/apply", { planId: p.id, phone: "13800000000" }, f.user.token,
+  );
+  const remove = () => f.call("/admin/plans/" + p.id + "/delete", {}, f.admin);
+  assert.equal((await remove()).body.error.code, "PLAN_IN_USE");
+  await f.call("/admin/plans/" + p.id + "/update", plan({ name: "Renamed" }), f.admin);
+  const approval = await f.call("/admin/plans/orders/" + order.id + "/approve", { confirmed: true }, f.admin);
+  assert.equal(approval.status, 200);
+  assert.equal((await remove()).body.error.code, "PLAN_IN_USE");
+  f.db.transaction(state => {
+    state.subscriptions.at(-1).expires_at = "2000-01-01";
+  });
+  assert.equal((await remove()).status, 200);
+  const detail = await f.call("/client/billing/detail", {}, f.user.token);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.status, "expired");
+  assert.equal(detail.body.subscription.terms.name, "Pro");
+  assert.equal(detail.body.orders[0].status, "approved");
+  assert.deepEqual(detail.body.orders[0].terms, order.terms);
+});
+
 test("pending orders can be cancelled only by their owner and rejected with an explanation", async (t) => {
   const f = await fixture(t),
     p = (await f.call("/admin/plans/create", plan(), f.admin)).body;

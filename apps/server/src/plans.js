@@ -183,11 +183,16 @@ export function registerPlans(app, { db, auth, config }) {
   app.post("/admin/plans/:id/delete", (req, res) => {
     db.transaction((state) => {
       findPlan(state, req.params.id);
+      const timestamp = now();
+      const latestSubscriptions = new Map(state.subscriptions.map(item => [item.user_id, item]));
       if (
-        state.subscriptions.some((item) => item.plan_id === req.params.id) ||
-        state.planOrders.some((item) => item.plan_id === req.params.id)
+        state.users.some(user => {
+          const subscription = latestSubscriptions.get(user.id);
+          return subscription?.plan_id === req.params.id && subscription.expires_at > timestamp;
+        }) ||
+        state.planOrders.some(item => item.plan_id === req.params.id && item.status === "pending")
       )
-        fail(409, "PLAN_IN_USE", "套餐已有开通或申请记录，请改为下架");
+        fail(409, "PLAN_IN_USE", "套餐仍有生效订阅或待处理申请，请先下架");
       state.plans = state.plans.filter((item) => item.id !== req.params.id);
       audit(state, req.user, "plan.delete", req.params.id);
     });
@@ -344,7 +349,7 @@ export function registerPlans(app, { db, auth, config }) {
             ...subscription,
             terms: {
               ...subscription.terms,
-              level: findPlan(state, subscription.plan_id).level,
+              level: state.plans.find(plan => plan.id === subscription.plan_id)?.level ?? subscription.terms.level,
             },
           }
         : null,

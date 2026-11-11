@@ -159,7 +159,7 @@ const actions = computed<RowAction[]>(() =>
             danger: true,
             run: (r) =>
               confirmAction(
-                "删除未使用的套餐？已有开通或申请记录时请改为下架。",
+                "删除此套餐？生效订阅或待处理申请会阻止删除，历史申请将保留。",
                 () => request("/admin/plans/" + r.id, "DELETE"),
                 load,
               ),
