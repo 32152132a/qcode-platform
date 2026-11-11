@@ -46,11 +46,16 @@
           }}</el-tag>
         </template>
         <template v-if="auth.can('models:write')" #actions>
-          <el-button :loading="busy === source.id" :disabled="!source.active" @click="sync(source)"
-            >同步模型</el-button
-          ><el-button @click="editSource(source)">配置来源</el-button
-          ><el-button @click="addModel(source)">添加模型</el-button
-          ><el-button
+          <el-button @click="editSource(source)">配置来源</el-button>
+          <el-dropdown split-button @click="addModel(source)" @command="sync(source)">
+            添加模型
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="catalog" :disabled="!source.active || busy === source.id">从上游选择</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-button
             v-if="!models.some((m) => m.source_id === source.id)"
             type="danger"
             text
@@ -214,9 +219,8 @@
           {
             prop: 'upstreamModel',
             label: '上游模型',
-            type: source.catalog?.length ? 'select' : 'input',
+            type: 'input',
             required: true,
-            options: source.catalog?.map((m) => ({ label: m.id, value: m.id })),
           },
           { prop: 'name', label: '显示名称（可留空）' },
         ],

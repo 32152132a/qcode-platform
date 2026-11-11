@@ -176,7 +176,7 @@
       streamUsage: value.stream_usage,
       inputPrice: reference?.inputPrice ?? value.input_price,
       cachedInputPrice: reference?.cachedInputPrice ?? value.cached_input_price,
-      imagePrice: value.image_price,
+      imagePrice: reference?.imagePrice ?? value.image_price,
       outputPrice: reference?.outputPrice ?? value.output_price,
       currency: reference?.currency ?? value.currency,
       pricingKnown: reference?.pricingKnown ?? value.pricing_known !== false,

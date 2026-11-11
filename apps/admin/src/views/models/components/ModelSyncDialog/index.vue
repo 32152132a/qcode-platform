@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    :title="'同步模型 · ' + (source?.name || '')"
+    :title="'从上游选择 · ' + (source?.name || '')"
     width="740px"
     destroy-on-close
     :close-on-click-modal="false"

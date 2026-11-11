@@ -40,7 +40,7 @@ export interface Model {
   input_price: number
   cached_input_price: number
   image_price: number
-  reference_price?: { inputPrice: number; cachedInputPrice: number; outputPrice: number; currency: string; pricingKnown: boolean } | null
+  reference_price?: { inputPrice?: number; cachedInputPrice?: number; outputPrice?: number; imagePrice?: number; currency: string; pricingKnown: boolean } | null
   output_price: number
   currency: string
   max_tokens_field: string

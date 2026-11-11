@@ -29,6 +29,12 @@
 | qwen3.8-flash | 0.8 | 0.1 | 2.7 | 北京标准价与隐式缓存读取价 |
 | MiniMax-M3 | 4.2 | 0.84 | 16.8 | 固定采用标准服务长上下文档；不使用 priority |
 | kimi-k3.1-pro | 13 | 1.3 | 68 | 官网人民币标准价 |
+| kimi-k3 | 20 | 2 | 100 | [官网发布价](https://www.kimi.com/news/kimi-k3) |
+| glm-5.3-flash | 0.8 | 0.23 | 2.8 | 官网标准价 |
+| doubao-seed-2-1-lite-260915 | 0.8 | 0.16 | 2.7 | 常规非音频输入档 |
+| MiniMax-M3.1-Flash | 1 | 0.1 | 4 | 官网人民币标准价 |
+
+豆包 Seedream 5.0 Flash 按官网标准价 0.12 元/张计价。
 
 官方来源：[DeepSeek](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)、[智谱](https://docs.bigmodel.cn/cn/guide/start/pricing)、[豆包](https://docs.volcengine.com/docs/ark/model-pricing?lang=zh)、[千问](https://help.aliyun.com/zh/model-studio/model-pricing)、[千问缓存](https://help.aliyun.com/zh/model-studio/context-cache)、[MiniMax](https://platform.minimax.cn/docs/pricing/overview)。
 

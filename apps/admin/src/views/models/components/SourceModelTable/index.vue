@@ -52,7 +52,7 @@
       >
       <template #empty
         ><el-empty
-          description="暂无符合当前筛选的模型，可同步模型、添加模型或显示全部"
+          description="暂无符合当前筛选的模型，可添加模型或显示全部"
           :image-size="64"
       /></template>
     </QyqTable>

@@ -1,13 +1,14 @@
 import { fail, now } from './domain.js';
 import { subscriptionFor } from './entitlements.js';
 
-// Fixed CNY tariffs checked 2026-11-10; source links and chosen tiers are in CREDIT-BILLING.md.
+// Fixed CNY tariffs and chosen tiers are documented in CREDIT-BILLING.md.
 const officialPrices = {
   'deepseek-flash': [2, 0.04, 8], 'deepseek-v4-pro': [9, 0.3, 27],
-  'glm-5.3': [8, 2, 28], 'doubao-seed-2-1-pro-260915': [6, 1.2, 30],
+  'glm-5.3': [8, 2, 28], 'glm-5.3-flash': [0.8, 0.23, 2.8],
+  'doubao-seed-2-1-pro-260915': [6, 1.2, 30], 'doubao-seed-2-1-lite-260915': [0.8, 0.16, 2.7],
   'qwen3.8-max': [12, 1.5, 36], 'qwen3.8-max-0902': [12, 1.5, 36],
   'qwen3.8-flash': [0.8, 0.1, 2.7], 'MiniMax-M3': [4.2, 0.84, 16.8],
-  'kimi-k3.1-pro': [13, 1.3, 68],
+  'MiniMax-M3.1-Flash': [1, 0.1, 4], 'kimi-k3.1-pro': [13, 1.3, 68], 'kimi-k3': [20, 2, 100],
 };
 export function officialPrice(source, model) {
   if (source?.kind !== 'official') return null;
@@ -15,7 +16,9 @@ export function officialPrice(source, model) {
   const expected = model.startsWith('deepseek') ? 'api.deepseek.com' : model.startsWith('qwen') ? 'dashscope.aliyuncs.com'
     : model.startsWith('glm') ? 'open.bigmodel.cn' : model.startsWith('doubao') ? 'ark.cn-beijing.volces.com'
     : model.startsWith('kimi') ? 'api.moonshot.cn' : 'api.minimaxi.com';
-  const price = host === expected && officialPrices[model];
+  if (host !== expected) return null;
+  if (model === 'doubao-seedream-5-0-flash-260915') return { imagePrice: 0.12, currency: 'CNY', pricingKnown: true };
+  const price = officialPrices[model];
   return price ? { inputPrice: price[0], cachedInputPrice: price[1], outputPrice: price[2], currency: 'CNY', pricingKnown: true } : null;
 }
 
