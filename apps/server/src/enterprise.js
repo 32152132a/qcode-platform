@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { knowledgeSkill } from './knowledge-runtime.js';
 import { configuredVisionModel } from './model-sources.js';
 import { modelPresentation } from './model-presentation.js';
+import { subscriptionFor } from './entitlements.js';
 import { now, id, text, integer, fail, audit, availableModels, publicUser } from './domain.js';
 export const clientVersion = '0.3.0';
 const defaults = { productName: 'QCode', minimumClientVersion: '0.3.0', maxActiveRequests: 64, auditRetentionDays: 180 };
@@ -10,8 +11,15 @@ export const assignedSkills = state => [...state.skills.filter(skill => skill.ac
 export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests }) {
   app.post('/client/config', auth, (req, res) => {
     const state = db.read(), settings = settingsFor(state);
+    const models = availableModels(state, req.user);
+    const subscription = subscriptionFor(state, req.user);
+    if (subscription) {
+      const rank = new Map(subscription.terms.model_ids.map((id, index) => [id, index]));
+      models.sort((a, b) => rank.get(a.id) - rank.get(b.id));
+    }
     res.json({
-      models: availableModels(state, req.user).map(item => ({ id: item.public_name, name: item.name, ...modelPresentation(item), imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
+      defaultModelId: subscription ? models[0]?.public_name ?? null : null,
+      models: models.map(item => ({ id: item.public_name, name: item.name, ...modelPresentation(item), imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
       minimumClientVersion: settings.minimumClientVersion,
       productName: settings.productName,
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });

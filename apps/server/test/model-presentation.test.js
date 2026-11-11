@@ -7,6 +7,9 @@ test('model presentation identifies brands without inventing capabilities', () =
   assert.equal(modelPresentation({upstream_model:'openai/gpt-6.1-sol'}).icon,'openai');
   assert.equal(modelPresentation({upstream_model:'DeepSeek-flash'}).icon,'deepseek');
   assert.equal(modelPresentation({upstream_model:'qwen:0.5b'}).icon,'qwen');
+  assert.equal(modelPresentation({upstream_model:'kimi-k3.1-pro'}).icon,'kimi');
+  assert.equal(modelPresentation({upstream_model:'glm-5.3'}).icon,'zhipu');
+  assert.equal(modelPresentation({upstream_model:'MiniMax-M3'}).icon,'minimax');
   assert.deepEqual(modelPresentation({upstream_model:'claude-opus-thinking'}).capabilities,['chat']);
   assert.deepEqual(modelPresentation({capabilities:['thinking','vision','vip','source']} ).capabilities,['chat','vision','thinking']);
   assert.equal(modelPresentation({description:'<b>Plain text</b>'}).description,'<b>Plain text</b>');

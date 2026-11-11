@@ -10,6 +10,7 @@ export const businessApi = [
   ["DELETE","/admin/plans/orders/:id","/admin/plans/orders/:id/delete","write"],
   ["GET","/admin/plans/orders","/admin/plans/orders/list","read"],
   ["GET","/admin/plans/members","/admin/plans/members/list","read"],
+  ["POST","/admin/plans/members/:id/reset","/admin/plans/members/:id/reset","write"],
   ["POST","/admin/plans/grants","/admin/plans/grants/create","write"],
   ["POST","/admin/plans/orders/:id/approve","/admin/plans/orders/:id/approve","write"],
   ["POST","/admin/plans/orders/:id/reject","/admin/plans/orders/:id/reject","write"],

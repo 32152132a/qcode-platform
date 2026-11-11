@@ -938,6 +938,32 @@ test("manual approvals allow omitted, empty and whitespace-only payment referenc
   }
 });
 
+test('administrators reset only the current active cycle without changing expiry or request history', async t => {
+  const f = await fixture(t);
+  const p = (await f.call('/admin/plans/create', plan(), f.admin)).body;
+  const member = (await f.call('/admin/plans/grants/create', {userId:f.user.id,planId:p.id,confirmed:true}, f.admin)).body;
+  f.db.transaction(state => {state.subscriptions.at(-1).spent_micros=123000;state.requests.push({id:'previous',subscription_id:member.id,status:'success',cost_micros:123000});});
+  const route='/admin/plans/members/'+member.id+'/reset';
+  assert.equal((await f.call(route,{confirmed:true},f.user.token)).status,403);
+  assert.equal((await f.call(route,{},f.admin)).status,400);
+  f.db.transaction(state => {state.requests[0].status='pending';});
+  assert.equal((await f.call(route,{confirmed:true},f.admin)).body.error.code,'REQUEST_IN_PROGRESS');
+  f.db.transaction(state => {state.requests[0].status='success';});
+  assert.equal((await f.call(route,{confirmed:true},f.admin)).status,200);
+  const saved=f.db.read().subscriptions.at(-1);
+  assert.equal(saved.spent_micros,0);assert.equal(saved.expires_at,member.expires_at);assert.equal(saved.started_at,member.started_at);
+  assert.equal(f.db.read().requests[0].cost_micros,123000);
+  const users=(await f.call('/admin/users/list',{},f.admin)).body;
+  assert.deepEqual(users.find(user=>user.id===f.user.id).credit_usage,{used:0,limit:5000000});
+  f.db.transaction(state => {delete state.subscriptions.at(-1).terms.credit_limit_micros;});
+  assert.equal((await f.call(route,{confirmed:true},f.admin)).body.error.code,'BILLING_SETUP_REQUIRED');
+  assert.equal((await f.call('/admin/users/list',{},f.admin)).status,200);
+  await f.call('/admin/plans/grants/create',{userId:f.user.id,planId:p.id,confirmed:true},f.admin);
+  assert.equal((await f.call(route,{confirmed:true},f.admin)).body.error.code,'SUBSCRIPTION_CHANGED');
+  f.db.transaction(state => {state.subscriptions.at(-1).expires_at='2000-01-01';});
+  assert.equal((await f.call('/admin/plans/members/'+f.db.read().subscriptions.at(-1).id+'/reset',{confirmed:true},f.admin)).body.error.code,'SUBSCRIPTION_EXPIRED');
+});
+
 test('plan credit limits distinguish zero from the five-yuan default and reject invalid amounts',async t=>{
  const f=await fixture(t);
  for(const creditAmount of [-1,0.0000001,'0',null])assert.equal((await f.call('/admin/plans/create',plan({creditAmount}),f.admin)).status,400);

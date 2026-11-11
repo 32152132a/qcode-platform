@@ -48,19 +48,19 @@
       render: (r) => String(r.active_sessions) + ' / ' + r.session_limit,
     },
     {
-      prop: 'used',
-      label: '已用 Token',
-      render: (r) => String((r.used as Row)?.totalTokens || 0),
+      prop: 'credit_usage.used',
+      label: '已用金额（元）',
+      render: r => amount((r.credit_usage as Row | null)?.used),
     },
     {
-      prop: 'remaining',
-      label: '剩余总 Token',
-      render: (r) =>
-        (r.remaining as Row)?.totalTokens == null
-          ? '不限'
-          : String((r.remaining as Row).totalTokens),
+      prop: 'credit_usage.limit',
+      label: '套餐总额度（元）',
+      render: r => amount((r.credit_usage as Row | null)?.limit),
     },
   ]
+  function amount(value: unknown) {
+    return typeof value === 'number' ? (value / 1000000).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 4}) : '—'
+  }
   const writable = (r: Row) =>
     auth.can('users:write') && (r.role !== 'admin' || auth.user?.role === 'admin')
   const actions = computed<RowAction[]>(() => [

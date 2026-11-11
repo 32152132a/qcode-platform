@@ -19,6 +19,7 @@ import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, au
 import { complete, statistics, deletedModelId } from './proxy.js';
 import { registerAuth, ensureDemoUser } from './auth.js';
 import { officialPrice } from './billing.js';
+import { subscriptionFor } from './entitlements.js';
 import { adminPermission } from './policy.js';
 import { registerEnterpriseRoutes } from './enterprise.js';
 import { registerDistribution } from './distribution.js';
@@ -160,7 +161,13 @@ export function createApp(config, database) {
   app.post('/admin/users/options', (_req, res) => {
     const state=db.read();res.json({plans:state.plans.filter(plan=>plan.active).map(plan=>({id:plan.id,name:plan.name}))});
   });
-  app.post('/admin/users/list', (_req, res) => { const state = db.read(); res.json(state.users.map(u => publicUser(state, u, timezone))); });
+  app.post('/admin/users/list', (_req, res) => {
+    const state = db.read();
+    res.json(state.users.map(user => {
+      const subscription = subscriptionFor(state, user);
+      return { ...publicUser(state, user, timezone), credit_usage: subscription ? { used: subscription.spent_micros, limit: subscription.terms.credit_limit_micros } : null };
+    }));
+  });
   function createUser(state, body, actor) {
     const username = text(body.username, 'username', 80);
     if (!/^[\p{L}\p{N}_.@-]+$/u.test(username)) fail(400, 'INVALID_USERNAME', '账号仅支持中文、字母、数字、下划线、点、@ 和短横线');

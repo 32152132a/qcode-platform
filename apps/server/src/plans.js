@@ -248,6 +248,17 @@ export function registerPlans(app, { db, auth, config }) {
       }),
     ),
   );
+  app.post('/admin/plans/members/:id/reset', (req, res) => res.json(db.transaction(state => {
+    if (req.body.confirmed !== true) fail(400, 'CONFIRMATION_REQUIRED', '请确认重置本期额度');
+    const subscription = state.subscriptions.find(item => item.id === req.params.id);
+    if (!subscription || current(state, subscription.user_id)?.id !== subscription.id) fail(409, 'SUBSCRIPTION_CHANGED', '套餐已变更，请刷新后重试');
+    if (subscription.expires_at <= now()) fail(409, 'SUBSCRIPTION_EXPIRED', '套餐已到期，请重新开通');
+    if (!Number.isSafeInteger(subscription.terms.credit_limit_micros) || subscription.terms.credit_limit_micros < 0) fail(409, 'BILLING_SETUP_REQUIRED', '套餐计费配置需更新，请先切换套餐');
+    if (state.requests.some(item => item.subscription_id === subscription.id && item.status === 'pending')) fail(409, 'REQUEST_IN_PROGRESS', '仍有请求处理中，请结束后再重置');
+    subscription.spent_micros = 0;
+    audit(state, req.user, 'plan.credit.reset', subscription.id);
+    return { ok: true };
+  })));
   app.post("/admin/plans/orders/:id/approve", (req, res) =>
     res.json(
       db.transaction((state) => {

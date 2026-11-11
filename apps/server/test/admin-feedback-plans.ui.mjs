@@ -50,17 +50,17 @@ const employee = await call("/auth/login", {
   username: "employee",
   password: "test-password",
 });
-db.transaction((s) =>
-  s.models.push({
-    id: "m1",
-    name: "测试模型 A",
-    public_name: "m1",
-    upstream_model: "m1",
+db.transaction((s) => {
+  for (const [id, name] of [["m1", "测试模型 A"], ["m2", "测试模型 B"]]) s.models.push({
+    id,
+    name,
+    public_name: id,
+    upstream_model: id,
     provider: "ollama",
     base_url: "http://127.0.0.1:1/v1",
     active: true,
-  }),
-);
+  });
+});
 const server = await createServer({
   root: path.resolve("apps/admin"),
   configFile: path.resolve("apps/admin/vite.config.ts"),
@@ -91,7 +91,7 @@ try {
     "http://127.0.0.1:" + server.httpServer.address().port + "/manage/plans",
   );
   await page.getByRole("button", { name: "创建套餐", exact: true }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("dialog", { name: "创建套餐" });
   await dialog
     .locator(".el-form-item")
     .filter({ hasText: "套餐名称" })
@@ -102,23 +102,48 @@ try {
     .filter({ hasText: "价格（元）" })
     .locator("input")
     .fill("19.99");
-  await dialog
-    .locator(".el-form-item")
-    .filter({ hasText: "可选对话模型" })
-    .locator(".el-select")
-    .click();
+  await dialog.getByRole("button", { name: "已选 0 个模型" }).click();
+  const picker = page.getByRole("dialog", { name: "选择与排序模型" });
+  await picker.getByRole("combobox").click();
   await page.getByRole("option", { name: "测试模型 A", exact: true }).click();
-  await page.keyboard.press("Escape");
+  await page.getByRole("option", { name: "测试模型 B", exact: true }).click();
+  await picker.getByRole("heading", { name: "选择与排序模型" }).click();
+  const orderedModels = picker.getByRole("list", { name: "套餐模型顺序" }).getByRole("listitem");
+  await orderedModels.nth(1).dragTo(orderedModels.first());
+  await orderedModels.first().getByText(/测试模型 B（默认）/).waitFor();
+  await picker.screenshot({ path: path.resolve('apps/admin/dist/plan-order-preview.png') });
+  await picker.getByRole("button", { name: "确定", exact: true }).click();
+  await dialog.getByRole("button", { name: "已选 2 个模型" }).waitFor();
+  await dialog.screenshot({ path: path.resolve('apps/admin/dist/plan-model-count-preview.png') });
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
   assert.equal(db.read().plans.length, 1);
   assert.equal(db.read().plans[0].price_cents, 1999);
-  assert.deepEqual(db.read().plans[0].model_ids, ["m1"]);
+  assert.deepEqual(db.read().plans[0].model_ids, ["m2", "m1"]);
   assert.equal(db.read().plans[0].credit_limit_micros, 5000000);
   await page.screenshot({ path: path.resolve('apps/admin/dist/credit-plans-preview.png') });
   const png = await page.screenshot({
     clip: { x: 0, y: 0, width: 100, height: 100 },
   });
+  await call('/admin/plans/grants/create', {userId:employee.user.id,planId:db.read().plans[0].id,confirmed:true}, session.token);
+  const clientConfig = await call("/client/config", {}, employee.token);
+  assert.deepEqual(clientConfig.models.map(model => model.id), ["m2", "m1"]);
+  assert.equal(clientConfig.defaultModelId, "m2");
+  db.transaction(state => {state.subscriptions.at(-1).spent_micros=123000;});
+  await page.getByRole('tab',{name:'已开通用户',exact:true}).click();
+  await page.getByRole('button',{name:'切换套餐',exact:true}).click();
+  const switching=page.getByRole('dialog');
+  assert.equal(await switching.locator('.el-form-item').filter({hasText:'普通用户'}).count(),0);
+  await switching.getByText('切换 employee 的套餐（重新开始有效期与额度）',{exact:true}).waitFor();
+  await page.screenshot({path:path.resolve('apps/admin/dist/plan-switch-preview.png')});
+  await switching.getByRole('button',{name:'取消',exact:true}).click();
+  await page.getByRole('button',{name:'重置额度',exact:true}).click();
+  await page.getByRole('button',{name:'确定',exact:true}).click();
+  await page.getByRole('dialog',{name:'确认操作'}).waitFor({state:'hidden'});
+  assert.equal(db.read().subscriptions.at(-1).spent_micros,0);
+  await page.goto('http://127.0.0.1:'+server.httpServer.address().port+'/manage/users');
+  await page.getByText('已用金额（元）',{exact:true}).waitFor();
+  await page.getByText('套餐总额度（元）',{exact:true}).waitFor();
   await call(
     "/client/feedback/create",
     {

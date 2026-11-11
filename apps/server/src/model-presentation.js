@@ -6,6 +6,9 @@ const brands = [
   ['grok', /grok/i, 'Grok 模型，用于日常问答与内容处理。'],
   ['doubao', /doubao|豆包/i, '豆包模型，用于日常问答与内容处理。'],
   ['qwen', /qwen|千问|通义/i, 'Qwen 模型，用于日常问答与内容处理。'],
+  ['kimi', /kimi|moonshot/i, 'Kimi 模型，用于问答、写作与编程任务。'],
+  ['zhipu', /glm|zhipu|智谱/i, '智谱模型，用于问答、内容处理与编程任务。'],
+  ['minimax', /minimax/i, 'MiniMax 模型，用于问答、内容处理与编程任务。'],
 ]
 
 // Presentation is a whitelist, never a provider URL, key or source name.

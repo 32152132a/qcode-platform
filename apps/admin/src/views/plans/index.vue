@@ -9,7 +9,7 @@
       ><el-button @click="load">刷新</el-button
       ><template v-if="auth.can('plans:write')"
         ><el-button @click="paymentEditor?.open()">收款设置</el-button
-        ><el-button @click="manualGrant">手动开通</el-button
+        ><el-button @click="manualGrant()">手动开通</el-button
         ><el-button type="primary" @click="edit()"
           >创建套餐</el-button
         ></template
@@ -190,7 +190,13 @@ const actions = computed<RowAction[]>(() =>
                 ),
             },
           ]
-        : [],
+        : [
+            { label: "切换套餐", run: row => manualGrant(row) },
+            { label: "重置额度", visible: row => row.status === 'active', run: row => confirmAction(
+              '恢复 ' + row.username + ' 的本期全部额度？套餐及到期时间不变，历史请求保留。',
+              () => request('/admin/plans/members/' + row.id + '/reset', 'POST', {confirmed:true}), load,
+            ) },
+          ],
 );
 function approve(row: Row) {
   editor.value?.open(
@@ -244,7 +250,7 @@ function reject(row: Row) {
     },
   );
 }
-async function manualGrant() {
+async function manualGrant(member?: Row) {
   try {
     const [users, plans] = await Promise.all([
       request<Row[]>("/admin/users"),
@@ -252,8 +258,8 @@ async function manualGrant() {
     ]);
     editor.value?.open(
       {
-        title: "手动开通（立即替换当前套餐）",
-        value: { userId: "", planId: "", confirmed: "" },
+        title: member ? '切换 ' + member.username + ' 的套餐（重新开始有效期与额度）' : "手动开通（立即替换当前套餐）",
+        value: { userId: member?.user_id ?? "", planId: "", confirmed: "" },
         fields: [
           {
             prop: "userId",
@@ -285,10 +291,10 @@ async function manualGrant() {
               { label: "已核对收款或免费开通，确认立即替换", value: "yes" },
             ],
           },
-        ],
+        ].filter(field => !member || field.prop !== 'userId'),
         save: (v) =>
           request("/admin/plans/grants", "POST", {
-            userId: v.userId,
+            userId: member?.user_id ?? v.userId,
             planId: v.planId,
             confirmed: v.confirmed === "yes",
           }),
