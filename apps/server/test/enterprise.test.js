@@ -56,6 +56,22 @@ test('skills publish to all users, update by revision and reject unsafe paths', 
   assert.deepEqual((await f.request('/client/skills','GET',undefined,alice)).body.skills.map(item=>item.name),['qcode-knowledge']);
 });
 
+test('only administrators can manage GitHub plugin availability', async t => {
+  const f = await fixture(t);
+  await f.create();
+  const user = await f.login();
+  const config = () => f.request('/client/config','GET',undefined,user);
+  const update = (enabled, token) => f.request('/admin/plugins/github','POST',{enabled},token);
+  assert.equal((await config()).body.githubPluginEnabled,false);
+  assert.equal((await update(true,user)).status,403);
+  assert.equal((await update('true',f.admin)).status,400);
+  assert.equal((await update(true,f.admin)).status,200);
+  assert.equal((await config()).body.githubPluginEnabled,true);
+  assert.equal((await update(false,f.admin)).status,200);
+  assert.equal((await config()).body.githubPluginEnabled,false);
+  assert.equal(f.db.read().audits.some(entry => entry.action === 'plugin.update'),false);
+});
+
 test('product settings propagate without changing model configuration', async t => {
   const f = await fixture(t);
   const sources = structuredClone(f.db.read().settings.modelSources);

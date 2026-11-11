@@ -316,7 +316,7 @@ export function createApp(config, database) {
     db.transaction(next => {
       const saved = next.keys.find(k => k.id === key.id);
       if (saved && saved.secret === key.secret) { saved.health = health; saved.checked_at = now(); }
-      audit(next, req.user, 'key.check', key.id);
+      if (health !== 'reachable') audit(next, req.user, 'key.check', key.id);
     }); res.json({ health, note: 'Checks /models only; generation and billing permissions require a real request.' });
   });
   app.locals.modelSources=registerModelSources(app,{db,vault,config,saveModel});

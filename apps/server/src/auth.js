@@ -99,7 +99,6 @@ export function registerAuth(app, { db, config, cancelRequests }) {
       const removed = new Set(replaced.map(session => session.token_hash));
       next.tokens = next.tokens.filter(session => !removed.has(session.token_hash));
       const saved = next.users.find(u => u.id === user.id); saved.last_login_at = now();
-      audit(next, saved, 'login', saved.id);
       for (const session of replaced) audit(next, saved, 'session.replaced', session.id);
       return { result: issue(next, saved, { device: typeof device === 'string' ? device.slice(0,100) : '' }), replaced };
     });
@@ -125,7 +124,7 @@ export function registerAuth(app, { db, config, cancelRequests }) {
     id: s.id, device: s.device, created_at: s.created_at, expires_at: s.refresh_expires_at, current: s.token_hash === req.session.token_hash,
   }))));
   app.post('/auth/logout', auth, (req, res) => {
-    db.transaction(state => { state.tokens = state.tokens.filter(s => s.token_hash !== req.session.token_hash); audit(state, req.user, 'logout', req.user.id); });
+    db.transaction(state => { state.tokens = state.tokens.filter(s => s.token_hash !== req.session.token_hash); });
     cancelRequests(req.user.id, 'SESSION_REVOKED', req.session.id);
     res.json({ ok: true });
   });

@@ -9,6 +9,13 @@ const defaults = { productName: 'QCode', minimumClientVersion: '0.3.0', maxActiv
 export const settingsFor = state => Object.fromEntries(Object.entries(defaults).map(([key,value]) => [key,state.settings[key] ?? value]));
 export const assignedSkills = state => [...state.skills.filter(skill => skill.active && skill.kind !== 'knowledge'), knowledgeSkill()];
 export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests }) {
+  const githubEnabled = state => state.settings.githubPluginEnabled === true;
+  app.post('/admin/plugins/list', (_req, res) => res.json({ githubEnabled: githubEnabled(db.read()) }));
+  app.post('/admin/plugins/github', (req, res) => res.json(db.transaction(state => {
+    if (typeof req.body?.enabled !== 'boolean') fail(400, 'INVALID_FIELD', '请选择插件启用状态');
+    state.settings.githubPluginEnabled = req.body.enabled;
+    return { githubEnabled: githubEnabled(state) };
+  })));
   app.post('/client/config', auth, (req, res) => {
     const state = db.read(), settings = settingsFor(state);
     const models = availableModels(state, req.user);
@@ -18,6 +25,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       models.sort((a, b) => rank.get(a.id) - rank.get(b.id));
     }
     res.json({
+      githubPluginEnabled: req.user.role !== 'demo' && githubEnabled(state),
       defaultModelId: subscription ? models[0]?.public_name ?? null : null,
       models: models.map(item => ({ id: item.public_name, name: item.name, ...modelPresentation(item), imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
       minimumClientVersion: settings.minimumClientVersion,

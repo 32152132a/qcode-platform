@@ -7,6 +7,7 @@ const pages = {
   capabilities: () => import('@/views/capabilities/index.vue'),
   keys: () => import('@/views/keys/index.vue'),
   skills: () => import('@/views/skills/index.vue'),
+  plugins: () => import('@/views/plugins/index.vue'),
   plans: () => import('@/views/plans/index.vue'),
   feedback: () => import('@/views/feedback/index.vue'),
   knowledge: () => import('@/views/knowledge/index.vue'),

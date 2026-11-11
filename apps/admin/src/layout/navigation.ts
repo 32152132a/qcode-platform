@@ -5,6 +5,7 @@ export const navigationEntries = [
   ['capabilities', '能力配置', 'models', 'AI 资源'],
   ['keys', 'Key 管理', 'keys', 'AI 资源'],
   ['skills', '共享 Skill', 'skills', 'AI 资源'],
+  ['plugins', '插件管理', 'plugins', 'AI 资源'],
   ['knowledge', '知识库', 'knowledge', 'AI 资源'],
   ['usage', '用量统计', 'usage', '运行与管理'],
   ['plans', '套餐管理', 'plans', '组织与访问'],

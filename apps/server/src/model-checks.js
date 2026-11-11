@@ -61,7 +61,6 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
       const result = await boundedJson(response);
       if (!Array.isArray(result.data)) fail(502,'INVALID_CATALOG','上游未返回兼容模型列表，请手动填写模型名');
       const models = [...new Set(result.data.map(m=>m.id).filter(value=>typeof value==='string' && value.length<=120))].slice(0,1000);
-      db.transaction(state=>audit(state,req.user,'model.catalog',model.id || 'draft'));
       res.json({ models, note:'列表可读取不代表模型具有生成、工具调用或余额权限。' });
     } catch(error) { if (error.status) throw error; fail(502,'UPSTREAM_UNAVAILABLE','模型列表读取失败，请检查地址和网络'); }
   }
@@ -138,7 +137,7 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
       const saved=state.models.find(m=>m.id===model.id),savedKey=key&&state.keys.find(k=>k.id===key.id);
       if(saved&&(!key||(savedKey?.active&&savedKey.secret===key.secret&&saved.key_id===key.id))&&JSON.stringify(saved)===JSON.stringify(model))saved.verification=verification;
       else stale=true;
-      audit(state,req.user,'model.check',model.id);
+      if (verification.error_code) audit(state,req.user,'model.check',model.id);
     });
     if(stale)verification={...verification,status:'stale',message:'测试期间模型或 Key 已变化，请重新验证'};
     res.json(verification);

@@ -1,5 +1,7 @@
 // Business request contract: operation, resource, POST endpoint, demo access.
 export const businessApi = [
+  ["GET","/admin/plugins","/admin/plugins/list","read"],
+  ["POST","/admin/plugins/github","/admin/plugins/github","write"],
   ["GET","/admin/models/embeddings/settings","/admin/models/embeddings/settings/detail","read"],
   ["PUT","/admin/models/embeddings/settings","/admin/models/embeddings/settings/update","write"],
   ["GET","/admin/plans/payment-config","/admin/plans/payment-config/detail","read"],

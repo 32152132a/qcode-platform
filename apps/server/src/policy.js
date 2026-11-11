@@ -6,6 +6,7 @@ export const rolePermissions = {
   user: [],
 };
 rolePermissions.demo = rolePermissions.admin.filter(permission => permission.endsWith(':read') && !permission.startsWith('feedback:'));
+rolePermissions.admin.push('plugins:read', 'plugins:write');
 export const permissions = user => Object.hasOwn(rolePermissions, user.role) ? rolePermissions[user.role] : [];
 export function effectiveQuotas(state, user) {
   const subscription = subscriptionFor(state, user);

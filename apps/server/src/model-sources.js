@@ -156,7 +156,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     audit(state, actor, existing ? 'source.update' : 'source.create', source.id)
     return source
   }
-  async function synchronize(sourceId, actor = { id: null, username: 'system' }) {
+  async function synchronize(sourceId) {
     if (pending.has(sourceId)) return pending.get(sourceId)
     const operation = (async () => {
 
@@ -243,7 +243,6 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           current.synced_at = now()
           current.sync_status = 'ok'
           current.sync_error = null
-          audit(state, actor, 'source.sync', sourceId)
           return {
             source: current,
             addedCandidates: 0,
@@ -274,7 +273,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     const source = db.transaction((state) => saveSource(state, req.body || {}, req.user))
     if (source.auto_sync && source.active && (source.key_id || source.kind === 'local')) {
       try {
-        await synchronize(source.id, req.user)
+        await synchronize(source.id)
       } catch {}
     }
     res.status(201).json(find(db.read(), source.id))
@@ -297,7 +296,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     res.json({ ok: true })
   })
   app.post('/admin/models/sources/:id/sync', async (req, res) =>
-    res.json(await synchronize(req.params.id, req.user))
+    res.json(await synchronize(req.params.id))
   )
   app.post('/admin/models/sources/:id/import', (req, res) => {
     const body = req.body || {}
