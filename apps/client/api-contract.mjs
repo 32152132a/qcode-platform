@@ -101,7 +101,6 @@ export const businessApi = [
   ["PUT","/admin/models/sources/:id","/admin/models/sources/:id/update","write"],
   ["DELETE","/admin/models/sources/:id","/admin/models/sources/:id/delete","write"],
   ["POST","/admin/models/sources/:id/sync","/admin/models/sources/:id/sync","write"],
-  ["POST","/admin/models/sources/:id/import","/admin/models/sources/:id/import","write"],
   ["POST","/admin/models/sources/:id/models","/admin/models/sources/:id/models","write"],
   ["DELETE","/admin/models/sources/:id/models/:modelId","/admin/models/sources/:id/models/:modelId/delete","write"],
   ["PATCH","/admin/models/sources/:id/models/:modelId","/admin/models/sources/:id/models/:modelId/update","write"]

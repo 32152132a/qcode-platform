@@ -19,7 +19,7 @@ npm run build 会先类型检查。生产 Docker 多阶段构建前端，再由 
 来源地址/Key 修改会更新绑定模型并清除过期验证；同步不覆盖手动编辑或启用状态。
 上游明确下架的模型保留记录但不可调用；空列表、网络失败时保留上一次有效目录。
 创建来源和服务启动时可自动刷新候选目录，不导入新模型。来源和 Key 在请求中变化时丢弃旧结果。
-管理员勾选后批量导入模型；新模型默认关闭，验证后启用。
+管理员逐个添加模型。新模型默认关闭，验证后启用。
 不依赖某一家中转站的专有价格接口；未确认单价的自动模型成本记为未知。
 员工使用套餐内已启用的模型；未分配套餐时使用已启用模型。账号默认模型只影响首次选择。
 
@@ -30,15 +30,11 @@ npm run build 会先类型检查。生产 Docker 多阶段构建前端，再由 
 覆盖页面导航、用户创建、来源添加/关闭、设置保存、Skill 创建/编辑和 390px 手机布局。
 测试使用临时内存数据库及模拟凭据，不使用真实员工账号。
 
-## 中转站同步列表
+## 从上游目录添加模型
 
-点击“同步模型”读取完整候选目录，不再限制前 30 个或按品牌版本筛选。弹窗每页 12 张卡片，支持搜索、跨页保留勾选、选择本页与清空选择。已有模型标记为已导入，名称、参数、启用和默认状态不变，未勾选不会删除。新模型仅在提交后导入，默认关闭，验证后再启用。
+打开「添加模型」后，可以读取目录并选择一个模型，也可以手动输入上游模型 ID。表单展示已获取的上下文和单价参考，确认配置后保存。自动刷新更新目录及已有模型的可用状态，读取失败时保留上次目录。
 
-不兼容对话接口、或图像/音频/向量类模型仍展示但不可勾选，并说明原因。目录最多支持 2000 个有效 ID，超过时明确报错，不静默截断。自动刷新只更新目录及已有模型可用状态，不自动导入新模型。失败时保留上次目录。
-
-POST /admin/models/sources/:id/sync 读取目录；POST /admin/models/sources/:id/import 提交 modelIds、catalogRevision。提交校验目录版本、来源版本和 Key 状态，整批原子写入；重复提交不会产生重复模型，保留 models:write 权限和审计。
-
-ModelSyncDialog 是局部组件，ref.open(source, models, onSuccess) 调用。搜索复用 QyqForm，弹窗/卡片/勾选/分页复用 Element Plus。QyqTable 专用于表格、EntityDialog 专用于编辑字段，不强行扩展公共组件。浏览器验收运行 apps/server/scripts/model-sync-ui-smoke.mjs，使用模拟上游及隔离数据库。
+POST /admin/models/sources/:id/sync 读取目录，POST /admin/models/sources/:id/models 保存一个模型。浏览器验收使用 apps/server/scripts/model-sync-ui-smoke.mjs。
 
 ## 员工端名称与后台重名检查
 
@@ -53,7 +49,7 @@ ModelSyncDialog 是局部组件，ref.open(source, models, onSuccess) 调用。�
 - 日志使用 LogPage + 局部 LogFilters，筛选复用 QyqForm；DataTable 的 serverPagination 接受 page/pageSize/total，并通过 page-change 通知父级。日志不再叠加前端切片和第二个分页器。
 - 用户登录设备使用局部 UserSessionsDialog，以 ref.open(user,onSuccess) 调用，内部复用 DataTable。刷新、撤销和错误处理留在弹窗，不堆在页面。
 - 普通编辑继续使用 EntityDialog + QyqForm。模型配置保留局部 ModelDialog（含高级配置），字段展示及校验使用 QyqForm；开关和有范围限制的数字输入使用该组件已有 custom 插槽，保留 Element Plus 控件，不扩大公共表单接口。
-- 模型选择是卡片多选而非表格，保留局部 ModelSyncDialog。它复用 QyqForm 和 Element Plus；图表、平台介绍、下载页面使用专用展示组件。
+- 添加模型弹窗复用 QyqForm 和 Element Plus。图表、平台介绍、下载页面使用专用展示组件。
 - 管理员登录保留 Element Plus 原生表单，保留密码自动填充及浏览器密码管理器行为；通用动态表单暂未暴露 autocomplete 等登录属性，不为两个字段扩大公共组件。
 
 验收：node apps/server/scripts/component-reuse-ui-smoke.mjs 覆盖搜索翻页、分页大小、页码缩减、固定表头、设备撤销、日志服务端分页、模型高级参数保存、知识库点击/回车检索和桌面/手机布局。新增局部组件未提升为全局组件。

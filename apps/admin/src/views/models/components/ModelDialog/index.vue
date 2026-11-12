@@ -9,6 +9,14 @@
     destroy-on-close
   >
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <div v-if="!model && source?.active" class="catalog-picker">
+      <el-button :loading="catalogLoading" :disabled="busy" @click="readCatalog">读取上游目录</el-button>
+      <el-select v-if="catalog.length" v-model="form.upstreamModel" filterable
+        placeholder="选择上游模型" aria-label="选择上游模型" :disabled="busy || catalogLoading">
+        <el-option v-for="item in catalog" :key="item.id" :label="item.id" :value="item.id"
+          :disabled="!!item.unavailable_reason" />
+      </el-select>
+    </div>
     <QyqForm
       @submit.prevent
       ref="basicForm"
@@ -48,7 +56,7 @@
     ></el-collapse>
     <template #footer
       ><el-button :disabled="busy" @click="visible = false">取消</el-button
-      ><el-button type="primary" :loading="busy" @click="save">保存</el-button></template
+      ><el-button type="primary" :loading="busy" :disabled="catalogLoading" @click="save">保存</el-button></template
     >
   </el-dialog>
 </template>
@@ -60,9 +68,11 @@
   import type { Model, ModelSource } from '@/types/models'
   const visible = ref(false),
     busy = ref(false),
+    catalogLoading = ref(false),
     error = ref(''),
     model = ref<Model>(),
     source = ref<ModelSource>()
+  const catalog = computed(() => source.value?.catalog || [])
   const basicForm = ref<{ validate: () => Promise<boolean> }>()
   const initialForm = () => ({
     upstreamModel: '',
@@ -139,6 +149,12 @@
   }))
   watch(candidate, (value, previous) => {
     if (model.value) return
+    if (value || previous) {
+      const endpoints = value?.supported_endpoint_types?.map(endpoint => endpoint.toLowerCase()) || []
+      form.value.protocol = endpoints.some(endpoint => ['openai-response', 'responses'].includes(endpoint)) &&
+        !endpoints.some(endpoint => ['openai', 'openai-compatible', 'chat-completions'].includes(endpoint))
+        ? 'responses' : source.value?.protocol || 'chat-completions'
+    }
     for (const field of numericFields) {
       const current = form.value[field.prop]
       if (current === undefined || current === previous?.reference?.[field.prop])
@@ -199,9 +215,23 @@
     success = onSuccess
     visible.value = true
   }
+  async function readCatalog() {
+    const item = source.value
+    if (!item || catalogLoading.value || busy.value) return
+    catalogLoading.value = true
+    error.value = ''
+    try {
+      const result = await request<{ source: ModelSource }>('/admin/models/sources/' + item.id + '/sync', 'POST', {})
+      if (source.value === item) source.value = result.source
+    } catch (cause) {
+      if (source.value === item) error.value = cause instanceof Error ? cause.message : '读取上游目录失败'
+    } finally {
+      catalogLoading.value = false
+    }
+  }
   async function save() {
     const sourceId = model.value?.source_id || source.value?.id
-    if (!sourceId || busy.value) return
+    if (!sourceId || busy.value || catalogLoading.value) return
     try {
       if (!(await basicForm.value?.validate())) return
     } catch {
@@ -230,3 +260,17 @@
   }
   defineExpose({ open })
 </script>
+
+<style scoped>
+.catalog-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.catalog-picker .el-select {
+  flex: 1;
+  min-width: 0;
+}
+</style>

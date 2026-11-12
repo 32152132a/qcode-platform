@@ -26,7 +26,7 @@
           </span> </template></el-tab-pane></el-tabs
     ><el-empty
       v-if="!visibleSources.length"
-      description="暂无服务来源，添加后可读取列表并选择模型导入" />
+      description="暂无服务来源，请先添加来源" />
     <div class="source-list">
       <SourceCard
         v-for="source in visibleSources"
@@ -47,14 +47,7 @@
         </template>
         <template v-if="auth.can('models:write')" #actions>
           <el-button @click="editSource(source)">配置来源</el-button>
-          <el-dropdown split-button @click="addModel(source)" @command="sync(source)">
-            添加模型
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="catalog" :disabled="!source.active || busy === source.id">从上游选择</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <el-button @click="addModel(source)">添加模型</el-button>
           <el-button
             v-if="!models.some((m) => m.source_id === source.id)"
             type="danger"
@@ -74,7 +67,7 @@
           @remove="removeModel"
       /></SourceCard>
     </div>
-    <ModelSyncDialog ref="syncDialog" /><EntityDialog ref="editor" /><ModelDialog ref="modelEditor"
+    <EntityDialog ref="editor" /><ModelDialog ref="modelEditor"
   /></PagePanel>
 </template>
 <script setup lang="ts">
@@ -83,7 +76,6 @@
   import PagePanel from '@/components/PagePanel/index.vue'
   import EntityDialog from '@/components/EntityDialog/index.vue'
   import ModelDialog from './components/ModelDialog/index.vue'
-  import ModelSyncDialog from './components/ModelSyncDialog/index.vue'
   import SourceModelTable from './components/SourceModelTable/index.vue'
   import SourceCard from './components/SourceCard/index.vue'
   import { verificationLabel as verification } from './model-status'
@@ -108,7 +100,6 @@
   const addSourceLabel = computed(() =>
     kind.value === 'relay' ? '添加中转站' : kind.value === 'local' ? '添加本地服务' : '添加官网服务'
   )
-  const syncDialog = ref<InstanceType<typeof ModelSyncDialog>>()
   const visibleSources = computed(() => sources.value.filter((s) => s.kind === kind.value))
   function displayModels(source: ModelSource) {
     return models.value.filter((model) => model.source_id === source.id)
@@ -137,9 +128,6 @@
     } finally {
       busy.value = ''
     }
-  }
-  function sync(source: ModelSource) {
-    syncDialog.value?.open(source, models.value, load)
   }
   async function editSource(source?: ModelSource) {
     try {
@@ -262,7 +250,7 @@
   async function removeModel(model: Model) {
     try {
       await ElMessageBox.confirm(
-        '删除模型“' + model.name + '”？员工的默认选择将清除，历史调用与用量保留。再次同步不会自动加回，可手动重新导入。',
+        '删除模型“' + model.name + '”？员工的默认选择将清除，历史调用与用量保留。可通过「添加模型」重新添加。',
         '删除模型',
         { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
       )

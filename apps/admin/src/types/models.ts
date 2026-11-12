@@ -21,7 +21,6 @@ export interface ModelSource {
   sync_status?: string
   sync_error?: string
   catalog_workspace_id?: string
-  catalog_revision?: string
   catalog?: {
     id: string
     supported_endpoint_types?: string[]

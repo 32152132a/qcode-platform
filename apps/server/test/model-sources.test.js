@@ -4,15 +4,9 @@ import http from 'node:http'
 import { once } from 'node:events'
 import { fixture } from './gateway.test.js'
 import { catalogModelIssue } from '../src/model-sources.js'
-async function importSelected(f, sourceId, modelIds) {
-  const sync = await f.request('/admin/models/sources/' + sourceId + '/sync', 'POST', {}, f.admin)
-  assert.equal(sync.status, 200)
-  return f.request(
-    '/admin/models/sources/' + sourceId + '/import',
-    'POST',
-    { modelIds, catalogRevision: sync.body.source.catalog_revision },
-    f.admin
-  )
+function addModel(f, sourceId, upstreamModel, prices = { inputPrice: 0, cachedInputPrice: 0, outputPrice: 0 }) {
+  return f.request('/admin/models/sources/' + sourceId + '/models', 'POST',
+    { upstreamModel, contextWindow: 131072, ...prices }, f.admin)
 }
 
 test('model source switch blocks all new requests while preserving model identities and history', async (t) => {
@@ -73,13 +67,12 @@ test('source discovery scopes credentials and preserves edits, disables retired 
   assert.equal(catalog.body.source.catalog.find(model => model.id === 'gpt-5').reference.contextWindow, 65536)
   assert.equal(received[0], 'Bearer test-private-relay-secret')
   assert.equal(f.db.read().models.filter((m) => m.source_id === source.id).length, 0)
-  assert.equal((await importSelected(f, source.id, models.slice(0, 3))).status, 200)
+  assert.equal((await addModel(f, source.id, 'gpt-5', {})).body.error.code, 'MODEL_PRICE_REQUIRED')
+  for (const id of models.slice(0, 3)) assert.equal((await addModel(f, source.id, id)).status, 201)
   let saved = f.db.read().models.filter((m) => m.source_id === source.id)
   assert.equal(saved.length, 3)
   assert(saved.every((m) => !m.active))
   const gpt = saved.find((m) => m.upstream_model === 'gpt-5')
-  const enable = await f.request('/admin/models/sources/' + source.id + '/models/' + gpt.id, 'PATCH', { active: true }, f.admin)
-  assert.equal(enable.status, 400)
   await f.request(
     '/admin/models/sources/' + source.id + '/models/' + gpt.id,
     'PATCH',
@@ -153,7 +146,7 @@ test('resync only refreshes catalog and availability without importing models or
       f.admin
     )
   ).body
-  assert.equal((await importSelected(f, source.id, [ids[0]])).status, 200)
+  assert.equal((await addModel(f, source.id, ids[0])).status, 201)
   const existing = f.db.read().models.find((model) => model.source_id === source.id)
   assert.equal(existing.upstream_model, 'claude-sonnet-4-5')
   await f.request(
@@ -178,7 +171,7 @@ test('resync only refreshes catalog and availability without importing models or
   assert.equal(preserved.max_output_tokens, 1024)
   assert.equal(preserved.catalog_available, true)
   assert.equal(saved.length, 1)
-  assert.equal((await importSelected(f, source.id, ['claude-opus-4-5'])).status, 200)
+  assert.equal((await addModel(f, source.id, 'claude-opus-4-5')).status, 201)
   assert.equal(f.db.read().models.filter((model) => model.source_id === source.id).length, 2)
 })
 
@@ -316,7 +309,7 @@ test('discovering identical upstream IDs across sources creates distinct names w
   for (const source of f.db
     .read()
     .settings.modelSources.filter((source) => ['Source A', 'Source B'].includes(source.name)))
-    assert.equal((await importSelected(f, source.id, ['claude-opus-4-5'])).status, 200)
+    assert.equal((await addModel(f, source.id, 'claude-opus-4-5')).status, 201)
   const models = f.db.read().models.filter((model) => model.upstream_model === 'claude-opus-4-5')
   assert.equal(models.length, 2)
   assert.deepEqual(
@@ -337,7 +330,7 @@ test('discovering identical upstream IDs across sources creates distinct names w
   )
 })
 
-test('full catalog selection imports beyond thirty, is atomic, idempotent and rejects stale or disabled sources', async (t) => {
+test('full catalog supports adding a single model beyond thirty and rejects duplicates', async (t) => {
   const f = await fixture(t)
   const ids = [
     ...Array.from({ length: 45 }, (_, i) => 'model-' + i),
@@ -373,49 +366,13 @@ test('full catalog selection imports beyond thirty, is atomic, idempotent and re
   ).body.source
   assert.equal(sync.catalog.length, 47)
   assert.equal(f.db.read().models.filter((model) => model.source_id === source.id).length, 0)
-  const submit = (modelIds, catalogRevision = sync.catalog_revision) =>
-    f.request(
-      '/admin/models/sources/' + source.id + '/import',
-      'POST',
-      { modelIds, catalogRevision },
-      f.admin
-    )
-  assert.equal((await submit(['model-0', 'missing'])).status, 400)
-  assert.equal((await submit(['model-0', 'text-embedding-3'])).status, 400)
-  assert.equal(f.db.read().models.filter((model) => model.source_id === source.id).length, 0)
-  const chosen = ['model-0', 'claude-opus-5-5']
-  assert.deepEqual((await submit(chosen)).body, { added: 2, skipped: 0 })
-  assert.deepEqual((await submit(chosen)).body, { added: 0, skipped: 2 })
-  assert(
-    f.db
-      .read()
-      .models.filter((model) => model.source_id === source.id)
-      .every((model) => !model.active)
-  )
-  await f.request('/admin/models/sources/' + source.id + '/sync', 'POST', {}, f.admin)
-  assert.equal((await submit(['model-1'])).body.error.code, 'CATALOG_CHANGED')
-  const current = f.db.read().settings.modelSources.find((item) => item.id === source.id)
-  await f.request('/admin/models/sources/' + source.id, 'PUT', { name: 'Changed source' }, f.admin)
-  assert.equal((await submit(['model-1'], current.catalog_revision)).status, 409)
-  await f.request('/admin/models/sources/' + source.id, 'PUT', { active: false }, f.admin)
-  assert.equal((await submit(['model-1'])).body.error.code, 'SOURCE_DISABLED')
-  assert.equal(f.db.read().models.filter((model) => model.source_id === source.id).length, 2)
-  await f.create()
-  const token = await f.login()
-  assert.equal(
-    (
-      await f.request(
-        '/admin/models/sources/' + source.id + '/import',
-        'POST',
-        { modelIds: chosen, catalogRevision: sync.catalog_revision },
-        token
-      )
-    ).status,
-    403
-  )
+  assert.equal((await addModel(f, source.id, 'text-embedding-3')).status, 400)
+  assert.equal((await addModel(f, source.id, 'claude-opus-5-5')).status, 201)
+  assert.equal((await addModel(f, source.id, 'claude-opus-5-5')).status, 409)
+  assert.equal(f.db.read().models.filter(model => model.source_id === source.id).length, 1)
 })
 
-test('model deletion preserves usage and requires explicit reimport after sync', async (t) => {
+test('model deletion preserves usage and requires explicit creation after sync', async (t) => {
   const f = await fixture(t)
   const model = f.db.read().models[0]
   await f.create('alice')
@@ -454,7 +411,7 @@ test('model deletion preserves usage and requires explicit reimport after sync',
   }, f.admin)
   assert.equal((await f.request('/admin/models/sources/' + model.source_id + '/sync', 'POST', {}, f.admin)).status, 200)
   assert.equal(f.db.read().models.length, 0)
-  assert.equal((await importSelected(f, model.source_id, [model.upstream_model])).status, 200)
+  assert.equal((await addModel(f, model.source_id, model.upstream_model)).status, 201)
   const imported = f.db.read().models[0]
   assert.notEqual(imported.id, model.id)
   assert.equal(imported.active, false)

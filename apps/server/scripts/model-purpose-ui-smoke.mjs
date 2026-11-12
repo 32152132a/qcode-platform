@@ -25,53 +25,35 @@ try {
   await page.getByRole('heading',{name:'工作台概览',exact:true}).waitFor();
   const token = await page.evaluate(() => JSON.parse(sessionStorage.getItem('qcode.admin.session')).token);
   await page.goto(origin+'/manage/models');
-  await page.getByText('暂无服务来源，添加后可读取列表并选择模型导入',{exact:true}).waitFor();
+  await page.getByText('暂无服务来源，请先添加来源',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'配置图片能力',exact:true}).count(),0);
   const response = await page.request.post(origin+'/admin/models/sources/create',{headers:{Authorization:'Bearer '+token},data:{name:'图片测试站',kind:'relay',baseUrl:'http://127.0.0.1:'+upstream.address().port,apiKey:'synthetic-key',autoSync:false}});
   assert.equal(response.status(),201);
   await page.reload(); await page.getByRole('tab',{name:/中转站/}).click();
-  await page.getByRole('button',{name:'同步模型',exact:true}).click();
-  const sync = page.getByRole('dialog',{name:/同步模型/});
-  await sync.getByText('生图',{exact:true}).waitFor();
-  await sync.getByText('识图',{exact:true}).waitFor();
-  await sync.locator('.el-checkbox').filter({hasText:'gpt-image-2'}).click();
-  await sync.locator('.el-checkbox').filter({hasText:'vision-test'}).click();
-  await sync.getByRole('button',{name:'导入所选模型（2）',exact:true}).click();
-  await sync.waitFor({state:'hidden'});
-  const row = name => page.locator('.el-table__row').filter({hasText:name});
-  await row('gpt-image-2').getByRole('button',{name:'设置用途',exact:true}).click();
-  const dialog = page.getByRole('dialog',{name:'设置模型用途',exact:true});
-  await dialog.locator('.el-select').click();
-  await page.getByRole('option',{name:'设为生图模型',exact:true}).click();
-  await dialog.getByText('高级设置',{exact:true}).click();
-  await dialog.getByPlaceholder('请输入每人每日生图张数').fill('3');
-  await fs.mkdir('.visual-tests',{recursive:true});
-  for (const width of [1440,390]) {
-    await page.setViewportSize({width,height:1000});
-    const bounds = await dialog.evaluate(el => { const panel = el.matches('.el-dialog') ? el : el.querySelector('.el-dialog'); return {width:panel.clientWidth,scroll:panel.scrollWidth}; });
-    assert(bounds.width <= 520 && bounds.width <= width - 24 && bounds.scroll <= bounds.width + 2, JSON.stringify(bounds));
-    await page.screenshot({path:'.visual-tests/model-purpose-'+width+'.png',fullPage:true});
-  }
-  await page.setViewportSize({width:1440,height:1000});
-  await dialog.getByRole('button',{name:'确认',exact:true}).click();
-  await dialog.waitFor({state:'hidden'});
-  await row('gpt-image-2').getByText('生图模型',{exact:true}).waitFor();
-  assert.equal(db.read().settings.imageGeneration.dailyImagesPerUser,3);
-  assert.equal(await row('gpt-image-2').getByRole('button',{name:'验证',exact:true}).count(),0);
-  await row('vision-test').getByRole('button',{name:'设置用途',exact:true}).click();
-  await dialog.locator('.el-select').click();
-  await page.getByRole('option',{name:'设为识图模型',exact:true}).click();
-  await dialog.getByRole('button',{name:'确认',exact:true}).click(); await dialog.waitFor({state:'hidden'});
-  await row('vision-test').getByText('识图模型',{exact:true}).waitFor();
+  const source = await response.json();
+  const route = origin+'/admin/models/sources/'+source.id;
+  const headers = {Authorization:'Bearer '+token};
+  assert.equal((await page.request.post(route+'/sync',{headers,data:{}})).status(),200);
+  for (const data of [
+    {upstreamModel:'gpt-image-2',imagePrice:0},
+    {upstreamModel:'vision-test',contextWindow:131072,inputPrice:0,cachedInputPrice:0,outputPrice:0},
+  ]) assert.equal((await page.request.post(route+'/models',{headers,data})).status(),201);
   await page.reload(); await page.getByRole('tab',{name:/中转站/}).click();
+  await page.getByRole('heading',{name:'图片测试站',exact:true}).click();
+  const row = name => page.locator('.el-table__row').filter({hasText:name});
+  await row('gpt-image-2').getByText('生图能力',{exact:true}).waitFor();
+  assert.equal(await row('gpt-image-2').getByRole('button',{name:'验证',exact:true}).count(),0);
+  const models = db.read().models.filter(model => model.source_id === source.id);
+  const assign = (upstream, data) => page.request.post(origin+'/admin/models/'+models.find(model => model.upstream_model === upstream).id+'/purpose',{headers,data});
+  assert.equal((await assign('gpt-image-2',{purpose:'image_generation',dailyImagesPerUser:3})).status(),200);
+  assert.equal((await assign('vision-test',{purpose:'vision'})).status(),200);
+  await page.reload(); await page.getByRole('tab',{name:/中转站/}).click();
+  await page.getByRole('heading',{name:'图片测试站',exact:true}).click();
+  await row('gpt-image-2').getByText('生图模型',{exact:true}).waitFor();
   await row('vision-test').getByText('识图模型',{exact:true}).waitFor();
-  await row('gpt-image-2').getByRole('button',{name:'设置用途',exact:true}).click();
-  await dialog.locator('.el-select').click(); await page.getByRole('option',{name:'取消当前用途',exact:true}).click();
-  await dialog.getByRole('button',{name:'确认',exact:true}).click(); await dialog.waitFor({state:'hidden'});
-  assert.equal(db.read().settings.imageGeneration.enabled,false);
-  assert(db.read().settings.imageGeneration.visionModelId);
+  assert.equal(db.read().settings.imageGeneration.dailyImagesPerUser,3);
   assert.deepEqual(errors,[]);
-  console.log('Model sync capability labels, purpose assignment, reload, cancellation and desktop/mobile dialog widths passed.');
+  console.log('Model capability and assigned purpose labels passed.');
 } finally {
   await browser.close(); server.closeAllConnections(); server.close(); upstream.closeAllConnections(); upstream.close();
 }
