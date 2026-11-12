@@ -24,10 +24,24 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       const rank = new Map(subscription.terms.model_ids.map((id, index) => [id, index]));
       models.sort((a, b) => rank.get(a.id) - rank.get(b.id));
     }
+    // Estimate the same request for every model: 10,000 uncached input and 1,000 output tokens.
+    const costs = new Map(models.flatMap(model => {
+      const prices = [model.input_price, model.cached_input_price, model.output_price];
+      if (model.pricing_known !== true || model.currency !== 'CNY' ||
+          prices.some(price => !Number.isFinite(price) || price < 0)) return [];
+      const estimated = model.input_price * 10 + model.output_price;
+      return estimated > 0 || prices.every(price => price === 0) ? [[model.id, estimated]] : [];
+    }));
+    const isPaid = model => costs.get(model.id) > 0;
+    const baseline = models.find(model => model.upstream_model === 'gpt-6.1-sol' && isPaid(model)) || models.find(isPaid);
+    const baselineCost = costs.get(baseline?.id);
     res.json({
       githubPluginEnabled: req.user.role !== 'demo' && githubEnabled(state),
       defaultModelId: subscription ? models[0]?.public_name ?? null : null,
-      models: models.map(item => ({ id: item.public_name, name: item.name, ...modelPresentation(item), imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
+      models: models.map(item => ({ id: item.public_name, name: item.name, ...modelPresentation(item),
+        ...(costs.get(item.id) === 0 ? { usageRate: 0 } : baselineCost && costs.has(item.id)
+          ? { usageRate: costs.get(item.id) / baselineCost, usageBaseline: baseline.name || baseline.public_name } : {}),
+        imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
       minimumClientVersion: settings.minimumClientVersion,
       productName: settings.productName,
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
