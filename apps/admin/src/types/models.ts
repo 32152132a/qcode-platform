@@ -1,3 +1,12 @@
+export interface ModelReference {
+  contextWindow?: number
+  contextSource?: string
+  priceSource?: string
+  inputPrice?: number
+  cachedInputPrice?: number
+  outputPrice?: number
+  imagePrice?: number
+}
 export interface ModelSource {
   id: string
   name: string
@@ -11,11 +20,13 @@ export interface ModelSource {
   synced_at?: string
   sync_status?: string
   sync_error?: string
+  catalog_workspace_id?: string
   catalog_revision?: string
   catalog?: {
     id: string
     supported_endpoint_types?: string[]
     capabilities?: string[]
+    reference?: ModelReference
     unavailable_reason?: string | null
   }[]
 }
@@ -40,7 +51,7 @@ export interface Model {
   input_price: number
   cached_input_price: number
   image_price: number
-  reference_price?: { inputPrice?: number; cachedInputPrice?: number; outputPrice?: number; imagePrice?: number; currency: string; pricingKnown: boolean } | null
+  reference?: ModelReference
   output_price: number
   currency: string
   max_tokens_field: string

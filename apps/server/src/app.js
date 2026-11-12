@@ -7,7 +7,7 @@ import { registerImages } from './images.js';
 import { businessOperation, obsoleteBusinessRequest } from '../../client/api-contract.mjs';
 import { createAccountRequestQueue } from './request-queue.js';
 import { registerWebPages } from './web-pages.js';
-import {registerModelSources,sourcesFor} from './model-sources.js';
+import { modelReference, registerModelSources, sourcesFor } from './model-sources.js';
 import { registerKnowledge } from './knowledge-runtime.js';
 import { protocols } from './providers.js';
 import { registerModelChecks } from './model-checks.js';
@@ -18,7 +18,6 @@ import { createDatabase, createVault, hashPassword } from './database.js';
 import { now, id, fail, text, password, integer, baseUrl, quotas, publicUser, audit, availableModels, resolveModel } from './domain.js';
 import { complete, statistics, deletedModelId } from './proxy.js';
 import { registerAuth, ensureDemoUser } from './auth.js';
-import { officialPrice } from './billing.js';
 import { subscriptionFor } from './entitlements.js';
 import { adminPermission } from './policy.js';
 import { registerEnterpriseRoutes } from './enterprise.js';
@@ -324,10 +323,18 @@ export function createApp(config, database) {
   app.post('/admin/models/ollama-preset', (_req,res) => res.json({baseUrl:config.ollamaBaseUrl || 'http://localhost:11434/v1',upstreamModel:'qwen:0.5b',maxOutputTokens:256,contextWindow:32768}));
   app.post('/admin/models/list', (_req, res) => {
     const state = db.read(), images = state.settings.imageGeneration;
-    res.json(state.models.map(model => ({...model, reference_price: officialPrice(state.settings.modelSources.find(source => source.id === model.source_id), model.upstream_model), purposes: [
-      ...(images?.enabled && images.sourceId === model.source_id && images.model === model.upstream_model ? ['image_generation'] : []),
-      ...(images?.visionModelId === model.id ? ['vision'] : [])
-    ]})));
+    res.json(state.models.map(model => {
+      const source = sourcesFor(state).find(source => source.id === model.source_id);
+      const candidate = source?.catalog?.find(item => item.id === model.upstream_model);
+      return {
+        ...model,
+        reference: modelReference(source, candidate || { id: model.upstream_model }),
+        purposes: [
+          ...(images?.enabled && images.sourceId === model.source_id && images.model === model.upstream_model ? ['image_generation'] : []),
+          ...(images?.visionModelId === model.id ? ['vision'] : []),
+        ],
+      };
+    }));
   });
   function saveModel(state, body, existing) {
     for (const price of [body.inputPrice ?? 0, body.cachedInputPrice ?? 0, body.outputPrice ?? 0, body.imagePrice ?? 0]) if (typeof price !== 'number' || !Number.isFinite(price) || price < 0 || price > 100000) fail(400, 'INVALID_PRICE', '单价必须在 0 到 100000 之间');

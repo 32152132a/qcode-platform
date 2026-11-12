@@ -165,6 +165,8 @@
               })),
           }
         )
+      if (source?.kind === 'official' && new URL(source.base_url).hostname === 'dashscope.aliyuncs.com')
+        fields.push({ prop: 'catalogWorkspaceId', label: '百炼北京工作空间 ID（选填）', hint: '填写后使用百炼工作空间目录读取规格和价格。对话继续使用上面的服务地址。' })
       fields.push({
         prop: 'autoSync',
         label: '启动时自动刷新模型列表',
@@ -196,6 +198,7 @@
                   ? preset
                   : ''),
             keyIds: [source?.key_id, ...(source?.fallback_key_ids || [])].filter(Boolean),
+            catalogWorkspaceId: source?.catalog_workspace_id || '',
             autoSync: String(source?.auto_sync ?? true),
           },
           save: (value) =>
@@ -212,23 +215,7 @@
     }
   }
   function addModel(source: ModelSource) {
-    editor.value?.open(
-      {
-        title: '添加模型 · ' + source.name,
-        fields: [
-          {
-            prop: 'upstreamModel',
-            label: '上游模型',
-            type: 'input',
-            required: true,
-          },
-          { prop: 'name', label: '显示名称（可留空）' },
-        ],
-        value: { upstreamModel: '', name: '' },
-        save: (value) => request('/admin/models/sources/' + source.id + '/models', 'POST', value),
-      },
-      load
-    )
+    modelEditor.value?.open(undefined, load, source)
   }
   async function check(model: Model) {
     try {

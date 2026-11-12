@@ -61,10 +61,19 @@
                 {{ capability === 'image_generation' ? '生图' : capability === 'vision' ? '识图' : capability === 'thinking' ? '思考' : '对话' }}
               </el-tag>
             </el-space>
+            <span v-if="model.reference?.contextWindow" class="model-state">
+              上下文 {{ model.reference.contextWindow.toLocaleString() }} · {{ model.reference.contextSource }}
+            </span>
+            <span v-if="model.reference?.imagePrice !== undefined" class="model-state">
+              ¥{{ model.reference.imagePrice }}／张 · {{ model.reference.priceSource }}
+            </span>
+            <span v-else-if="model.reference?.priceSource" class="model-state">
+              输入／缓存／输出 {{ model.reference.inputPrice ?? '—' }}／{{ model.reference.cachedInputPrice ?? '—' }}／{{ model.reference.outputPrice ?? '—' }} 元／百万 Token
+            </span>
             <span class="model-state">{{
               existingIds.has(model.id)
                 ? '已导入 · 保留原配置'
-                : model.unavailable_reason || '可导入 · 默认未启用'
+                : model.unavailable_reason || '可导入 · 待确认配置'
             }}</span>
           </el-card>
         </el-checkbox-group>
@@ -205,7 +214,7 @@
           result.added +
           ' 个模型' +
           (result.skipped ? '，已存在的 ' + result.skipped + ' 个保持不变' : '') +
-          '，请验证后启用'
+          '，请编辑并确认上下文和单价后启用'
       )
       success?.()
     } catch (cause) {

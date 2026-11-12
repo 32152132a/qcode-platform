@@ -128,6 +128,10 @@ test('model purposes import image candidates, replace globally and never expose 
   const image = models.find(m => m.upstream_model === 'gpt-image-2'), vision = models.find(m => m.upstream_model === 'vision-test');
   assert.equal(image.model_type, 'image'); assert.equal(image.active, false);
   const assign = (model, purpose, extra = {}) => f.post('/admin/models/' + model.id + '/purpose', {purpose, ...extra}, f.session.token);
+  assert.equal((await assign(image, 'image_generation')).body.error.code, 'MODEL_PRICE_REQUIRED');
+  const update = (model, fields) => f.post('/admin/models/sources/' + f.source.id + '/models/' + model.id + '/update', fields, f.session.token);
+  assert.equal((await update(image, {imagePrice: 0})).status, 200);
+  assert.equal((await update(vision, {contextWindow: 131072, inputPrice: 0, cachedInputPrice: 0, outputPrice: 0})).status, 200);
   assert.equal((await assign(image, 'image_generation', {dailyImagesPerUser: 3})).status, 200);
   assert.equal((await assign(vision, 'vision')).status, 200);
   const client = (await f.post('/client/config', {}, f.session.token)).body;
@@ -139,7 +143,7 @@ test('model purposes import image candidates, replace globally and never expose 
   assert.equal((await f.post('/v1/images/generations', {prompt: 'test'}, f.session.token)).status, 200);
   assert.equal(f.received.at(-1).path, '/v1/images/generations');
   assert.equal(f.db.read().requests.at(-1).model_id, image.id);
-  const second = (await f.post('/admin/models/sources/' + f.source.id + '/models', {upstreamModel: 'gpt-image-next'}, f.session.token)).body;
+  const second = (await f.post('/admin/models/sources/' + f.source.id + '/models', {upstreamModel: 'gpt-image-next', imagePrice: 0}, f.session.token)).body;
   assert.equal((await assign(second, 'image_generation')).status, 200);
   assert.equal(f.db.read().settings.imageGeneration.modelId, second.id);
   assert.equal(f.db.read().settings.imageGeneration.visionModelId, vision.id);
@@ -158,7 +162,7 @@ test('model purposes import image candidates, replace globally and never expose 
 
 test('purpose assignment enforces permissions, demo restrictions, model availability and local keyless images', async t => {
   const f = await fixture(t);
-  const image = (await f.post('/admin/models/sources/' + f.source.id + '/models', {upstreamModel: 'gpt-image-2'}, f.session.token)).body;
+  const image = (await f.post('/admin/models/sources/' + f.source.id + '/models', {upstreamModel: 'gpt-image-2', imagePrice: 0}, f.session.token)).body;
   const route = '/admin/models/' + image.id + '/purpose';
   assert.equal((await f.post(route, {purpose: 'image_generation'})).status, 401);
   await f.post('/admin/users/create', {username: 'employee', password: 'employee-password'}, f.session.token);

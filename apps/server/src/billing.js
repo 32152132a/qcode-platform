@@ -19,7 +19,7 @@ export function officialPrice(source, model) {
   if (host !== expected) return null;
   if (model === 'doubao-seedream-5-0-flash-260915') return { imagePrice: 0.12, currency: 'CNY', pricingKnown: true };
   const price = officialPrices[model];
-  return price ? { inputPrice: price[0], cachedInputPrice: price[1], outputPrice: price[2], currency: 'CNY', pricingKnown: true } : null;
+  return price ? { contextWindow: /^(deepseek|kimi|doubao)/.test(model) ? 1048576 : 1000000, inputPrice: price[0], cachedInputPrice: price[1], outputPrice: price[2], currency: 'CNY', pricingKnown: true } : null;
 }
 
 export function moneyMicros(value, label = '使用额度') {

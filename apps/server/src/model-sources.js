@@ -41,6 +41,47 @@ export function catalogModelIssue(model, kind) {
     return '上游未声明兼容的对话接口'
   return null
 }
+export function modelReference(source, candidate) {
+  const official = officialPrice(source, candidate.id)
+  const price = { ...official, ...candidate.catalog_price }
+  const knownContext = official?.contextWindow
+  return {
+    contextWindow: candidate.context_window ?? knownContext,
+    contextSource: candidate.context_window ? '上游目录' : knownContext ? '官网参考' : undefined,
+    ...Object.fromEntries(Object.entries(price).filter(([field]) =>
+      ['inputPrice', 'cachedInputPrice', 'outputPrice', 'imagePrice'].includes(field))),
+    priceSource: candidate.catalog_price ? (official ? '上游目录与官网参考' : '上游目录') : official ? '官网参考' : undefined,
+  }
+}
+
+function catalogContext(model) {
+  const value = model.context_window ?? model.context_length ?? model.model_info?.context_window
+  return Number.isSafeInteger(value) && value > 0 && value <= 2000000 ? value : undefined
+}
+
+function bailianPrice(model) {
+  const tiers = model.prices
+  if (!Array.isArray(tiers) || tiers.length !== 1 || !/^(default|默认)$/i.test(tiers[0]?.range_name || '')) return undefined
+  const fields = { input_token: 'inputPrice', output_token: 'outputPrice', cache_read_token: 'cachedInputPrice', cached_input_token: 'cachedInputPrice', image_number: 'imagePrice' }
+  const entries = (Array.isArray(tiers[0].prices) ? tiers[0].prices : []).flatMap(item => {
+    const field = fields[item.type]
+    const unit = field === 'imagePrice' ? /^(元\/(张|幅)|每张|per image)$/i : /^(元\/(百万|100万)\s*tokens?|每百万\s*tokens?|per million tokens)$/i
+    const value = typeof item.price === 'number' || (typeof item.price === 'string' && item.price.trim()) ? Number(item.price) : NaN
+    return field && unit.test(item.price_unit) && Number.isFinite(value) && value >= 0 && value <= 100000
+      ? [[field, value]] : []
+  })
+  return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+function confirmedSettings(body, image) {
+  if (!image && (!Number.isSafeInteger(body.contextWindow) || body.contextWindow < 1))
+    fail(400, 'MODEL_CONTEXT_REQUIRED', '请填写上下文长度')
+  const fields = image ? ['imagePrice'] : ['inputPrice', 'cachedInputPrice', 'outputPrice']
+  if (fields.some(field => typeof body[field] !== 'number' || !Number.isFinite(body[field])))
+    fail(400, 'MODEL_PRICE_REQUIRED', '请填写人民币单价，免费项目请填 0')
+  return { ...body, currency: 'CNY', pricingKnown: true }
+}
+
 export function modelBody(model) {
   return {
     name: model.name,
@@ -105,6 +146,10 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     )
     if (/\/(chat\/completions|responses|models)\/?$/.test(address))
       fail(400, 'INVALID_URL', '请填写基础地址，不包含 models 或 chat/completions')
+    const workspace = body.catalogWorkspaceId ?? existing?.catalog_workspace_id ?? ''
+    if (workspace && (kind !== 'official' || new URL(address).hostname !== 'dashscope.aliyuncs.com' ||
+      typeof workspace !== 'string' || !/^ws_[a-zA-Z0-9_-]{1,80}$/.test(workspace)))
+      fail(400, 'INVALID_CATALOG_WORKSPACE', '请填写有效的百炼北京工作空间 ID')
     let keyId = body.keyId === undefined ? existing?.key_id || null : body.keyId || null
     if (kind === 'local') keyId = null
     if (body.apiKey) {
@@ -134,6 +179,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       name,
       kind,
       base_url: address,
+      catalog_workspace_id: workspace,
       key_id: keyId,
       protocol,
       active: body.active ?? existing?.active ?? true,
@@ -169,33 +215,55 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           : sourceKey(snapshot, source)
       try {
         if (source.kind !== 'local' && !key) fail(400, 'INVALID_KEY', '请为服务来源配置 Key')
-        const response = await fetchWithKeys({db, keys: key ? sourceKeyIds(source).map(id => snapshot.keys.find(item => item.id === id)).filter(item => item?.active) : [null],
-          signal: AbortSignal.timeout(Math.min(config.timeoutMs, 12000)),
-          build: candidate => ({url: source.base_url + '/models', headers: candidate ? {Authorization: 'Bearer ' + vault.decrypt(candidate.secret)} : {}}),
-          attempt: candidate => { key = candidate },
-        })
-        if (!response.ok) {
-          await response.body?.cancel()
-          fail(502, 'CATALOG_FAILED', '模型列表读取失败，HTTP ' + response.status)
+        const workspace = source.catalog_workspace_id
+        const signal = AbortSignal.timeout(Math.min(config.timeoutMs, 12000))
+        async function readPage(url) {
+          const response = await fetchWithKeys({db, keys: key ? sourceKeyIds(source).map(id => snapshot.keys.find(item => item.id === id)).filter(item => item?.active) : [null],
+            signal,
+            build: candidate => ({url, headers: candidate ? {Authorization: 'Bearer ' + vault.decrypt(candidate.secret)} : {}}),
+            attempt: candidate => { key = candidate },
+          })
+          if (!response.ok) {
+            await response.body?.cancel()
+            fail(502, 'CATALOG_FAILED', '模型列表读取失败，HTTP ' + response.status)
+          }
+          let size = 0
+          const chunks = []
+          for await (const chunk of response.body) {
+            size += chunk.length
+            if (size > 4 * 1024 * 1024) fail(502, 'CATALOG_TOO_LARGE', '模型列表超过限制')
+            chunks.push(chunk)
+          }
+          try {
+            return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+          } catch {
+            fail(502, 'INVALID_CATALOG', '模型列表格式无效')
+          }
         }
-        let size = 0
-        const chunks = []
-        for await (const chunk of response.body) {
-          size += chunk.length
-          if (size > 4 * 1024 * 1024) fail(502, 'CATALOG_TOO_LARGE', '模型列表超过限制')
-          chunks.push(chunk)
+        let rows
+        if (workspace) {
+          rows = []
+          for (let page = 1; page <= 20; page++) {
+            const url = 'https://' + workspace + '.cn-beijing.maas.aliyuncs.com/api/v1/models?language=zh-CN&service_site=asia-pacific-china&page_size=100&page_no=' + page
+            const { output, success } = await readPage(url)
+            if (success !== true || !Array.isArray(output?.models) || !Number.isSafeInteger(output.total))
+              fail(502, 'INVALID_CATALOG', '百炼模型列表格式无效')
+            rows.push(...output.models.map(model => ({
+              ...model, id: model.model, catalog_price: bailianPrice(model),
+              capabilities: (Array.isArray(model.capabilities) ? model.capabilities : []).flatMap(value =>
+                ({ TG: ['chat'], Reasoning: ['thinking'], VU: ['vision'], IG: ['image_generation'], TR: ['embedding'], ME: ['embedding'] })[value] || []),
+            })))
+            if (rows.length >= output.total) break
+            if (!output.models.length || page === 20) fail(502, 'INCOMPLETE_CATALOG', '百炼目录未完整返回，保留原列表')
+          }
+        } else {
+          rows = (await readPage(source.base_url + '/models')).data
         }
-        let body
-        try {
-          body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-        } catch {
-          fail(502, 'INVALID_CATALOG', '模型列表格式无效')
-        }
-        if (!Array.isArray(body.data) || !body.data.length)
+        if (!Array.isArray(rows) || !rows.length)
           fail(502, 'EMPTY_CATALOG', '上游没有返回可用模型，保留原列表')
         const catalog = [
           ...new Map(
-            body.data
+            rows
               .filter(
                 (m) =>
                   m && typeof m.id === 'string' && m.id.length <= 120 && !/[\x00-\x1f]/.test(m.id)
@@ -204,6 +272,8 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
                 m.id,
                 {
                   id: m.id,
+                  context_window: catalogContext(m),
+                  ...(workspace ? { catalog_price: m.catalog_price } : {}),
                   ...catalogDisplayFields(m),
                   ...(Array.isArray(m.supported_endpoint_types)
                     ? {
@@ -229,10 +299,13 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           )
             fail(409, 'SOURCE_CHANGED', '来源或 Key 已更改，请重新同步')
           const all = new Set(catalog.map((model) => model.id))
-          for (const model of state.models.filter((model) => model.source_id === sourceId))
-            model.catalog_available = all.has(model.upstream_model)
+          for (const model of state.models.filter((model) => model.source_id === sourceId)) {
+            if (all.has(model.upstream_model)) model.catalog_available = true
+            else if (!workspace) model.catalog_available = false
+          }
           current.catalog = catalog.map((model) => ({
             ...model,
+            reference: modelReference(current, model),
             unavailable_reason: catalogModelIssue(model, current.kind),
           }))
           current.catalog_revision = id()
@@ -357,7 +430,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           const model = saveModel(state, {
             name: displayName,
             publicName,
-            pricingKnown: current.kind === 'local',
+            pricingKnown: false,
             upstreamModel: candidate.id,
             baseUrl: current.base_url,
             keyId: current.key_id,
@@ -372,9 +445,8 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
                 ? 'responses'
                 : current.protocol,
             maxOutputTokens: current.kind === 'local' ? 256 : 8192,
-            contextWindow: current.kind === 'local' ? 32768 : 131072,
+            contextWindow: Math.max(candidate.reference?.contextWindow || (current.kind === 'local' ? 32768 : 131072), current.kind === 'local' ? 256 : 8192),
             active: false,
-            ...officialPrice(current, candidate.id),
           })
           Object.assign(model, catalogDisplayFields(candidate))
           model.model_type = model.capabilities?.includes('image_generation') ? 'image' : 'chat'
@@ -398,10 +470,10 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           upstream = text(body.upstreamModel, '上游模型', 120)
         if (state.models.some((m) => m.source_id === source.id && m.upstream_model === upstream))
           fail(409, 'MODEL_EXISTS', '此来源已经添加该模型')
+        const candidate = source.catalog?.find(item => item.id === upstream) || { id: upstream }
+        const image = catalogDisplayFields(candidate).capabilities?.includes('image_generation')
         const model = saveModel(state, {
-          ...officialPrice(source, upstream),
-          ...body,
-          pricingKnown: body.pricingKnown ?? (source.kind === 'local' || Boolean(officialPrice(source, upstream))),
+          ...confirmedSettings(body, image),
           name: body.name || upstream,
           publicName: body.publicName || 'qcode-' + id().slice(0, 24),
           baseUrl: source.base_url,
@@ -409,10 +481,9 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           protocol: body.protocol || source.protocol,
           provider: source.kind === 'local' ? 'ollama' : family(upstream) || 'custom',
           maxOutputTokens: body.maxOutputTokens ?? (source.kind === 'local' ? 256 : 8192),
-          contextWindow: body.contextWindow ?? (source.kind === 'local' ? 32768 : 131072),
           active: body.active ?? false,
+          isDefault: !image && body.isDefault === true,
         })
-        const candidate = source.catalog?.find(item => item.id === upstream) || { id: upstream }
         Object.assign(model, catalogDisplayFields(candidate))
         model.model_type = model.capabilities?.includes('image_generation') ? 'image' : 'chat'
         model.source_id = source.id
@@ -445,11 +516,20 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           model = state.models.find((m) => m.id === req.params.modelId && m.source_id === source.id)
         if (!model) fail(404, 'MODEL_NOT_FOUND', '模型不存在')
         const body = req.body || {}
+        const priceFields = ['inputPrice', 'cachedInputPrice', 'outputPrice', 'imagePrice']
+        const editingPrice = priceFields.some(field => Object.hasOwn(body, field))
+        const settings = { ...modelBody(model), ...body }
+        if (editingPrice || body.pricingKnown === true)
+          Object.assign(settings, confirmedSettings({
+            ...body,
+            contextWindow: body.contextWindow ?? (model.pricing_known ? model.context_window : undefined),
+          }, model.model_type === 'image'))
+        if (settings.active && (!settings.pricingKnown || settings.currency !== 'CNY'))
+          fail(400, 'MODEL_PRICE_REQUIRED', '请先配置模型的上下文和人民币单价，再启用模型')
         const result = saveModel(
           state,
           {
-            ...modelBody(model),
-            ...body,
+            ...settings,
             baseUrl: source.base_url,
             keyId: source.key_id,
             provider: model.provider,

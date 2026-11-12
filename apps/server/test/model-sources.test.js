@@ -45,7 +45,7 @@ test('source discovery scopes credentials and preserves edits, disables retired 
     received.push(req.headers.authorization)
     res
       .writeHead(fail ? 503 : 200, { 'content-type': 'application/json' })
-      .end(JSON.stringify({ data: models.map((id) => ({ id })) }))
+      .end(JSON.stringify({ data: models.map((id) => ({ id, context_window: id === 'gpt-5' ? 65536 : undefined })) }))
   })
   upstream.listen(0, '127.0.0.1')
   await once(upstream, 'listening')
@@ -68,7 +68,9 @@ test('source discovery scopes credentials and preserves edits, disables retired 
   ).body
   assert.doesNotMatch(JSON.stringify(source), /test-private-relay-secret/)
   const sync = () => f.request('/admin/models/sources/' + source.id + '/sync', 'POST', {}, f.admin)
-  assert.equal((await sync()).status, 200)
+  const catalog = await sync()
+  assert.equal(catalog.status, 200)
+  assert.equal(catalog.body.source.catalog.find(model => model.id === 'gpt-5').reference.contextWindow, 65536)
   assert.equal(received[0], 'Bearer test-private-relay-secret')
   assert.equal(f.db.read().models.filter((m) => m.source_id === source.id).length, 0)
   assert.equal((await importSelected(f, source.id, models.slice(0, 3))).status, 200)
@@ -76,10 +78,12 @@ test('source discovery scopes credentials and preserves edits, disables retired 
   assert.equal(saved.length, 3)
   assert(saved.every((m) => !m.active))
   const gpt = saved.find((m) => m.upstream_model === 'gpt-5')
+  const enable = await f.request('/admin/models/sources/' + source.id + '/models/' + gpt.id, 'PATCH', { active: true }, f.admin)
+  assert.equal(enable.status, 400)
   await f.request(
     '/admin/models/sources/' + source.id + '/models/' + gpt.id,
     'PATCH',
-    { name: 'Custom name', active: true, maxOutputTokens: 1024 },
+    { name: 'Custom name', active: true, maxOutputTokens: 1024, contextWindow: 65536, inputPrice: 1, cachedInputPrice: 0, outputPrice: 2 },
     f.admin
   )
   await sync()
@@ -87,6 +91,8 @@ test('source discovery scopes credentials and preserves edits, disables retired 
   assert.equal(current.name, 'Custom name')
   assert.equal(current.active, true)
   assert.equal(current.max_output_tokens, 1024)
+  assert.equal(current.context_window, 65536)
+  assert.equal(current.cached_input_price, 0)
   models = ['claude-sonnet-4']
   await sync()
   assert.equal(f.db.read().models.find((m) => m.id === gpt.id).catalog_available, false)
@@ -153,7 +159,7 @@ test('resync only refreshes catalog and availability without importing models or
   await f.request(
     '/admin/models/sources/' + source.id + '/models/' + existing.id,
     'PATCH',
-    { name: '团队常用模型', active: true, maxOutputTokens: 1024 },
+    { name: '团队常用模型', active: true, maxOutputTokens: 1024, contextWindow: 131072, inputPrice: 0, cachedInputPrice: 0, outputPrice: 0 },
     f.admin
   )
   ids = [

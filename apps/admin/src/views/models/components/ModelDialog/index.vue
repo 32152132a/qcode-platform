@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="配置模型"
+    :title="model ? '配置模型' : '添加模型 · ' + source?.name"
     width="650px"
     :close-on-click-modal="false"
     :close-on-press-escape="!busy"
@@ -15,17 +15,19 @@
       v-model="form"
       :columns="1"
       :show-btn="false"
-      :form-options="model?.model_type === 'image' ? basicFields.filter(field => field.prop !== 'isDefault') : basicFields"
+      :form-options="isImage ? basicFields.filter(field => field.prop !== 'isDefault') : basicFields"
       :disabled="busy"
     >
       <template #active><el-switch v-model="form.active" aria-label="启用模型" /></template>
       <template #isDefault><el-switch v-model="form.isDefault" aria-label="设为默认" /></template>
     </QyqForm>
-    <QyqForm v-if="model?.model_type === 'image'" v-model="form" :columns="1" :show-btn="false"
-      :form-options="[{prop:'imagePrice',label:'每张图片单价（元）',type:'number',min:0,precision:4},{prop:'pricingKnown',label:'已确认计价',type:'custom'}]">
-      <template #pricingKnown><el-switch v-model="form.pricingKnown" /></template>
+    <QyqForm v-model="form" :columns="1" :show-btn="false" :form-options="requiredFields" :disabled="busy">
+      <template v-for="field in requiredNumbers" :key="field.prop" #[field.prop]>
+        <el-input-number v-model="form[field.prop]" :min="field.min" :max="field.max"
+          :precision="field.precision" :aria-label="field.label" />
+      </template>
     </QyqForm>
-    <el-collapse v-else
+    <el-collapse v-if="!isImage"
       ><el-collapse-item title="高级配置" name="advanced">
         <QyqForm
           @submit.prevent
@@ -39,17 +41,8 @@
             ><el-switch v-model="form.streamUsage" aria-label="请求流式用量"
           /></template>
           <template #supportsVision><el-switch v-model="form.supportsVision" aria-label="模型原生支持识图" /></template>
-          <template #pricingKnown
-            ><el-switch v-model="form.pricingKnown" aria-label="已确认计价"
-          /></template>
-          <template v-for="field in numericFields" :key="field.prop" #[field.prop]>
-            <el-input-number
-              v-model="form[field.prop]"
-              :min="field.min"
-              :max="field.max"
-              :precision="field.precision"
-              :aria-label="field.label"
-            />
+          <template #maxOutputTokens>
+            <el-input-number v-model="form.maxOutputTokens" :min="1" :max="131072" aria-label="最大输出 Token" />
           </template>
         </QyqForm> </el-collapse-item
     ></el-collapse>
@@ -60,45 +53,51 @@
   </el-dialog>
 </template>
 <script setup lang="ts">
-  import { ref } from 'vue'
+  import { computed, ref, watch } from 'vue'
   import { request } from '@/api/request'
   import QyqForm from '@/components/qyq-form/index.vue'
   import type { FormItemProp } from '@/components/qyq-form/types'
-  import type { Model } from '@/types/models'
+  import type { Model, ModelSource } from '@/types/models'
   const visible = ref(false),
     busy = ref(false),
     error = ref(''),
-    model = ref<Model>()
+    model = ref<Model>(),
+    source = ref<ModelSource>()
   const basicForm = ref<{ validate: () => Promise<boolean> }>()
-  const form = ref({
+  const initialForm = () => ({
     upstreamModel: '',
     publicName: '',
     name: '',
     active: false,
     isDefault: false,
     protocol: 'chat-completions',
-    contextWindow: 131072,
+    contextWindow: undefined as number | undefined,
     maxOutputTokens: 8192,
     maxTokensField: 'max_tokens',
     streamUsage: true,
-    inputPrice: 0,
-    cachedInputPrice: 0,
-    imagePrice: 0,
-    outputPrice: 0,
-    currency: 'CNY',
-    pricingKnown: false,
+    inputPrice: undefined as number | undefined,
+    cachedInputPrice: undefined as number | undefined,
+    imagePrice: undefined as number | undefined,
+    outputPrice: undefined as number | undefined,
     supportsVision: false,
   })
-  const basicFields: FormItemProp[] = [
+  const form = ref(initialForm())
+  const candidate = computed(() => source.value?.catalog?.find(item => item.id === form.value.upstreamModel.trim()))
+  const reference = computed(() => model.value?.reference ?? candidate.value?.reference)
+  const isImage = computed(() => model.value
+    ? model.value.model_type === 'image'
+    : candidate.value?.capabilities?.includes('image_generation') === true ||
+      /(?:gpt-image|dall-e|seedream|flux|stable-diffusion|sdxl|imagen)/i.test(form.value.upstreamModel))
+  const basicFields = computed<FormItemProp[]>(() => [
     {
       prop: 'name',
       label: '显示名称',
       type: 'input',
-      required: true,
+      required: !!model.value,
       isNotTrim: true,
       allowSpecialChars: true,
     },
-    { prop: 'upstreamModel', label: '上游模型', type: 'input', disabled: true },
+    { prop: 'upstreamModel', label: '上游模型', type: 'input', required: true, disabled: !!model.value, allowSpecialChars: true },
     {
       prop: 'active',
       label: '启用模型',
@@ -106,20 +105,46 @@
       hint: { text: '关闭服务来源时，模型会整体不可用。' },
     },
     { prop: 'isDefault', label: '设为默认', type: 'custom' },
-  ]
+  ])
   const numericFields: {
-    prop: 'contextWindow' | 'maxOutputTokens' | 'inputPrice' | 'cachedInputPrice' | 'outputPrice'
+    prop: 'contextWindow' | 'inputPrice' | 'cachedInputPrice' | 'outputPrice' | 'imagePrice'
     label: string
     min: number
     max?: number
     precision?: number
   }[] = [
     { prop: 'contextWindow', label: '上下文长度', min: 1, max: 2000000 },
-    { prop: 'maxOutputTokens', label: '最大输出 Token', min: 1, max: 131072 },
     { prop: 'inputPrice', label: '每百万普通输入 Token 单价', min: 0, precision: 6 },
     { prop: 'cachedInputPrice', label: '每百万缓存输入 Token 单价', min: 0, precision: 6 },
     { prop: 'outputPrice', label: '每百万输出 Token 单价', min: 0, precision: 6 },
+    { prop: 'imagePrice', label: '每张图片单价', min: 0, precision: 6 },
   ]
+  const requiredNumbers = computed(() => numericFields.filter(field => (field.prop === 'imagePrice') === isImage.value))
+  const requiredFields = computed<FormItemProp[]>(() => requiredNumbers.value.map(field => {
+    const value = reference.value?.[field.prop]
+    const context = field.prop === 'contextWindow'
+    const suggested = source.value?.kind === 'local' || model.value?.provider === 'ollama' ? '32,768' : '131,072'
+    return {
+      prop: field.prop,
+      label: field.label + (context ? '（Token）' : '（元）'),
+      type: 'custom',
+      required: true,
+      hint: {
+        text: value !== undefined
+          ? (context ? reference.value?.contextSource : reference.value?.priceSource) + '：' + value.toLocaleString() + '，保存前可修改。'
+          : context ? '可先参考 ' + suggested + '，请按服务实际限制填写。'
+            : '按实际渠道填写人民币单价，确认免费可填 0。',
+      },
+    }
+  }))
+  watch(candidate, (value, previous) => {
+    if (model.value) return
+    for (const field of numericFields) {
+      const current = form.value[field.prop]
+      if (current === undefined || current === previous?.reference?.[field.prop])
+        form.value[field.prop] = value?.reference?.[field.prop]
+    }
+  })
   const advancedFields: FormItemProp[] = [
     {
       prop: 'protocol',
@@ -130,9 +155,7 @@
         { label: 'Responses', value: 'responses' },
       ],
     },
-    ...numericFields
-      .slice(0, 2)
-      .map((field) => ({ prop: field.prop, label: field.label, type: 'custom' as const })),
+    { prop: 'maxOutputTokens', label: '最大输出 Token', type: 'custom' },
     {
       prop: 'maxTokensField',
       label: '输出限制字段',
@@ -144,61 +167,57 @@
     },
     { prop: 'supportsVision', label: '模型原生支持识图（按服务实际能力确认）', type: 'custom' },
     { prop: 'streamUsage', label: '请求流式用量', type: 'custom' },
-    { prop: 'pricingKnown', label: '已确认计价（未确认时成本记为未知）', type: 'custom' },
-    ...numericFields
-      .slice(2)
-      .map((field) => ({ prop: field.prop, label: field.label, type: 'custom' as const })),
-    {
-      prop: 'currency',
-      label: '计价币种',
-      type: 'select',
-      options: [
-        { label: '人民币 CNY', value: 'CNY' },
-        { label: '美元 USD', value: 'USD' },
-      ],
-    },
     { prop: 'publicName', label: '公开模型 ID', type: 'input', disabled: true },
   ]
   let success: (() => void) | undefined
-  function open(value: Model, onSuccess: () => void) {
+  function open(value: Model | undefined, onSuccess: () => void, item?: ModelSource) {
     model.value = value
-    const reference = value.pricing_known === false ? value.reference_price : null
-    form.value = {
+    source.value = item
+    const confirmed = value?.pricing_known === true && value.currency === 'CNY'
+    form.value = value ? {
       upstreamModel: value.upstream_model,
       publicName: value.public_name,
       name: value.name,
       active: value.active,
       isDefault: value.is_default,
       protocol: value.protocol,
-      contextWindow: value.context_window,
+      contextWindow: confirmed ? value.context_window : value.reference?.contextWindow,
       maxOutputTokens: value.max_output_tokens,
       maxTokensField: value.max_tokens_field,
       streamUsage: value.stream_usage,
-      inputPrice: reference?.inputPrice ?? value.input_price,
-      cachedInputPrice: reference?.cachedInputPrice ?? value.cached_input_price,
-      imagePrice: reference?.imagePrice ?? value.image_price,
-      outputPrice: reference?.outputPrice ?? value.output_price,
-      currency: reference?.currency ?? value.currency,
-      pricingKnown: reference?.pricingKnown ?? value.pricing_known !== false,
+      inputPrice: confirmed ? value.input_price : value.reference?.inputPrice,
+      cachedInputPrice: confirmed ? value.cached_input_price : value.reference?.cachedInputPrice,
+      imagePrice: confirmed ? value.image_price : value.reference?.imagePrice,
+      outputPrice: confirmed ? value.output_price : value.reference?.outputPrice,
       supportsVision: value.capabilities?.includes('vision') === true,
+    } : {
+      ...initialForm(),
+      protocol: item?.protocol || 'chat-completions',
+      maxOutputTokens: item?.kind === 'local' ? 256 : 8192,
     }
     error.value = ''
     success = onSuccess
     visible.value = true
   }
   async function save() {
-    if (!model.value || busy.value) return
+    const sourceId = model.value?.source_id || source.value?.id
+    if (!sourceId || busy.value) return
     try {
       if (!(await basicForm.value?.validate())) return
     } catch {
+      return
+    }
+    const missing = requiredNumbers.value.find(field => typeof form.value[field.prop] !== 'number')
+    if (missing) {
+      error.value = '请填写' + missing.label
       return
     }
     busy.value = true
     error.value = ''
     try {
       await request(
-        '/admin/models/sources/' + model.value.source_id + '/models/' + model.value.id,
-        'PATCH',
+        '/admin/models/sources/' + sourceId + '/models' + (model.value ? '/' + model.value.id : ''),
+        model.value ? 'PATCH' : 'POST',
         form.value
       )
       visible.value = false

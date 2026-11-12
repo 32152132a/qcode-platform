@@ -21,10 +21,8 @@
         @dragover.prevent @drop.prevent="dropModel(index)">
         <span class="drag-handle" aria-hidden="true">⠿</span>
         <span>{{ modelNames.get(id) || id }}{{ index === 0 ? '（默认）' : '' }}</span>
-        <el-tag v-if="unpricedModels.has(id)" type="warning" size="small">待配置人民币单价</el-tag>
       </li>
     </ol>
-    <p v-if="modelOrder.some(id => unpricedModels.has(id))" class="model-order-hint">套餐用户使用这些模型前，请在「模型与服务」确认人民币单价。</p>
     <template #footer>
       <el-button @click="modelPickerOpen = false">取消</el-button>
       <el-button type="primary" @click="confirmModelPicker">确定</el-button>
@@ -42,7 +40,6 @@ import type { Row, Field } from '@/types'
 const visible=ref(false),saving=ref(false),error=ref(''),plan=ref<Row>(),value=ref<Row>({}),fields=ref<Field[]>([])
 const form=ref<{validate:()=>Promise<boolean>}>()
 const modelNames = ref(new Map<string, string>())
-const unpricedModels = ref(new Set<string>())
 const modelOptions = ref<{ label: string; value: string }[]>([])
 const modelPickerOpen = ref(false)
 const modelOrder = ref<string[]>([])
@@ -78,11 +75,11 @@ async function open(row?:Row,onSuccess?:()=>void){
   value.value={name:row?.name || '',level:row?.level ?? 0,isDefault:String(row?.is_default ?? false),price:Number(row?.price_cents || 0)/100,durationDays:row?.duration_days ?? 30,creditAmount:row?Number(row.credit_limit_micros)/1000:5000,modelIds:row?.model_ids || [],active:String(row?.active ?? true),description:row?.description || ''}
   try{
     const models=await request<Row[]>('/admin/models')
-    unpricedModels.value = new Set(models.filter(model => model.pricing_known !== true || model.currency !== 'CNY').map(model => String(model.id)))
     const options = models.filter(model => model.model_type !== 'image' && !(Array.isArray(model.capabilities) && model.capabilities.includes('embedding')))
       .map(model => ({ label: String(model.name), value: String(model.id) }))
     modelNames.value = new Map(options.map(model => [model.value, model.label]))
-    modelOptions.value = options
+    const activeIds = new Set(models.filter(model => model.active === true).map(model => String(model.id)))
+    modelOptions.value = options.filter(option => activeIds.has(option.value) || (Array.isArray(value.value.modelIds) && value.value.modelIds.includes(option.value)))
     fields.value=[
       {prop:'name',label:'套餐名称',type:'input',required:true,maxlength:40},
       {prop:'level',label:'升级等级（越大越高级）',type:'number',required:true,min:0,max:1000,precision:0},

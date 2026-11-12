@@ -47,6 +47,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
       const source = sourcesFor(state).find(item => item.id === model.source_id);
       if (!source?.active || model.catalog_available === false) fail(409, 'MODEL_UNAVAILABLE', '请先启用服务来源，并确认模型未下架');
       if (source.kind !== 'local' && !sourceKey(state, source)) fail(400, 'INVALID_KEY', '请先配置有效的服务 Key');
+      if (model.pricing_known === false || model.currency !== 'CNY') fail(400, 'MODEL_PRICE_REQUIRED', '请先配置模型的上下文和人民币单价');
       if (purpose === 'vision') {
         if (model.model_type === 'image') fail(400, 'INVALID_VISION_MODEL', '生图模型不能用作识图对话模型');
         value.visionModelId = model.id;
