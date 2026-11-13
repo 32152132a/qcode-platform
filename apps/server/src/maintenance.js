@@ -49,7 +49,7 @@ export function archiveAudits(filename,output,secret,days){
   if(days!==undefined && (!Number.isInteger(days)||days<0))throw new Error('审计保留天数必须为非负整数；0 表示不归档');
   const vault=createVault(secret),db=createDatabase(filename,{vault});
   try{
-    days ??= db.read().settings.auditRetentionDays ?? 180;
+    days ??= 180;
     if(days===0)return {archived:0};
     const before=new Date(Date.now()-days*86400000).toISOString(),entries=db.read().audits.filter(a=>a.time<before);
     if(!entries.length)return {archived:0};

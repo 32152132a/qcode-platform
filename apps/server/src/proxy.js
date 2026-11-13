@@ -4,7 +4,7 @@ import { Transform, Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { now, id, fail, availableModels, consumption, period, integer } from './domain.js';
 import { effectiveKey, effectiveQuotas, checkQuota } from './policy.js';
-import { settingsFor } from './enterprise.js';
+import { maxActiveRequests } from './policy.js';
 import { providerRequest, chatResponse, responseStream } from './providers.js';
 import { configuredVisionModel } from './model-sources.js';
 import { parseUsage, reserveCredit, settleCredit } from './billing.js';
@@ -43,7 +43,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   const requestId = id(), startedAt = now(), started = Date.now();
   db.transaction(next => {
     const user = next.users.find(u => u.id === req.user.id), used = consumption(next, user, config.timezone, startedAt);
-    if (next.requests.filter(r => r.status === 'pending').length >= settingsFor(next).maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关当前繁忙，请稍后重试');
+    if (next.requests.filter(r => r.status === 'pending').length >= maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关当前繁忙，请稍后重试');
     if (next.requests.filter(r => r.user_id === user.id && r.status === 'pending').length >= 1) fail(429, 'REQUEST_IN_PROGRESS', '账号同时请求数量已达到上限');
     checkQuota(effectiveQuotas(next, user), used, reserved, '用户 ');
     const credit = reserveCredit(next, user, model, inputEstimate, outputLimit ?? 0);

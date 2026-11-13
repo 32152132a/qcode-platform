@@ -13,8 +13,6 @@ const pages = {
   knowledge: () => import('@/views/knowledge/index.vue'),
   usage: () => import('@/views/usage/index.vue'),
   requests: () => import('@/views/requests/index.vue'),
-  settings: () => import('@/views/settings/index.vue'),
-  system: () => import('@/views/system/index.vue'),
 }
 const routes = [
   { path: '/download', redirect: '/' },

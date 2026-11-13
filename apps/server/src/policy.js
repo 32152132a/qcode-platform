@@ -1,8 +1,9 @@
+export const maxActiveRequests = 64;
 import { subscriptionFor } from './entitlements.js';
 import { sourceKey } from './key-pool.js';
 import { fail, quotaNames, resolveModel } from './domain.js';
 export const rolePermissions = {
-  admin: ['plans:read','plans:write','feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','skills:read','skills:write','usage:read','requests:read','audits:read','system:read','settings:read','settings:write'],
+  admin: ['plans:read','plans:write','feedback:read','feedback:write','knowledge:read','knowledge:write','users:read','users:write','keys:read','keys:write','models:read','models:write','skills:read','skills:write','usage:read','requests:read','audits:read'],
   user: [],
 };
 rolePermissions.demo = rolePermissions.admin.filter(permission => permission.endsWith(':read') && !permission.startsWith('feedback:'));

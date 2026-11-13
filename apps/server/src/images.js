@@ -2,7 +2,7 @@ import { sourceKey, sourceKeyIds, fetchWithKeys, suspendKey } from './key-pool.j
 import { subscriptionFor } from './entitlements.js';
 import { now, id, text, integer, fail, audit, consumption, period, availableModels } from './domain.js';
 import { effectiveQuotas, checkQuota } from './policy.js';
-import { settingsFor } from './enterprise.js';
+import { maxActiveRequests } from './policy.js';
 import { sourcesFor } from './model-sources.js';
 import { reserveCredit, settleCredit } from './billing.js';
 
@@ -99,7 +99,7 @@ export function registerImages(app, { db, vault, config, auth, activeRequests, q
       const value = settings(state);
       if (!value.enabled) fail(503, 'IMAGE_GENERATION_DISABLED', '管理员尚未启用生图服务');
       const { source, key, pricedModel } = configuredSource(state, value), user = state.users.find(item => item.id === req.user.id);
-      if (state.requests.filter(item => item.status === 'pending').length >= settingsFor(state).maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关繁忙，请稍后重试');
+      if (state.requests.filter(item => item.status === 'pending').length >= maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关繁忙，请稍后重试');
       const used = state.requests.filter(item => item.user_id === user.id && item.purpose === 'image_generation' && ['pending','success'].includes(item.status) && period(item.started_at, config.timezone) === period(startedAt, config.timezone)).length;
       if (used >= value.dailyImagesPerUser) fail(429, 'IMAGE_QUOTA_EXCEEDED', '今日生图张数已达上限');
       checkQuota(effectiveQuotas(state, user), consumption(state, user, config.timezone, startedAt), 0, '用户 ');

@@ -4,9 +4,6 @@ import { configuredVisionModel } from './model-sources.js';
 import { modelPresentation } from './model-presentation.js';
 import { subscriptionFor } from './entitlements.js';
 import { now, id, text, integer, fail, audit, availableModels, publicUser } from './domain.js';
-export const clientVersion = '0.3.0';
-const defaults = { productName: 'QCode', minimumClientVersion: '0.3.0', maxActiveRequests: 64, auditRetentionDays: 180 };
-export const settingsFor = state => Object.fromEntries(Object.entries(defaults).map(([key,value]) => [key,state.settings[key] ?? value]));
 export const assignedSkills = state => [...state.skills.filter(skill => skill.active && skill.kind !== 'knowledge'), knowledgeSkill()];
 export function registerEnterpriseRoutes(app, { db, config, auth }) {
   const githubEnabled = state => state.settings.githubPluginEnabled === true;
@@ -17,7 +14,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth }) {
     return { githubEnabled: githubEnabled(state) };
   })));
   app.post('/client/config', auth, (req, res) => {
-    const state = db.read(), settings = settingsFor(state);
+    const state = db.read();
     const models = availableModels(state, req.user);
     const subscription = subscriptionFor(state, req.user);
     if (subscription) {
@@ -41,8 +38,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth }) {
         ...(costs.get(item.id) === 0 ? { usageRate: 0 } : baselineCost && costs.has(item.id)
           ? { usageRate: costs.get(item.id) / baselineCost, usageBaseline: baseline.name || baseline.public_name } : {}),
         imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
-      minimumClientVersion: settings.minimumClientVersion,
-      productName: settings.productName,
+      productName: 'QCode',
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
   });
   app.post('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read()).map(s => ({ id: s.id, name: s.name, kind: 'skill', title: s.name, description: s.description, revision: s.revision, files: s.files })) }));
@@ -76,19 +72,4 @@ export function registerEnterpriseRoutes(app, { db, config, auth }) {
   app.post('/admin/skills/:id/delete', (req, res) => {
     db.transaction(state => { if (!state.skills.some(s => s.id === req.params.id && s.kind!=='knowledge')) fail(404, 'SKILL_NOT_FOUND', 'Skill 不存在'); state.skills = state.skills.filter(s => s.id !== req.params.id); audit(state, req.user, 'skill.delete', req.params.id); }); res.json({ ok: true });
   });
-  app.post('/admin/settings/detail', (_req, res) => res.json(settingsFor(db.read())));
-  app.post('/admin/settings/update', (req, res) => res.json(db.transaction(state => {
-    const body = req.body || {}, current = settingsFor(state);
-    if (body.productName !== undefined) {
-      current.productName = text(body.productName, '产品名称', 32);
-      if (/[\u0000-\u001f\u007f-\u009f]/.test(current.productName)) fail(400, 'INVALID_FIELD', '产品名称不能包含换行或控制字符');
-    }
-    if (body.minimumClientVersion !== undefined) {
-      if (!/^\d+\.\d+\.\d+$/.test(body.minimumClientVersion)) fail(400, 'INVALID_VERSION', '客户端版本必须为 x.y.z');
-      current.minimumClientVersion = body.minimumClientVersion;
-    }
-    if (body.maxActiveRequests !== undefined) { current.maxActiveRequests = integer(body.maxActiveRequests, '并发请求数', 1000); if (!current.maxActiveRequests) fail(400, 'INVALID_FIELD', '并发数至少为 1'); }
-    if (body.auditRetentionDays !== undefined) current.auditRetentionDays = integer(body.auditRetentionDays, '日志保留天数', 3650);
-    state.settings = { ...state.settings, ...current }; audit(state, req.user, 'settings.update', 'system'); return current;
-  })));
 }

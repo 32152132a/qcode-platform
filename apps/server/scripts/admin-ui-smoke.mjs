@@ -76,19 +76,12 @@ try {
     plans: '套餐管理',
     feedback: '问题反馈',
     requests: '系统记录',
-    settings: '系统设置',
-    system: '系统状态',
   }
   for (const [route, title] of Object.entries(pages)) {
     await page.goto(origin + '/manage/' + route)
     await page.getByRole('heading', { name: title, exact: true }).waitFor()
     await page.waitForTimeout(100)
     await checkPageBounds(route)
-    if (route === 'system') {
-      await page.locator('.el-collapse-item__header').click()
-      await page.waitForTimeout(350)
-      await checkPageBounds(route + ' expanded')
-    }
     console.log('PAGE', route, 'passed')
   }
   await page.goto(origin + '/manage/users')
@@ -127,11 +120,6 @@ try {
   await page.waitForTimeout(300)
   assert.equal(db.read().settings.modelSources[0].active, false)
   console.log('SOURCE SWITCH passed')
-  await page.goto(origin + '/manage/settings')
-  await page.getByRole('button', { name: '修改设置', exact: true }).click()
-  await dialog.getByRole('button', { name: '保存', exact: true }).click()
-  await dialog.waitFor({ state: 'hidden' })
-  console.log('EDIT SETTINGS passed')
   await page.goto(origin + '/manage/skills')
   await page.getByRole('button', { name: '发布 Skill', exact: true }).click()
   await dialog.getByLabel('名称（小写字母、数字、短横线）', { exact: true }).fill('test-guide')
@@ -159,11 +147,6 @@ try {
     }))
     assert(size.scroll <= size.width + 2, route + ' overflows ' + JSON.stringify(size))
     await checkPageBounds(route)
-    if (route === 'system') {
-      await page.locator('.el-collapse-item__header').click()
-      await page.waitForTimeout(350)
-      await checkPageBounds(route + ' expanded')
-    }
   }
   await page.goto(origin + '/manage/users')
   await page.getByRole('button', { name: '打开导航菜单', exact: true }).click()

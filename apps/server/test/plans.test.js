@@ -581,11 +581,6 @@ test("manual payment is private, never grants by client claims, and rejects reus
     (await f.call("/client/billing/detail", {}, f.user.token)).body.payment,
     null,
   );
-  assert(
-    !JSON.stringify(
-      (await f.call("/admin/settings/detail", {}, demo)).body,
-    ).includes("data:image"),
-  );
   const p = (await f.call("/admin/plans/create", plan(), f.admin)).body;
   const order = (
     await f.call(

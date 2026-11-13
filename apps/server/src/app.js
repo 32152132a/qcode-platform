@@ -371,10 +371,6 @@ export function createApp(config, database) {
   };
   app.post('/admin/requests/list', (req, res) => res.json(page(filterRecords(db.read().requests,req.query,timezone), req.query)));
   app.post('/admin/audits/list', (req, res) => res.json(page(filterRecords(db.read().audits,req.query,timezone), req.query)));
-  app.post('/admin/system/detail', (_req, res) => res.json({ version: '0.3.0', storage: db.kind, timezone,
-    accessTokenMinutes: config.accessTokenMinutes, refreshTokenDays: config.refreshTokenDays, requestTimeoutMs: config.timeoutMs, uptimeSeconds: Math.floor(process.uptime()),
-    memoryBytes: process.memoryUsage().rss, maxActiveRequests: db.read().settings.maxActiveRequests || 64,
-    pendingRequests: db.read().requests.filter(r => r.status === 'pending').length }));
   app.use('/v1', auth);
   app.get('/v1/models', (req, res) => {
     res.json({ object: 'list', data: availableModels(db.read(), req.user).map(model => ({ id: model.public_name, object: 'model', created: 0, owned_by: 'qcode' })) });

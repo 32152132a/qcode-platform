@@ -1,7 +1,7 @@
 import { sourceKey } from './key-pool.js';
 import { fail, now, id, audit, consumption, baseUrl } from './domain.js';
 import { effectiveQuotas, checkQuota } from './policy.js';
-import { settingsFor } from './enterprise.js';
+import { maxActiveRequests } from './policy.js';
 import { providerRequest, chatResponse, responseStream } from './providers.js';
 import { parseUsage, settleCredit } from './billing.js';
 
@@ -77,7 +77,7 @@ export function registerModelChecks(app, { db, vault, config, activeRequests }) 
       const requestId = id(), start = now(), started = Date.now(), reserved = Buffer.byteLength(JSON.stringify(body))+outputLimit;
       const controller = new AbortController(); let usage, result, status='failed', upstreamStatus, errorCode;
       db.transaction(state=>{
-        if (state.requests.filter(r=>r.status==='pending').length>=settingsFor(state).maxActiveRequests) fail(429,'GATEWAY_BUSY','网关繁忙');
+        if (state.requests.filter(r=>r.status==='pending').length>=maxActiveRequests) fail(429,'GATEWAY_BUSY','网关繁忙');
         const user=state.users.find(u=>u.id===req.user.id);
         if (state.requests.filter(r=>r.status==='pending'&&r.user_id===user.id).length>=1) fail(429,'REQUEST_IN_PROGRESS','已有请求正在进行');
         checkQuota(effectiveQuotas(state,user),consumption(state,user,config.timezone,start),reserved);

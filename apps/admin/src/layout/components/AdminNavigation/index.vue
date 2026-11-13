@@ -31,7 +31,6 @@
     Files,
     Grid,
     Key,
-    Monitor,
     SetUp,
     Setting,
     Tickets,
@@ -54,8 +53,6 @@
     knowledge: Collection,
     usage: DataAnalysis,
     requests: Tickets,
-    settings: Setting,
-    system: Monitor,
   } as Record<string, typeof Grid>
   const groups = computed(() =>
     [...new Set(props.items.map((item) => item.group))].map((name) => ({

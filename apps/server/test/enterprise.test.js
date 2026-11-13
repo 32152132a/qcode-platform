@@ -72,20 +72,6 @@ test('only administrators can manage GitHub plugin availability', async t => {
   assert.equal(f.db.read().audits.some(entry => entry.action === 'plugin.update'),false);
 });
 
-test('product settings propagate without changing model configuration', async t => {
-  const f = await fixture(t);
-  const sources = structuredClone(f.db.read().settings.modelSources);
-  const updated = await f.request('/admin/settings','PUT',{productName:'团队_<工作台'},f.admin);
-  assert.equal(updated.status,200);
-  assert.equal(updated.body.productName,'团队_<工作台');
-  assert.deepEqual(Object.keys(updated.body).sort(),['productName','minimumClientVersion','maxActiveRequests','auditRetentionDays'].sort());
-  assert.deepEqual(f.db.read().settings.modelSources,sources);
-  await f.create();
-  const config = await f.request('/client/config','GET',undefined,await f.login());
-  assert.equal(config.body.productName,'团队_<工作台');
-  for(const name of ['', 'a'.repeat(33), 'A\nB', 'A\u001bB'])assert.equal((await f.request('/admin/settings','PUT',{productName:name},f.admin)).status,400);
-});
-
 test('freezing a user blocks new requests and leaves in-flight requests running', async t => {
   const f = await fixture(t, { timeoutMs: 500 }), user = await f.create(), token = await f.login();
   const waiting = f.chat(token, { testCase: 'timeout' });
