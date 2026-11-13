@@ -32,8 +32,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
       const estimated = model.input_price * 10 + model.output_price;
       return estimated > 0 || prices.every(price => price === 0) ? [[model.id, estimated]] : [];
     }));
-    const isPaid = model => costs.get(model.id) > 0;
-    const baseline = models.find(model => model.upstream_model === 'gpt-6.1-sol' && isPaid(model)) || models.find(isPaid);
+    const baseline = models[0];
     const baselineCost = costs.get(baseline?.id);
     res.json({
       githubPluginEnabled: req.user.role !== 'demo' && githubEnabled(state),
