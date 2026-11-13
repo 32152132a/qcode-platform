@@ -12,7 +12,7 @@ test('registration requires a free default plan and cannot select privileges or 
     level: 0, isDefault: true, modelIds: [model.id], creditAmount: 5 }, f.admin)).body;
   assert.equal((await register({ role: 'admin', quotas: { totalTokens: null }, sessionLimit: 20, planId: 'paid-plan' })).status, 201);
   const user = f.db.read().users.find(user => user.username === 'new-user');
-  assert.equal(user.role, 'user'); assert.equal(user.session_limit, 1); assert.deepEqual(user.quotas, {});
+  assert.equal(user.role, 'user'); assert.deepEqual(user.quotas, {});
   assert.notEqual(user.password_hash, 'user-password');
   const subscription = f.db.read().subscriptions.find(item => item.user_id === user.id);
   assert.equal(subscription.plan_id, plan.id); assert.equal(subscription.terms.credit_limit_micros, 5000000);

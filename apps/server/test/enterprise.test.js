@@ -86,13 +86,14 @@ test('product settings propagate without changing model configuration', async t 
   for(const name of ['', 'a'.repeat(33), 'A\nB', 'A\u001bB'])assert.equal((await f.request('/admin/settings','PUT',{productName:name},f.admin)).status,400);
 });
 
-test('disabling user aborts active upstream request and records cancellation', async t => {
-  const f = await fixture(t,{timeoutMs:10000}), user = await f.create(), token = await f.login();
-  const waiting = f.chat(token,{testCase:'timeout'});
-  for(let i=0;i<50 && !f.db.read().requests.length;i++) await new Promise(r=>setTimeout(r,10));
-  await f.request(`/admin/users/${user.id}/status`,'PATCH',{isActive:false},f.admin);
-  const result = await waiting; assert.equal(result.body.error.code,'USER_DISABLED');
-  assert.equal(f.db.read().requests[0].status,'cancelled');
+test('freezing a user blocks new requests and leaves in-flight requests running', async t => {
+  const f = await fixture(t, { timeoutMs: 500 }), user = await f.create(), token = await f.login();
+  const waiting = f.chat(token, { testCase: 'timeout' });
+  for (let i = 0; i < 50 && !f.db.read().requests.length; i++) await new Promise(r => setTimeout(r, 5));
+  await f.request(`/admin/users/${user.id}/status`, 'PATCH', { isActive: false }, f.admin);
+  assert.equal(f.db.read().requests[0].status, 'pending');
+  assert.equal((await f.chat(token)).status, 401);
+  await waiting;
 });
 
 test('model prices are captured per request and currencies remain separate', async t => {

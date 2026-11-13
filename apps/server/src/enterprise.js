@@ -8,7 +8,7 @@ export const clientVersion = '0.3.0';
 const defaults = { productName: 'QCode', minimumClientVersion: '0.3.0', maxActiveRequests: 64, auditRetentionDays: 180 };
 export const settingsFor = state => Object.fromEntries(Object.entries(defaults).map(([key,value]) => [key,state.settings[key] ?? value]));
 export const assignedSkills = state => [...state.skills.filter(skill => skill.active && skill.kind !== 'knowledge'), knowledgeSkill()];
-export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests }) {
+export function registerEnterpriseRoutes(app, { db, config, auth }) {
   const githubEnabled = state => state.settings.githubPluginEnabled === true;
   app.post('/admin/plugins/list', (_req, res) => res.json({ githubEnabled: githubEnabled(db.read()) }));
   app.post('/admin/plugins/github', (req, res) => res.json(db.transaction(state => {
@@ -91,14 +91,4 @@ export function registerEnterpriseRoutes(app, { db, config, auth, cancelRequests
     if (body.auditRetentionDays !== undefined) current.auditRetentionDays = integer(body.auditRetentionDays, '日志保留天数', 3650);
     state.settings = { ...state.settings, ...current }; audit(state, req.user, 'settings.update', 'system'); return current;
   })));
-  app.post('/admin/users/:id/sessions/list', (req, res) => {
-    const state = db.read(), user = state.users.find(u => u.id === Number(req.params.id));
-    if (!user) fail(404, 'USER_NOT_FOUND', '用户不存在');
-    if (user.role === 'admin' && req.user.role !== 'admin') fail(403, 'ADMIN_PROTECTED', '仅管理员可以查看管理员会话');
-    res.json(state.tokens.filter(t => t.user_id === user.id && t.refresh_expires_at > now()).map(t => ({ id: t.id, device: t.device || '未命名设备', created_at: t.created_at, expires_at: t.refresh_expires_at })));
-  });
-  app.post('/admin/users/:id/sessions/:sessionId/delete', (req, res) => {
-    db.transaction(state => { state.tokens = state.tokens.filter(t => !(t.user_id === Number(req.params.id) && t.id === req.params.sessionId)); audit(state, req.user, 'session.revoke', req.params.sessionId); });
-    cancelRequests(Number(req.params.id), 'SESSION_REVOKED', req.params.sessionId); res.json({ ok: true });
-  });
 }

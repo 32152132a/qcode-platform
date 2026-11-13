@@ -62,7 +62,7 @@ export function createApp(config, database) {
       if (state.users.some(u => u.username === username)) throw new Error('Administrator username is already used');
       state.users.push({ id: state.nextUserId++, username, password_hash: hashPassword(password(config.adminPassword)), role: 'admin',
         is_active: 1,
-        created_at: now(), session_limit: 2, key_id: null, quotas: quotas() });
+        created_at: now(), key_id: null, quotas: quotas() });
     }
     if (!state.keys.length && config.upstreamKey && !config.upstreamKey.startsWith('replace-with-')) {
       const keyId = id();
@@ -144,7 +144,7 @@ export function createApp(config, database) {
   };
   const auth = registerAuth(app, { db, config, cancelRequests });
   app.use('/admin', auth, adminPermission(config));
-  registerEnterpriseRoutes(app, { db, config, auth, cancelRequests });
+  registerEnterpriseRoutes(app, { db, config, auth });
   app.locals.knowledge = registerKnowledge(app, { db, auth, vault, config });
   registerFeedback(app, { db, auth, config });
   registerPlans(app, { db, auth, config });
@@ -175,8 +175,7 @@ export function createApp(config, database) {
     if (body.role !== undefined && body.role !== 'user') fail(403, 'INVALID_ROLE', '只能创建普通用户，管理员和演示账号由系统配置');
     const user = { id: state.nextUserId++, username, password_hash: hashPassword(password(body.password)), role: 'user', is_active: 1,
       created_at: now(),
-      key_id: body.keyId ?? null, session_limit: integer(body.sessionLimit ?? 1, 'sessionLimit', 20), quotas: quotas(body.quotas) };
-    if (!user.session_limit) fail(400, 'INVALID_FIELD', '登录设备上限至少为 1');
+      key_id: body.keyId ?? null, quotas: quotas(body.quotas) };
     state.users.push(user); audit(state, actor, 'user.create', user.id);
     assignUserPlan(state, user, actor, body.planId);
     return publicUser(state, user, timezone);
@@ -194,11 +193,6 @@ export function createApp(config, database) {
     }
     if ('keyId' in body) user.key_id = body.keyId;
     if ('quotas' in body) user.quotas = quotas(body.quotas);
-    if ('sessionLimit' in body) {
-      user.session_limit = integer(body.sessionLimit, 'sessionLimit', 20);
-      if (!user.session_limit) fail(400, 'INVALID_FIELD', '登录设备上限至少为 1');
-      state.tokens = state.tokens.filter(t => t.user_id !== user.id);
-    }
     audit(state, req.user, 'user.update', user.id);
     return publicUser(state, user, timezone);
   })));
@@ -211,7 +205,6 @@ export function createApp(config, database) {
       state.tokens = state.tokens.filter(t => t.user_id !== user.id);
       audit(state, req.user, user.is_active ? 'user.enable' : 'user.disable', user.id);
     });
-    cancelRequests(Number(req.params.id), 'USER_DISABLED');
     res.json({ ok: true });
   });
   app.post('/admin/users/:id/password', (req, res) => {
@@ -223,10 +216,6 @@ export function createApp(config, database) {
       state.tokens = state.tokens.filter(t => t.user_id !== user.id);
       audit(state, req.user, 'user.password.reset', user.id);
     }); cancelRequests(Number(req.params.id), 'SESSION_REVOKED'); res.json({ ok: true });
-  });
-  app.post('/admin/users/:id/revoke-sessions', (req, res) => {
-    db.transaction(state => { const user = getUser(state, req.params.id); state.tokens = state.tokens.filter(t => t.user_id !== user.id); audit(state, req.user, 'user.sessions.revoke', user.id); });
-    cancelRequests(Number(req.params.id), 'SESSION_REVOKED'); res.json({ ok: true });
   });
   app.post('/admin/users/:id/reset-quota', (req, res) => {
     db.transaction(state => {

@@ -18,7 +18,7 @@ export function ensureDemoUser(db, config) {
       return;
     }
     state.users.push({ id: state.nextUserId++, username, role: 'demo', password_hash: hashPassword(config.demoPassword),
-      is_active: 1, created_at: now(), session_limit: 20,
+      is_active: 1, created_at: now(),
       key_id: null, quotas: {}, });
   });
 }
@@ -30,7 +30,7 @@ export function registerAuth(app, { db, config, cancelRequests }) {
     const expiresAt = new Date(Date.now() + config.accessTokenMinutes * 60000).toISOString();
     const refreshExpiresAt = new Date(Date.now() + config.refreshTokenDays * 86400000).toISOString();
     state.tokens.push({ id: previous?.id || id(), token_hash: tokenHash(token), refresh_hash: tokenHash(refreshToken), user_id: user.id,
-      expires_at: expiresAt, refresh_expires_at: refreshExpiresAt, created_at: previous?.created_at || now(), last_used_at: now(), device: previous?.device || '' });
+      expires_at: expiresAt, refresh_expires_at: refreshExpiresAt, created_at: previous?.created_at || now() });
     return { token, refreshToken, expiresAt, refreshExpiresAt, user: publicUser(state, user, config.timezone) };
   }
   const auth = (req, _res, next) => {
@@ -38,7 +38,7 @@ export function registerAuth(app, { db, config, cancelRequests }) {
     const state = db.read(), session = token && state.tokens.find(t => t.token_hash === tokenHash(token) && t.expires_at > now());
     const user = session && state.users.find(u => u.id === session.user_id);
     if (!user) fail(401, 'INVALID_TOKEN', '登录已过期，请重新登录');
-    if (!user.is_active) fail(403, 'USER_DISABLED', '账号已被禁用，请联系管理员');
+    if (!user.is_active) fail(403, 'USER_DISABLED', '账号已冻结，请联系管理员');
     if (user.role === 'demo') {
       if (!config.demoEnabled) fail(403, 'DEMO_DISABLED', '演示入口已关闭');
       if (!['GET', 'HEAD'].includes(req.method) && !['read', 'session'].includes(req.businessOperation?.[3]))
@@ -69,7 +69,7 @@ export function registerAuth(app, { db, config, cancelRequests }) {
       const plan = state.plans.find(item => item.is_default && item.active && item.price_cents === 0);
       if (!plan) fail(503, 'REGISTRATION_UNAVAILABLE', '注册暂未开放，请联系管理员设置免费默认套餐');
       const user = { id: state.nextUserId++, username, role: 'user', password_hash: hashPassword(supplied),
-        is_active: 1, created_at: now(), session_limit: 1, key_id: null, quotas: {} };
+        is_active: 1, created_at: now(), key_id: null, quotas: {} };
       state.users.push(user);
       assignUserPlan(state, user, user, plan.id);
       audit(state, user, 'user.register', user.id);
@@ -78,7 +78,7 @@ export function registerAuth(app, { db, config, cancelRequests }) {
   });
   app.post('/auth/login', (req, res) => {
     const address = req.ip, current = Date.now();
-    const { username, password: supplied, device } = req.body || {};
+    const { username, password: supplied } = req.body || {};
     const state = db.read();
     if (state.loginFailures.filter(f => f.address === address && f.until > current).length >= config.loginFailureLimit) fail(429, 'LOGIN_RATE_LIMIT', '登录失败过多，请 15 分钟后重试');
     const user = state.users.find(u => typeof username === 'string' && u.username.toLowerCase() === username.toLowerCase());
@@ -89,22 +89,14 @@ export function registerAuth(app, { db, config, cancelRequests }) {
       });
       fail(401, 'LOGIN_FAILED', '用户名或密码错误');
     }
-    if (!user.is_active) fail(403, 'USER_DISABLED', '账号已被禁用');
+    if (!user.is_active) fail(403, 'USER_DISABLED', '账号已冻结');
     if (user.role === 'demo' && !config.demoEnabled) fail(403, 'DEMO_DISABLED', '演示入口已关闭');
-    if (user.session_limit < 1) fail(409, 'SESSION_LIMIT', '账号登录名额为 0，请联系管理员');
-    const { result, replaced } = db.transaction(next => {
+    res.json(db.transaction(next => {
       next.tokens = next.tokens.filter(sessionAlive);
-      const sessions = next.tokens.filter(t => t.user_id === user.id).sort((a,b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
-      const replaced = sessions.slice(0, Math.max(0, sessions.length - user.session_limit + 1));
-      const removed = new Set(replaced.map(session => session.token_hash));
-      next.tokens = next.tokens.filter(session => !removed.has(session.token_hash));
-      const saved = next.users.find(u => u.id === user.id); saved.last_login_at = now();
-      for (const session of replaced) audit(next, saved, 'session.replaced', session.id);
-      return { result: issue(next, saved, { device: typeof device === 'string' ? device.slice(0,100) : '' }), replaced };
-    });
-    // Cancel only after the new session and revocations have committed together.
-    for (const session of replaced) cancelRequests(user.id, 'SESSION_REPLACED', session.id);
-    res.json(result);
+      const saved = next.users.find(u => u.id === user.id);
+      saved.last_login_at = now();
+      return issue(next, saved);
+    }));
   });
   app.post('/auth/refresh', (req, res) => {
     const refresh = req.body?.refreshToken;
@@ -113,16 +105,13 @@ export function registerAuth(app, { db, config, cancelRequests }) {
     const session = state.tokens.find(s => s.refresh_hash === tokenHash(refresh) && s.refresh_expires_at > now());
     const user = session && state.users.find(u => u.id === session.user_id);
     if (!user) fail(401, 'INVALID_TOKEN', '会话已过期或已被撤销');
-    if (!user.is_active) fail(403, 'USER_DISABLED', '账号已被禁用');
+    if (!user.is_active) fail(403, 'USER_DISABLED', '账号已冻结');
     res.json(db.transaction(next => {
       next.tokens = next.tokens.filter(s => s.token_hash !== session.token_hash);
       return issue(next, user, session);
     }));
   });
   app.post('/auth/me', auth, (req, res) => res.json(publicUser(db.read(), req.user, config.timezone)));
-  app.post('/auth/sessions/list', auth, (req, res) => res.json(db.read().tokens.filter(s => s.user_id === req.user.id && sessionAlive(s)).map(s => ({
-    id: s.id, device: s.device, created_at: s.created_at, expires_at: s.refresh_expires_at, current: s.token_hash === req.session.token_hash,
-  }))));
   app.post('/auth/logout', auth, (req, res) => {
     db.transaction(state => { state.tokens = state.tokens.filter(s => s.token_hash !== req.session.token_hash); });
     cancelRequests(req.user.id, 'SESSION_REVOKED', req.session.id);

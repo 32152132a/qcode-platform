@@ -14,16 +14,11 @@ async function fixture(t,limit){
  async function login(username='employee',password='employee-password'){return request('/auth/login',{username,password});}
  return {db,cancelled,request,login};
 }
-test('new login replaces the old session after password verification and revokes both credentials',async t=>{
- const f=await fixture(t,1),first=await f.login(),other=await f.login('other','other-password'),old=f.db.read().tokens.find(s=>s.user_id===1);
- assert.equal((await f.login('employee','wrong-password')).status,401);assert.equal((await f.request('/auth/me',undefined,first.body.token)).status,200);assert.equal(f.cancelled.length,0);
- const latest=await f.login();assert.equal(latest.status,200);assert.equal((await f.request('/auth/me',undefined,first.body.token)).status,401);assert.equal((await f.request('/auth/refresh',{refreshToken:first.body.refreshToken})).status,401);assert.equal((await f.request('/auth/me',undefined,latest.body.token)).status,200);assert.equal((await f.request('/auth/me',undefined,other.body.token)).status,200);
- assert.deepEqual(f.cancelled,[[1,'SESSION_REPLACED',old.id]]);assert.equal(f.db.read().tokens.filter(s=>s.user_id===1).length,1);assert.ok(f.db.read().audits.some(a=>a.action==='session.replaced'));
+test('multiple logins can remain active and logout only revokes the current session', async t => {
+  const f = await fixture(t, 1);
+  const first = await f.login(), second = await f.login();
+  for (const session of [first, second])
+    assert.equal((await f.request('/auth/me', undefined, session.body.token)).status, 200);
+  assert.equal((await f.request('/auth/logout', {}, second.body.token)).status, 200);
+  assert.equal((await f.request('/auth/me', undefined, first.body.token)).status, 200);
 });
-test('multi-device limits replace only the oldest and concurrent logins stay bounded',async t=>{
- const f=await fixture(t,2),first=await f.login();f.db.transaction(s=>{s.tokens[0].created_at='2020-01-01T00:00:00Z';});const second=await f.login(),third=await f.login();
- assert.equal((await f.request('/auth/me',undefined,first.body.token)).status,401);assert.equal((await f.request('/auth/me',undefined,second.body.token)).status,200);assert.equal((await f.request('/auth/me',undefined,third.body.token)).status,200);
- const results=await Promise.all([f.login(),f.login(),f.login()]);assert.ok(results.every(r=>r.status===200));assert.equal(f.db.read().tokens.length,2);
-});
-
-test('zero login slots still reject login without removing existing sessions',async t=>{const f=await fixture(t,1),first=await f.login();f.db.transaction(s=>{s.users[0].session_limit=0;});assert.equal((await f.login()).status,409);assert.equal((await f.request('/auth/me',undefined,first.body.token)).status,200);assert.equal(f.cancelled.length,0);});
