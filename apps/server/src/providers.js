@@ -10,7 +10,7 @@ export function providerRequest(body, model, secret, outputLimit) {
     // Tiny Qwen otherwise spends the short output budget on reasoning alone.
     if (model.provider === 'ollama' && /^qwen3:0\.6b$/i.test(model.upstream_model) && body.reasoning_effort == null && body.reasoning?.effort == null) payload.reasoning_effort = 'none';
     delete payload.max_tokens; delete payload.max_completion_tokens;
-    payload[model.max_tokens_field || 'max_tokens'] = outputLimit;
+    if (outputLimit !== undefined) payload[model.max_tokens_field || 'max_tokens'] = outputLimit;
     if (body.stream && model.stream_usage) payload.stream_options = { ...(body.stream_options || {}), include_usage: true };
     return { url: `${model.base_url}/chat/completions`, headers, payload };
   }
@@ -38,7 +38,7 @@ export function providerRequest(body, model, secret, outputLimit) {
       input.push({ type: 'function_call', call_id: call.id, name: call.function.name, arguments: call.function.arguments });
     }
   }
-  const payload = { model: model.upstream_model, input, stream: Boolean(body.stream), max_output_tokens: outputLimit, store: false };
+  const payload = { model: model.upstream_model, input, stream: Boolean(body.stream), ...(outputLimit !== undefined ? { max_output_tokens: outputLimit } : {}), store: false };
   for (const field of ['temperature','top_p','parallel_tool_calls']) if (body[field] != null) payload[field] = body[field];
   if (body.reasoning_effort) payload.reasoning = { effort: body.reasoning_effort };
   if (body.tools) payload.tools = body.tools.map(tool => {

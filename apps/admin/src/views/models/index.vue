@@ -155,15 +155,6 @@
         )
       if (source?.kind === 'official' && new URL(source.base_url).hostname === 'dashscope.aliyuncs.com')
         fields.push({ prop: 'catalogWorkspaceId', label: '百炼北京工作空间 ID（选填）', hint: '填写后使用百炼工作空间目录读取规格和价格。对话继续使用上面的服务地址。' })
-      fields.push({
-        prop: 'autoSync',
-        label: '启动时自动刷新模型列表',
-        type: 'select',
-        options: [
-          { label: '开启', value: 'true' },
-          { label: '关闭', value: 'false' },
-        ],
-      })
       editor.value?.open(
         {
           title: source
@@ -187,13 +178,12 @@
                   : ''),
             keyIds: [source?.key_id, ...(source?.fallback_key_ids || [])].filter(Boolean),
             catalogWorkspaceId: source?.catalog_workspace_id || '',
-            autoSync: String(source?.auto_sync ?? true),
           },
           save: (value) =>
             request(
               '/admin/models/sources' + (source ? '/' + source.id : ''),
               source ? 'PUT' : 'POST',
-              { ...value, kind: category, autoSync: value.autoSync === 'true' }
+              { ...value, kind: category }
             ),
         },
         load

@@ -72,7 +72,7 @@ export function createApp(config, database) {
     function provisionModel(body, kind, name) {
       const model = saveModel(state, body);
       const source = { id: id(), kind, name, base_url: model.base_url, key_id: model.key_id,
-        protocol: model.protocol, active: true, auto_sync: !!model.key_id || kind === 'local', created_at: now(), revision: 1 };
+        protocol: model.protocol, active: true, created_at: now(), revision: 1 };
       state.settings.modelSources.push(source);
       model.source_id = source.id;
       return model;
@@ -84,7 +84,7 @@ export function createApp(config, database) {
     }
     if (config.ollamaBaseUrl && !state.settings.ollamaModelProvisioned) {
       if (!state.models.some(model => model.public_name === 'qcode-qwen-local')) {
-        const model = provisionModel({name:'通义千问 Qwen 0.5B（本地测试）',provider:'ollama',protocol:'chat-completions',publicName:'qcode-qwen-local',upstreamModel:'qwen:0.5b',baseUrl:config.ollamaBaseUrl,maxOutputTokens:256,contextWindow:32768,active:true,isDefault:false}, 'local', '本地 Ollama');
+        const model = provisionModel({name:'通义千问 Qwen 0.5B（本地测试）',provider:'ollama',protocol:'chat-completions',publicName:'qcode-qwen-local',upstreamModel:'qwen:0.5b',baseUrl:config.ollamaBaseUrl,contextWindow:32768,active:true,isDefault:false}, 'local', '本地 Ollama');
         audit(state,{id:null,username:'system'},'model.provision',model.id);
       }
       state.settings.ollamaModelProvisioned = true;
@@ -309,7 +309,7 @@ export function createApp(config, database) {
   });
   app.locals.modelSources=registerModelSources(app,{db,vault,config,saveModel});
   registerModelChecks(app, { db, vault, config, activeRequests });
-  app.post('/admin/models/ollama-preset', (_req,res) => res.json({baseUrl:config.ollamaBaseUrl || 'http://localhost:11434/v1',upstreamModel:'qwen:0.5b',maxOutputTokens:256,contextWindow:32768}));
+  app.post('/admin/models/ollama-preset', (_req,res) => res.json({baseUrl:config.ollamaBaseUrl || 'http://localhost:11434/v1',upstreamModel:'qwen:0.5b',contextWindow:32768}));
   app.post('/admin/models/list', (_req, res) => {
     const state = db.read(), images = state.settings.imageGeneration;
     res.json(state.models.map(model => {
@@ -339,17 +339,16 @@ export function createApp(config, database) {
     if (provider === 'ollama' && (protocol !== 'chat-completions' || keyId)) fail(400, 'INVALID_MODEL', 'Ollama 使用 Chat Completions，且无需绑定 Key');
     const model = { ...existing, pricing_known:body.pricingKnown??existing?.pricing_known??true, protocol, provider, key_id: keyId, id: existing?.id || id(), name: text(body.name, 'name'), public_name: text(body.publicName, 'publicName', 80),
       upstream_model: text(body.upstreamModel, 'upstreamModel'), base_url: baseUrl(body.baseUrl),
-      max_output_tokens: integer(body.maxOutputTokens ?? 8192, 'maxOutputTokens', 131072),
       context_window: integer(body.contextWindow ?? 131072, 'contextWindow', 2000000), input_price: body.inputPrice ?? 0, cached_input_price: body.cachedInputPrice ?? body.inputPrice ?? 0, output_price: body.outputPrice ?? 0, image_price: body.imagePrice ?? 0, currency: body.currency || 'CNY', max_tokens_field: body.maxTokensField || 'max_tokens',
       stream_usage: body.streamUsage !== false, active: body.active !== false, is_default: body.isDefault === true, created_at: existing?.created_at || now() };
     if (body.supportsVision !== undefined) model.capabilities = [...new Set([...(existing?.capabilities || []).filter(value => value !== 'vision'), ...(body.supportsVision ? ['vision'] : [])])];
-    if (!/^[a-zA-Z0-9_.-]+$/.test(model.public_name) || !model.max_output_tokens || model.context_window < model.max_output_tokens) fail(400, 'INVALID_MODEL', '公开模型名称或上下文/输出上限配置无效');
+    if (!/^[a-zA-Z0-9_.-]+$/.test(model.public_name) || !model.context_window) fail(400, 'INVALID_MODEL', '公开模型名称或上下文配置无效');
     const nameKey = model.name.normalize('NFKC').toLowerCase();
     if ((!existing || nameKey !== existing.name.trim().normalize('NFKC').toLowerCase()) && state.models.some(m => m.id !== model.id && m.name.trim().normalize('NFKC').toLowerCase() === nameKey)) fail(409, 'MODEL_NAME_EXISTS', '模型显示名称已存在，请使用其他名称');
     if (state.models.some(m => m.id !== model.id && m.public_name === model.public_name)) fail(409, 'MODEL_EXISTS', 'Public model name already exists');
     if (model.model_type === 'image' && model.is_default) fail(400, 'INVALID_MODEL', '生图模型不能设为默认对话模型');
     if (model.is_default) for (const m of state.models) m.is_default = false;
-    if (existing && ['provider','base_url','upstream_model','protocol','key_id','max_tokens_field','stream_usage','max_output_tokens'].some(field => existing[field] !== model[field])) model.verification = null;
+    if (existing && ['provider','base_url','upstream_model','protocol','key_id','max_tokens_field','stream_usage'].some(field => existing[field] !== model[field])) model.verification = null;
     if (existing) Object.assign(existing, model); else state.models.push(model);
     return model;
   }

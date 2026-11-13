@@ -40,7 +40,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth }) {
       models: models.map(item => ({ id: item.public_name, name: item.name, ...modelPresentation(item),
         ...(costs.get(item.id) === 0 ? { usageRate: 0 } : baselineCost && costs.has(item.id)
           ? { usageRate: costs.get(item.id) / baselineCost, usageBaseline: baseline.name || baseline.public_name } : {}),
-        imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxOutputTokens: item.max_output_tokens, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
+        imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
       minimumClientVersion: settings.minimumClientVersion,
       productName: settings.productName,
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });

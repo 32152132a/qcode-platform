@@ -16,7 +16,6 @@ export interface ModelSource {
   fallback_key_ids?: string[]
   protocol: string
   active: boolean
-  auto_sync: boolean
   synced_at?: string
   sync_status?: string
   sync_error?: string
@@ -46,7 +45,6 @@ export interface Model {
   catalog_available?: boolean
   is_default: boolean
   context_window: number
-  max_output_tokens: number
   input_price: number
   cached_input_price: number
   image_price: number

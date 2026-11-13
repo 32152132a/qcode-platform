@@ -9,51 +9,48 @@
     destroy-on-close
   >
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
-    <div v-if="!model && source?.active" class="catalog-picker">
-      <el-button :loading="catalogLoading" :disabled="busy" @click="readCatalog">读取上游目录</el-button>
-      <el-select v-if="catalog.length" v-model="form.upstreamModel" filterable
-        placeholder="选择上游模型" aria-label="选择上游模型" :disabled="busy || catalogLoading">
-        <el-option v-for="item in catalog" :key="item.id" :label="item.id" :value="item.id"
-          :disabled="!!item.unavailable_reason" />
-      </el-select>
-    </div>
     <QyqForm
       @submit.prevent
       ref="basicForm"
+      class="model-fields"
       v-model="form"
-      :columns="1"
+      :columns="2"
       :show-btn="false"
-      :form-options="isImage ? basicFields.filter(field => field.prop !== 'isDefault') : basicFields"
+      :form-options="basicFields"
       :disabled="busy"
     >
-      <template #active><el-switch v-model="form.active" aria-label="启用模型" /></template>
-      <template #isDefault><el-switch v-model="form.isDefault" aria-label="设为默认" /></template>
-    </QyqForm>
-    <QyqForm v-model="form" :columns="1" :show-btn="false" :form-options="requiredFields" :disabled="busy">
-      <template v-for="field in requiredNumbers" :key="field.prop" #[field.prop]>
-        <el-input-number v-model="form[field.prop]" :min="field.min" :max="field.max"
-          :precision="field.precision" :aria-label="field.label" />
+      <template #upstreamModel>
+        <el-input v-if="model" :model-value="form.upstreamModel" disabled />
+        <el-select v-else v-model="form.upstreamModel" filterable allow-create default-first-option
+          :loading="catalogLoading" :disabled="busy" placeholder="搜索或输入上游模型 ID" aria-label="上游模型">
+          <el-option v-for="item in catalog" :key="item.id" :label="item.id" :value="item.id"
+            :disabled="!!item.unavailable_reason" />
+        </el-select>
       </template>
     </QyqForm>
-    <el-collapse v-if="!isImage"
-      ><el-collapse-item title="高级配置" name="advanced">
-        <QyqForm
-          @submit.prevent
-          v-model="form"
-          :columns="1"
-          :show-btn="false"
-          :form-options="advancedFields"
-          :disabled="busy"
-        >
-          <template #streamUsage
-            ><el-switch v-model="form.streamUsage" aria-label="请求流式用量"
-          /></template>
-          <template #supportsVision><el-switch v-model="form.supportsVision" aria-label="模型原生支持识图" /></template>
-          <template #maxOutputTokens>
-            <el-input-number v-model="form.maxOutputTokens" :min="1" :max="131072" aria-label="最大输出 Token" />
-          </template>
-        </QyqForm> </el-collapse-item
-    ></el-collapse>
+    <p v-if="!isImage" class="price-unit">单价按元／百万 Token 填写</p>
+    <QyqForm v-model="form" class="model-numbers" :columns="isImage ? 1 : 2" :show-btn="false" :form-options="requiredFields" :disabled="busy">
+      <template v-for="field in requiredNumbers" :key="field.prop" #[field.prop]>
+        <FormMoney v-model="form" :option="{ prop: field.prop, precision: field.precision ?? 0 }" :placeholder="field.prop === 'contextWindow' ? '建议 ' + Number(suggestedContext).toLocaleString('zh-CN') + ' Token，按实际填写' : '请输入' + field.label + '单价，免费填 0'" :disabled="busy" />
+      </template>
+    </QyqForm>
+    <QyqForm
+      v-if="!isImage"
+      @submit.prevent
+      v-model="form"
+      class="model-fields"
+      :columns="model ? 2 : 1"
+      :show-btn="false"
+      :form-options="model ? protocolFields : protocolFields.slice(0, 1)"
+      :disabled="busy"
+    >
+      <template #streamUsage>
+        <el-switch v-model="form.streamUsage" aria-label="请求流式用量" />
+      </template>
+      <template #supportsVision>
+        <el-switch v-model="form.supportsVision" aria-label="模型原生支持识图" />
+      </template>
+    </QyqForm>
     <template #footer
       ><el-button :disabled="busy" @click="visible = false">取消</el-button
       ><el-button type="primary" :loading="busy" :disabled="catalogLoading" @click="save">保存</el-button></template
@@ -63,6 +60,7 @@
 <script setup lang="ts">
   import { computed, ref, watch } from 'vue'
   import { request } from '@/api/request'
+  import FormMoney from '@/components/qyq-form/FormMoney.vue'
   import QyqForm from '@/components/qyq-form/index.vue'
   import type { FormItemProp } from '@/components/qyq-form/types'
   import type { Model, ModelSource } from '@/types/models'
@@ -79,16 +77,14 @@
     publicName: '',
     name: '',
     active: false,
-    isDefault: false,
     protocol: 'chat-completions',
-    contextWindow: undefined as number | undefined,
-    maxOutputTokens: 8192,
+    contextWindow: undefined as number | string | undefined,
     maxTokensField: 'max_tokens',
     streamUsage: true,
-    inputPrice: undefined as number | undefined,
-    cachedInputPrice: undefined as number | undefined,
-    imagePrice: undefined as number | undefined,
-    outputPrice: undefined as number | undefined,
+    inputPrice: undefined as number | string | undefined,
+    cachedInputPrice: undefined as number | string | undefined,
+    imagePrice: undefined as number | string | undefined,
+    outputPrice: undefined as number | string | undefined,
     supportsVision: false,
   })
   const form = ref(initialForm())
@@ -107,14 +103,7 @@
       isNotTrim: true,
       allowSpecialChars: true,
     },
-    { prop: 'upstreamModel', label: '上游模型', type: 'input', required: true, disabled: !!model.value, allowSpecialChars: true },
-    {
-      prop: 'active',
-      label: '启用模型',
-      type: 'custom',
-      hint: { text: '关闭服务来源时，模型会整体不可用。' },
-    },
-    { prop: 'isDefault', label: '设为默认', type: 'custom' },
+    { prop: 'upstreamModel', label: '上游模型', type: 'custom', required: true, allowSpecialChars: true },
   ])
   const numericFields: {
     prop: 'contextWindow' | 'inputPrice' | 'cachedInputPrice' | 'outputPrice' | 'imagePrice'
@@ -124,27 +113,26 @@
     precision?: number
   }[] = [
     { prop: 'contextWindow', label: '上下文长度', min: 1, max: 2000000 },
-    { prop: 'inputPrice', label: '每百万普通输入 Token 单价', min: 0, precision: 6 },
-    { prop: 'cachedInputPrice', label: '每百万缓存输入 Token 单价', min: 0, precision: 6 },
-    { prop: 'outputPrice', label: '每百万输出 Token 单价', min: 0, precision: 6 },
-    { prop: 'imagePrice', label: '每张图片单价', min: 0, precision: 6 },
+    { prop: 'inputPrice', label: '普通输入', min: 0, precision: 6 },
+    { prop: 'cachedInputPrice', label: '缓存命中输入', min: 0, precision: 6 },
+    { prop: 'outputPrice', label: '输出', min: 0, precision: 6 },
+    { prop: 'imagePrice', label: '每张图片', min: 0, precision: 6 },
   ]
   const requiredNumbers = computed(() => numericFields.filter(field => (field.prop === 'imagePrice') === isImage.value))
+  const suggestedContext = computed(() =>
+    source.value?.kind === 'local' || model.value?.provider === 'ollama' ? '32768' : '131072')
   const requiredFields = computed<FormItemProp[]>(() => requiredNumbers.value.map(field => {
     const value = reference.value?.[field.prop]
     const context = field.prop === 'contextWindow'
-    const suggested = source.value?.kind === 'local' || model.value?.provider === 'ollama' ? '32,768' : '131,072'
     return {
       prop: field.prop,
       label: field.label + (context ? '（Token）' : '（元）'),
       type: 'custom',
       required: true,
-      hint: {
-        text: value !== undefined
-          ? (context ? reference.value?.contextSource : reference.value?.priceSource) + '：' + value.toLocaleString() + '，保存前可修改。'
-          : context ? '可先参考 ' + suggested + '，请按服务实际限制填写。'
-            : '按实际渠道填写人民币单价，确认免费可填 0。',
-      },
+      ...(value !== undefined ? { hint: {
+        text: (context ? reference.value?.contextSource : reference.value?.priceSource)
+          + '：' + value.toLocaleString() + '，保存前可修改。',
+      } } : {}),
     }
   }))
   watch(candidate, (value, previous) => {
@@ -161,17 +149,17 @@
         form.value[field.prop] = value?.reference?.[field.prop]
     }
   })
-  const advancedFields: FormItemProp[] = [
+  const protocolFields: FormItemProp[] = [
     {
       prop: 'protocol',
       label: '接口协议',
+      hint: { text: '默认跟随服务来源。上游文档写 /responses 时选择 Responses，写 /chat/completions 时选择 Chat Completions。' },
       type: 'select',
       options: [
         { label: 'Chat Completions', value: 'chat-completions' },
         { label: 'Responses', value: 'responses' },
       ],
     },
-    { prop: 'maxOutputTokens', label: '最大输出 Token', type: 'custom' },
     {
       prop: 'maxTokensField',
       label: '输出限制字段',
@@ -195,10 +183,8 @@
       publicName: value.public_name,
       name: value.name,
       active: value.active,
-      isDefault: value.is_default,
       protocol: value.protocol,
       contextWindow: confirmed ? value.context_window : value.reference?.contextWindow,
-      maxOutputTokens: value.max_output_tokens,
       maxTokensField: value.max_tokens_field,
       streamUsage: value.stream_usage,
       inputPrice: confirmed ? value.input_price : value.reference?.inputPrice,
@@ -209,11 +195,11 @@
     } : {
       ...initialForm(),
       protocol: item?.protocol || 'chat-completions',
-      maxOutputTokens: item?.kind === 'local' ? 256 : 8192,
     }
     error.value = ''
     success = onSuccess
     visible.value = true
+    if (!value && item?.active) void readCatalog()
   }
   async function readCatalog() {
     const item = source.value
@@ -224,7 +210,7 @@
       const result = await request<{ source: ModelSource }>('/admin/models/sources/' + item.id + '/sync', 'POST', {})
       if (source.value === item) source.value = result.source
     } catch (cause) {
-      if (source.value === item) error.value = cause instanceof Error ? cause.message : '读取上游目录失败'
+      if (source.value === item) error.value = (cause instanceof Error ? cause.message : '读取上游目录失败') + '，可以手动输入模型 ID'
     } finally {
       catalogLoading.value = false
     }
@@ -237,7 +223,7 @@
     } catch {
       return
     }
-    const missing = requiredNumbers.value.find(field => typeof form.value[field.prop] !== 'number')
+    const missing = requiredNumbers.value.find(field => String(form.value[field.prop] ?? '').trim() === '')
     if (missing) {
       error.value = '请填写' + missing.label
       return
@@ -262,15 +248,14 @@
 </script>
 
 <style scoped>
-.catalog-picker {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+.price-unit {
+  margin: 0 0 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+@media (max-width: 540px) {
+  .model-fields :deep(.form),
+  .model-numbers :deep(.form) { grid-template-columns: minmax(0, 1fr) !important; }
 }
 
-.catalog-picker .el-select {
-  flex: 1;
-  min-width: 0;
-}
 </style>

@@ -30,12 +30,12 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
   if (model.provider !== 'ollama' && !key?.active) fail(503, 'KEY_UNAVAILABLE', '模型服务暂不可用，请联系管理员');
   if (body.stream !== undefined && typeof body.stream !== 'boolean') fail(400, 'INVALID_STREAM', 'stream must be boolean');
   if (body.n !== undefined && body.n !== 1) fail(400, 'INVALID_N', 'Only one completion per request is supported');
-  const requestedOutput = body.max_completion_tokens ?? body.max_tokens ?? model.max_output_tokens;
-  const outputLimit = hasImages && Number.isSafeInteger(requestedOutput) ? Math.min(requestedOutput, model.max_output_tokens) : requestedOutput;
-  integer(outputLimit, 'max_tokens', model.max_output_tokens);
-  if (!outputLimit) fail(400, 'INVALID_FIELD', 'Output token limit must be positive');
-  // UTF-8 bytes plus message/tool overhead is a conservative estimate, not a provider tokenizer.
-  const reserved = Buffer.byteLength(JSON.stringify(body), 'utf8') + body.messages.length * 32 + outputLimit;
+  const outputLimit = body.max_completion_tokens ?? body.max_tokens;
+  if (outputLimit !== undefined && integer(outputLimit, 'max_tokens') === 0)
+    fail(400, 'INVALID_FIELD', 'Output token limit must be positive');
+  // Reserve the requested output when known. Omitted output is settled from actual usage.
+  const inputEstimate = Buffer.byteLength(JSON.stringify(body), 'utf8') + body.messages.length * 32;
+  const reserved = inputEstimate + (outputLimit ?? 0);
   const outbound = providerRequest(body, model, key ? vault.decrypt(key.secret) : undefined, outputLimit);
   const payload = JSON.stringify(outbound.payload);
   const source = state.settings.modelSources.find(source => source.id === model.source_id);
@@ -46,7 +46,7 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
     if (next.requests.filter(r => r.status === 'pending').length >= settingsFor(next).maxActiveRequests) fail(429, 'GATEWAY_BUSY', '网关当前繁忙，请稍后重试');
     if (next.requests.filter(r => r.user_id === user.id && r.status === 'pending').length >= 1) fail(429, 'REQUEST_IN_PROGRESS', '账号同时请求数量已达到上限');
     checkQuota(effectiveQuotas(next, user), used, reserved, '用户 ');
-    const credit = reserveCredit(next, user, model, reserved - outputLimit, outputLimit);
+    const credit = reserveCredit(next, user, model, inputEstimate, outputLimit ?? 0);
     next.requests.push({ id: requestId, ...credit, user_id: user.id, username: user.username, model: model.public_name, model_id: model.id, purpose: hasImages ? 'image_understanding' : 'chat',
       key_id: key?.id || null, started_at: startedAt, status: 'pending', reserved_tokens: reserved, input_tokens: null, output_tokens: null, total_tokens: null });
   });

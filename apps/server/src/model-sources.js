@@ -72,6 +72,24 @@ function bailianPrice(model) {
   return entries.length ? Object.fromEntries(entries) : undefined
 }
 
+function modelFormBody(body) {
+  const settings = { ...body }
+  if (typeof settings.contextWindow === 'string' && /^[0-9]+$/.test(settings.contextWindow))
+    settings.contextWindow = Number(settings.contextWindow)
+  for (const field of ['inputPrice', 'cachedInputPrice', 'outputPrice', 'imagePrice']) {
+    const value = settings[field]
+    if (typeof value !== 'string') continue
+    if (value === '') {
+      delete settings[field]
+      continue
+    }
+    if (!/^[0-9]+(?:\.[0-9]{1,6})?$/.test(value))
+      fail(400, 'INVALID_PRICE', '单价最多支持六位小数')
+    settings[field] = Number(value)
+  }
+  return settings
+}
+
 function confirmedSettings(body, image) {
   if (!image && (!Number.isSafeInteger(body.contextWindow) || body.contextWindow < 1))
     fail(400, 'MODEL_CONTEXT_REQUIRED', '请填写上下文长度')
@@ -90,7 +108,6 @@ export function modelBody(model) {
     provider: model.provider,
     protocol: model.protocol,
     keyId: model.key_id,
-    maxOutputTokens: model.max_output_tokens,
     contextWindow: model.context_window,
     inputPrice: model.input_price,
     cachedInputPrice: model.cached_input_price,
@@ -169,9 +186,8 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     }
     if (keyId && !state.keys.some((k) => k.id === keyId))
       fail(400, 'INVALID_KEY', '请选择存在的 Key')
-    for (const field of ['active', 'autoSync'])
-      if (body[field] !== undefined && typeof body[field] !== 'boolean')
-        fail(400, 'INVALID_FIELD', '开关必须为布尔值')
+    if (body.active !== undefined && typeof body.active !== 'boolean')
+      fail(400, 'INVALID_FIELD', '启用状态必须为布尔值')
     const source = {
       ...existing,
       id: existing?.id || id(),
@@ -182,7 +198,6 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
       key_id: keyId,
       protocol,
       active: body.active ?? existing?.active ?? true,
-      auto_sync: body.autoSync ?? existing?.auto_sync ?? true,
       revision: (existing?.revision || 0) + 1,
       created_at: existing?.created_at || now(),
     }
@@ -337,7 +352,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
   app.post('/admin/models/sources/list', (_req, res) => res.json(sourcesFor(db.read())))
   app.post('/admin/models/sources/create', async (req, res) => {
     const source = db.transaction((state) => saveSource(state, req.body || {}, req.user))
-    if (source.auto_sync && source.active && (source.key_id || source.kind === 'local')) {
+    if (source.active && (source.key_id || source.kind === 'local')) {
       try {
         await synchronize(source.id)
       } catch {}
@@ -368,7 +383,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
     res.status(201).json(
       db.transaction((state) => {
         const source = find(state, req.params.id),
-          body = req.body || {},
+          body = modelFormBody(req.body || {}),
           upstream = text(body.upstreamModel, '上游模型', 120)
         if (state.models.some((m) => m.source_id === source.id && m.upstream_model === upstream))
           fail(409, 'MODEL_EXISTS', '此来源已经添加该模型')
@@ -388,7 +403,6 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           keyId: source.key_id,
           protocol: body.protocol || source.protocol,
           provider: source.kind === 'local' ? 'ollama' : family(upstream) || 'custom',
-          maxOutputTokens: body.maxOutputTokens ?? (source.kind === 'local' ? 256 : 8192),
           active: body.active ?? false,
           isDefault: !image && body.isDefault === true,
         })
@@ -423,7 +437,7 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
         const source = find(state, req.params.id),
           model = state.models.find((m) => m.id === req.params.modelId && m.source_id === source.id)
         if (!model) fail(404, 'MODEL_NOT_FOUND', '模型不存在')
-        const body = req.body || {}
+        const body = modelFormBody(req.body || {})
         const priceFields = ['inputPrice', 'cachedInputPrice', 'outputPrice', 'imagePrice']
         const editingPrice = priceFields.some(field => Object.hasOwn(body, field))
         const settings = { ...modelBody(model), ...body }
@@ -453,7 +467,8 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
   )
   return {
     async refreshAll() {
-      for (const source of sourcesFor(db.read()).filter((s) => s.active && s.auto_sync)) {
+      const state = db.read()
+      for (const source of sourcesFor(state).filter((s) => s.active && (s.kind === 'local' || sourceKey(state, s)))) {
         try {
           await synchronize(source.id)
         } catch {

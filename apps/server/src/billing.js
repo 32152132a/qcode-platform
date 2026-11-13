@@ -45,13 +45,24 @@ export function creditUsage(state, user) {
     .reduce((sum, row) => sum + (row.reserved_cost_micros || 0), 0);
   return { limit, used, remaining: subscription.expires_at <= now() ? 0 : Math.max(0, limit - used - reserved) };
 }
+// Rates have at most six decimal places. Round only once, at the final micro-yuan boundary.
+function requestCost(terms, perImage = false) {
+  let total = 0n;
+  for (const [quantity, price] of terms) {
+    const rate = Math.round(price * 1_000_000);
+    if (count(quantity) === null || count(rate) === null) return null;
+    total += BigInt(quantity) * BigInt(rate);
+  }
+  const micros = Number(perImage ? total : (total + 999_999n) / 1_000_000n);
+  return count(micros);
+}
 export function reserveCredit(state, user, model, inputTokens, outputTokens, image = false) {
   const subscription = subscriptionFor(state, user);
   if (!subscription) return { subscription_id: null, reserved_cost_micros: 0 };
   if (subscription.expires_at <= now()) fail(403, 'SUBSCRIPTION_EXPIRED', '额度已到期，请重新开通套餐');
   if (!model || model.pricing_known !== true || model.currency !== 'CNY')
     fail(409, 'MODEL_PRICE_REQUIRED', '模型尚未配置人民币单价，请联系管理员');
-  const reserved = Math.ceil(image ? model.image_price * 1000000 : inputTokens * model.input_price + outputTokens * model.output_price);
+  const reserved = image ? requestCost([[1, model.image_price]], true) : requestCost([[inputTokens, model.input_price], [outputTokens, model.output_price]]);
   if (!Number.isSafeInteger(reserved) || reserved < 0) fail(409, 'MODEL_PRICE_REQUIRED', '模型计价配置无效，请联系管理员');
   const available = creditUsage(state, user).remaining;
   if (available <= 0 || reserved > available)
@@ -64,12 +75,11 @@ export function settleCredit(state, record, model, usage, imageCount = 0) {
   const cached = usage?.cached_input_tokens ?? 0;
   let value = null;
   if (model?.pricing_known === true) {
-    if (imageCount) value = imageCount * model.image_price * 1000000;
+    if (imageCount) value = requestCost([[imageCount, model.image_price]], true);
     else if (usage?.input_tokens != null && usage?.output_tokens != null)
-      value = (usage.input_tokens - cached) * model.input_price + cached * model.cached_input_price + usage.output_tokens * model.output_price;
+      value = requestCost([[usage.input_tokens - cached, model.input_price], [cached, model.cached_input_price ?? model.input_price], [usage.output_tokens, model.output_price]]);
   }
-  const cost = value == null ? null : Math.ceil(value);
-  record.cost_micros = Number.isSafeInteger(cost) && cost >= 0 ? cost : null;
+  record.cost_micros = value;
   record.currency = model?.currency || 'CNY';
   record.input_price = model?.input_price; record.cached_input_price = model?.cached_input_price; record.output_price = model?.output_price;
   if (imageCount) record.image_price = model.image_price;
