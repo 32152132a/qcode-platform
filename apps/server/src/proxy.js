@@ -160,9 +160,15 @@ export async function complete(req, res, { db, vault, config, activeRequests = n
 
 export const deletedModelId = '__deleted_models__';
 export function statistics(state, timezone) {
-  const empty = () => ({ requests: 0, success: 0, failed: 0, pending: 0, tokens: 0, inputTokens: 0, outputTokens: 0, unknownUsage: 0, costs: {}, unknownCost: 0 });
+  const empty = () => ({ requests: 0, success: 0, failed: 0, pending: 0, tokens: 0, inputTokens: 0, outputTokens: 0, unknownUsage: 0, costs: {}, unknownCost: 0, chargedMicros: 0 });
   const totals = empty(), users = new Map(), days = new Map(), models = new Map();
+  const activeUsers = new Map();
   function add(target, row) {
+    target.chargedMicros += row.charged_micros ?? 0;
+    if (row.status === 'success') {
+      if (!activeUsers.has(target)) activeUsers.set(target, new Set());
+      activeUsers.get(target).add(row.user_id);
+    }
     target.requests++;
     target.tokens += row.total_tokens ?? 0;
     target.inputTokens += row.input_tokens ?? 0;
@@ -188,6 +194,8 @@ export function statistics(state, timezone) {
       add(map.get(key), row);
     }
   }
+  for (const group of [totals, ...users.values(), ...days.values(), ...models.values()])
+    group.activeUsers = activeUsers.get(group)?.size ?? 0;
   const ranked = map => [...map.values()].sort((a, b) => b.tokens - a.tokens || b.requests - a.requests);
   return { totals, users: ranked(users), models: ranked(models), days: [...days.values()].sort((a,b) => b.date.localeCompare(a.date)), timezone };
 }

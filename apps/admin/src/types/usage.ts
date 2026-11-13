@@ -13,6 +13,8 @@ export interface UsageGroup extends Record<string, unknown> {
   success: number
   failed: number
   pending: number
+  activeUsers: number
+  chargedMicros: number
   costs: Record<string, number>
 }
 export interface OverviewUsage {
