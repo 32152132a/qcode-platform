@@ -1,13 +1,17 @@
 <template>
   <el-card class="capability-card" shadow="never">
-    <template #header><strong>{{ title }}</strong></template>
+    <template #header><h2>{{ title }}</h2></template>
     <p>{{ description }}</p>
     <QyqForm ref="form" v-model="selection" :form-options="fields" :columns="2" :show-btn="false" :disabled="saving || !canWrite" @change="changed">
-      <template #model><el-select v-model="selection.model" filterable allow-create default-first-option placeholder="选择或输入模型ID"><el-option v-for="item in textOptions" :key="item.id" :label="item.id" :value="item.id" /></el-select></template>
+      <template #model><el-select class="capability-model" v-model="selection.model" filterable allow-create default-first-option placeholder="选择或输入模型ID"><el-option v-for="item in textOptions" :key="item.id" :label="item.id" :value="item.id" /></el-select></template>
     </QyqForm>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <template #footer v-if="canWrite || (kind === 'embedding' && value?.dimensions)">
+      <div class="capability-footer">
     <el-text v-if="kind === 'embedding' && value?.dimensions" type="info">当前向量维度：{{ value.dimensions }}</el-text>
     <el-button v-if="canWrite" type="primary" :loading="saving" @click="save">{{ textModel ? '验证并保存' : '保存' }}</el-button>
+      </div>
+    </template>
   </el-card>
 </template>
 <script setup lang="ts">
@@ -52,5 +56,20 @@ watch(()=>props.value,value=>{selection.value={...value}},{immediate:true})
 function changed(_value:unknown,prop:string){if(prop==='sourceId'){selection.value.modelId='';selection.value.model=''}}
 </script>
 <style scoped lang="scss">
-.capability-card {&:not(:last-child){margin-bottom:var(--admin-gap)}p{margin:0 0 16px;color:var(--el-text-color-secondary);font-size:12px}.el-button{margin-top:12px}.el-text{display:block}}
+.capability-card {
+  min-width: 0;
+
+  h2 { margin: 0; font-size: 15px; }
+  p { margin: 0 0 16px; color: var(--el-text-color-secondary); font-size: 13px; line-height: 1.6; }
+  .capability-model { width: 100%; }
+  .capability-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .el-button { margin-inline-start: auto; }
+  .el-alert { margin-bottom: 12px; }
+}
 </style>

@@ -1,7 +1,7 @@
 <template>
   <PagePanel title="能力配置" description="配置知识整理、向量、识图和生图服务。" :loading="loading" :error="error">
     <template #actions><el-button @click="load">刷新</el-button></template>
-    <el-scrollbar><CapabilityCard v-for="item in entries" :key="item.kind" :kind="item.kind" :title="item.title" :description="item.description" :sources="sources" :models="models" :value="values[item.kind]" :can-write="auth.can('models:write')" @saved="load" /></el-scrollbar>
+    <el-scrollbar><div class="capability-grid"><CapabilityCard v-for="item in entries" :key="item.kind" :kind="item.kind" :title="item.title" :description="item.description" :sources="sources" :models="models" :value="values[item.kind]" :can-write="auth.can('models:write')" @saved="load" /></div></el-scrollbar>
   </PagePanel>
 </template>
 <script setup lang="ts">
@@ -31,3 +31,13 @@ async function load(){
 }
 void load()
 </script>
+
+<style scoped lang="scss">
+.capability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  gap: var(--admin-gap);
+  max-width: 68rem;
+  padding-bottom: var(--admin-gap);
+}
+</style>
