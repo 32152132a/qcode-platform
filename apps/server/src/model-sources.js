@@ -407,6 +407,10 @@ export function registerModelSources(app, { db, vault, config, saveModel }) {
           isDefault: !image && body.isDefault === true,
         })
         Object.assign(model, catalogDisplayFields(candidate))
+        if (body.supportsVision !== undefined) {
+          const capabilities = (model.capabilities || []).filter(value => value !== 'vision')
+          model.capabilities = body.supportsVision ? [...capabilities, 'vision'] : capabilities
+        }
         model.model_type = model.capabilities?.includes('image_generation') ? 'image' : 'chat'
         model.source_id = source.id
         model.catalog_available = true

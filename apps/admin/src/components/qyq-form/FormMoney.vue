@@ -75,7 +75,6 @@
         :placeholder="placeholder || '请输入'"
         :clearable="clearable"
         @click="handleSingleClick"
-        @input="handleMoneyFormat"
         @blur="handleSingleBlur"
       />
     </div>
@@ -183,16 +182,18 @@
   const singleValue = computed<string>({
     get() {
       if (props.option.prop && modelValue.value[props.option.prop] !== undefined) {
-        return String(modelValue.value[props.option.prop] ?? '')
+        return formatMoneyParts(String(modelValue.value[props.option.prop] ?? '').split('.'))
       }
       return ''
     },
     set(value: string) {
       if (props.option.prop) {
         const newValue = { ...modelValue.value }
-        newValue[props.option.prop] = value
+        const sanitized = value.replace(/[^\d.]/g, '').replace(/^\./, '').replace(/(\..*)\./g, '$1')
+        const rawValue = formatMoneyParts(sanitized.split('.')).replace(/,/g, '')
+        newValue[props.option.prop] = rawValue
         modelValue.value = newValue
-        emit('change', value, props.option.prop, props.option, newValue)
+        emit('change', rawValue, props.option.prop, props.option, newValue)
       }
     },
   })
@@ -299,7 +300,7 @@
   const handleSingleBlur = () => {
     if (!singleValue.value) return
 
-    singleValue.value = formatMoneyParts(String(singleValue.value).split('.'), true)
+    singleValue.value = singleValue.value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')
   }
 
   // 点击事件处理

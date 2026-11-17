@@ -28,24 +28,13 @@
         </el-select>
       </template>
     </QyqForm>
-    <p v-if="!isImage" class="price-unit">单价按元／百万 Token 填写</p>
-    <QyqForm v-model="form" class="model-numbers" :columns="isImage ? 1 : 2" :show-btn="false" :form-options="requiredFields" :disabled="busy">
+    <p v-if="!isImage" class="price-unit">单价按元／百万 Token 填写。未填写的单价按免费处理。</p>
+    <QyqForm @submit.prevent v-model="form" class="model-numbers" :columns="isImage ? 1 : 2" :show-btn="false" :form-options="configurationFields" :disabled="busy">
       <template v-for="field in requiredNumbers" :key="field.prop" #[field.prop]>
-        <FormMoney v-model="form" :option="{ prop: field.prop, precision: field.precision ?? 0 }" :placeholder="field.prop === 'contextWindow' ? '建议 ' + Number(suggestedContext).toLocaleString('zh-CN') + ' Token，按实际填写' : '请输入' + field.label + '单价，免费填 0'" :disabled="busy" />
+        <FormMoney v-model="form" :option="{ prop: field.prop, precision: field.precision ?? 0 }" :placeholder="field.prop === 'contextWindow' ? '建议 ' + Number(suggestedContext).toLocaleString('zh-CN') + ' Token，按实际填写' : field.prop === 'imagePrice' ? '请输入单价，免费填 0' : '输入单价（选填）'" :disabled="busy" />
       </template>
-    </QyqForm>
-    <QyqForm
-      v-if="!isImage"
-      @submit.prevent
-      v-model="form"
-      class="model-fields"
-      :columns="model ? 2 : 1"
-      :show-btn="false"
-      :form-options="model ? protocolFields : protocolFields.slice(0, 1)"
-      :disabled="busy"
-    >
       <template #streamUsage>
-        <el-switch v-model="form.streamUsage" aria-label="请求流式用量" />
+        <el-switch v-model="form.streamUsage" aria-label="获取流式 Token 用量" />
       </template>
       <template #supportsVision>
         <el-switch v-model="form.supportsVision" aria-label="模型原生支持识图" />
@@ -128,7 +117,7 @@
       prop: field.prop,
       label: field.label + (context ? '（Token）' : '（元）'),
       type: 'custom',
-      required: true,
+      required: context || field.prop === 'imagePrice',
       ...(value !== undefined ? { hint: {
         text: (context ? reference.value?.contextSource : reference.value?.priceSource)
           + '：' + value.toLocaleString() + '，保存前可修改。',
@@ -143,6 +132,8 @@
         !endpoints.some(endpoint => ['openai', 'openai-compatible', 'chat-completions'].includes(endpoint))
         ? 'responses' : source.value?.protocol || 'chat-completions'
     }
+    if (value?.capabilities?.includes('vision')) form.value.supportsVision = true
+    else if (previous?.capabilities?.includes('vision')) form.value.supportsVision = false
     for (const field of numericFields) {
       const current = form.value[field.prop]
       if (current === undefined || current === previous?.reference?.[field.prop])
@@ -153,7 +144,7 @@
     {
       prop: 'protocol',
       label: '接口协议',
-      hint: { text: '默认跟随服务来源。上游文档写 /responses 时选择 Responses，写 /chat/completions 时选择 Chat Completions。' },
+      hint: { text: '按服务商文档的接口路径选择。/chat/completions 选 Chat Completions，/responses 选 Responses。' },
       type: 'select',
       options: [
         { label: 'Chat Completions', value: 'chat-completions' },
@@ -163,16 +154,20 @@
     {
       prop: 'maxTokensField',
       label: '输出限制字段',
+      hint: { text: '用于指定单次最多生成多少 Token。请在服务商的 Chat Completions 请求参数中确认使用哪个字段名。' },
       type: 'select',
       options: [
         { label: 'max_tokens', value: 'max_tokens' },
         { label: 'max_completion_tokens', value: 'max_completion_tokens' },
       ],
     },
-    { prop: 'supportsVision', label: '模型原生支持识图（按服务实际能力确认）', type: 'custom' },
-    { prop: 'streamUsage', label: '请求流式用量', type: 'custom' },
-    { prop: 'publicName', label: '公开模型 ID', type: 'input', disabled: true },
+    { prop: 'supportsVision', label: '模型原生支持识图', type: 'custom' },
+    { prop: 'streamUsage', label: '获取流式 Token 用量', type: 'custom' },
   ]
+  const configurationFields = computed(() => [
+    ...requiredFields.value,
+    ...(isImage.value ? [] : protocolFields),
+  ])
   let success: (() => void) | undefined
   function open(value: Model | undefined, onSuccess: () => void, item?: ModelSource) {
     model.value = value
@@ -223,7 +218,10 @@
     } catch {
       return
     }
-    const missing = requiredNumbers.value.find(field => String(form.value[field.prop] ?? '').trim() === '')
+    const missing = requiredNumbers.value.find(field =>
+      (field.prop === 'contextWindow' || field.prop === 'imagePrice') &&
+      String(form.value[field.prop] ?? '').trim() === ''
+    )
     if (missing) {
       error.value = '请填写' + missing.label
       return
@@ -234,7 +232,12 @@
       await request(
         '/admin/models/sources/' + sourceId + '/models' + (model.value ? '/' + model.value.id : ''),
         model.value ? 'PATCH' : 'POST',
-        form.value
+        isImage.value ? form.value : {
+          ...form.value,
+          inputPrice: form.value.inputPrice || '0',
+          cachedInputPrice: form.value.cachedInputPrice || '0',
+          outputPrice: form.value.outputPrice || '0',
+        }
       )
       visible.value = false
       success?.()
