@@ -17,18 +17,22 @@
         name="audits"
     /></el-tabs>
     <LogFilters :key="mode" :kind="kind" :errors-only="mode === 'errors'" @search="apply" />
-    <DataTable
-      :rows="data?.items || []"
+    <QyqTable
+      class="log-table"
+      v-model:current-page="page"
+      v-model:page-size="pageSize"
+      :data="data?.items || []"
       :columns="columns"
-      :server-pagination="{ page, pageSize: 25, total: data?.total || 0 }"
-      @page-change="changePage"
-  /></PagePanel>
+      :total="data?.total || 0"
+      height="100%"
+      :pagination-config="{ layout: 'total, sizes, prev, pager, next, jumper' }"
+    /></PagePanel>
 </template>
 <script setup lang="ts">
   import { computed, ref, watch } from 'vue'
   import { ElMessage } from 'element-plus'
   import PagePanel from '@/components/PagePanel/index.vue'
-  import DataTable from '@/components/DataTable/index.vue'
+  import QyqTable from '@/components/qyq-table/index.vue'
   import LogFilters from './components/LogFilters/index.vue'
   import { useResource } from '@/hooks/useResource'
   import { download } from '@/api/request'
@@ -38,10 +42,18 @@
   const auth = useAuthStore()
   const mode = ref('errors')
   const kind = computed(() => (mode.value === 'audits' ? 'audits' : 'requests'))
+  const rowsPerPage = ref(10)
+  const pageSize = computed({
+    get: () => rowsPerPage.value,
+    set: (value) => {
+      page.value = 1
+      rowsPerPage.value = value
+    },
+  })
   const page = ref(1),
     query = ref('&status=errors')
   const { data, loading, error, load } = useResource<{ items: Row[]; total: number }>(
-    () => '/admin/' + kind.value + '?offset=' + (page.value - 1) * 25 + '&limit=25' + query.value,
+    () => '/admin/' + kind.value + '?offset=' + (page.value - 1) * pageSize.value + '&limit=' + pageSize.value + query.value,
   )
   const columns = computed<Column[]>(() =>
     kind.value === 'requests'
@@ -76,9 +88,6 @@
     page.value = 1
     query.value = mode.value === 'errors' ? '&status=errors' : ''
   })
-  function changePage(value: number) {
-    page.value = value
-  }
   async function exportCsv() {
     try {
       await download(
@@ -93,6 +102,10 @@
 
 <style scoped lang="scss">
   .page-panel.log-page {
-    flex: 1 0 auto;
+    min-height: 0;
+  }
+  .log-table {
+    flex: 1;
+    min-height: 0;
   }
 </style>

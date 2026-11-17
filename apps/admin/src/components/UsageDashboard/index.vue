@@ -12,8 +12,7 @@
       v-model="filters"
       :columns="3"
       :form-options="fields"
-      :show-btn="false"
-      @submit.prevent
+      @submit.prevent="apply"
     >
       <template #dates
         ><el-date-picker
@@ -23,12 +22,12 @@
           start-placeholder="开始日期"
           end-placeholder="结束日期"
       /></template>
+      <template #elgsFormBtn>
+        <el-button @click="reset">重置</el-button>
+        <el-button type="primary" @click="apply">查询</el-button>
+      </template>
     </QyqForm>
     <el-text type="info" size="small">已删除模型的历史用量统一汇总为“已删除模型”，不影响总消耗；停用但未删除的模型仍单独统计。</el-text>
-    <el-space
-      ><el-button type="primary" @click="apply">查询</el-button
-      ><el-button @click="reset">重置</el-button></el-space
-    >
     <template v-if="data">
       <div class="metrics">
         <el-statistic title="实际 Token" :value="data.totals.tokens" /><el-statistic
