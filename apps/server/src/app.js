@@ -369,7 +369,14 @@ export function createApp(config, database) {
     const offset = integer(Number(query.offset || 0), 'offset'), limit = integer(Number(query.limit || 50), 'limit', 200);
     return { total: items.length, items: items.slice().reverse().slice(offset, offset + limit) };
   };
-  app.post('/admin/requests/list', (req, res) => res.json(page(filterRecords(db.read().requests,req.query,timezone), req.query)));
+  app.post('/admin/requests/list', (req, res) => {
+    const state = db.read();
+    const models = new Map(state.models.map(model => [model.id, model.name]));
+    const result = page(filterRecords(state.requests, req.query, timezone), req.query);
+    res.json({ ...result, items: result.items.map(row => ({
+      ...row, model_name: models.get(row.model_id) ?? null,
+    })) });
+  });
   app.post('/admin/audits/list', (req, res) => res.json(page(filterRecords(db.read().audits,req.query,timezone), req.query)));
   app.use('/v1', auth);
   app.get('/v1/models', (req, res) => {

@@ -7,47 +7,6 @@
     :error="error"
   >
     <template #actions><el-button @click="load">刷新</el-button></template>
-    <div class="usage-controls">
-    <QyqForm
-      v-model="filters"
-      :columns="3"
-      :form-options="fields"
-      @submit.prevent="apply"
-    >
-      <template #dates
-        ><el-date-picker
-          v-model="dates"
-          type="daterange"
-          value-format="YYYY-MM-DD"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-      /></template>
-      <template #elgsFormBtn>
-        <el-button @click="reset">重置</el-button>
-        <el-button type="primary" @click="apply">查询</el-button>
-      </template>
-    </QyqForm>
-    <el-text type="info" size="small">已删除模型的历史用量统一汇总为“已删除模型”，不影响总消耗；停用但未删除的模型仍单独统计。</el-text>
-    <template v-if="data">
-      <div class="metrics">
-        <el-statistic title="实际 Token" :value="data.totals.tokens" /><el-statistic
-          title="请求数"
-          :value="data.totals.requests"
-        />
-        <div>
-          <el-text type="info" size="small">模型调用成本</el-text>
-          <p>{{ cost(data.totals.costs, data.totals.unknownCost) }}</p>
-        </div>
-      </div>
-      <el-text v-if="data.totals.unknownUsage || data.totals.unknownCost" type="info" size="small"
-        >{{ data.totals.unknownUsage }} 个已结束请求未返回用量，{{
-          data.totals.unknownCost
-        }}
-        个请求成本未知；未知部分不按零消耗计算。</el-text
-      >
-      <el-collapse class="trend-panel"><el-collapse-item title="查看 Token 趋势" name="trend"><UsageTrend :days="data.days" /></el-collapse-item></el-collapse>
-    </template>
-    </div>
     <template v-if="data">
       <el-tabs v-model="tab" class="usage-tabs"
         ><el-tab-pane label="按用户" name="users" /><el-tab-pane
@@ -59,49 +18,14 @@
   </PagePanel>
 </template>
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue'
+  import { computed, ref } from 'vue'
   import PagePanel from '@/components/PagePanel/index.vue'
   import DataTable from '@/components/DataTable/index.vue'
-  import QyqForm from '@/components/qyq-form/index.vue'
-  import UsageTrend from '@/components/UsageTrend/index.vue'
   import { useResource } from '@/hooks/useResource'
   import type { OverviewUsage } from '@/types/usage'
   import type { Column } from '@/types'
-  import type { FormItemProp } from '@/components/qyq-form/types'
-  const query = ref(''),
-    dates = ref<string[]>([]),
-    filters = ref({ userId: '', modelId: '' }),
-    tab = ref<'users' | 'models' | 'days'>('users')
-  const options = ref<OverviewUsage>()
-  const { data, loading, error, load } = useResource<OverviewUsage>(
-    () => '/admin/usage' + query.value,
-  )
-  const fields = computed<FormItemProp[]>(() => [
-    { prop: 'dates', label: '日期范围', type: 'custom' },
-    {
-      prop: 'userId',
-      label: '用户',
-      type: 'select',
-      clearable: true,
-      filterable: true,
-      placeholder: '全部用户',
-      options: (options.value?.users || []).map((row) => ({
-        label: row.username || '未知用户',
-        value: String(row.userId),
-      })),
-    },
-    {
-      prop: 'modelId',
-      label: '模型',
-      type: 'select',
-      clearable: true,
-      filterable: true,
-      placeholder: '全部模型',
-      options: (options.value?.models || [])
-        .filter((row) => row.modelId)
-        .map((row) => ({ label: row.name || '未知模型', value: String(row.modelId) })),
-    },
-  ])
+  const tab = ref<'users' | 'models' | 'days'>('users')
+  const { data, loading, error, load } = useResource<OverviewUsage>(() => '/admin/usage')
   const columns = computed<Column[]>(() => [
     tab.value === 'users'
       ? { prop: 'username', label: '用户' }
@@ -131,67 +55,16 @@
         ? '未知'
         : '—'
   }
-  function apply() {
-    const params = new URLSearchParams()
-    if (dates.value?.length === 2) {
-      params.set('from', dates.value[0])
-      params.set('to', dates.value[1])
-    }
-    if (filters.value.userId) params.set('userId', filters.value.userId)
-    if (filters.value.modelId) params.set('modelId', filters.value.modelId)
-    const next = params.size ? '?' + params : ''
-    if (query.value === next) void load()
-    else query.value = next
-  }
-  function reset() {
-    filters.value = { userId: '', modelId: '' }
-    dates.value = []
-    apply()
-  }
-  watch(data, (value) => {
-    if (value && !query.value) options.value = value
-  })
 </script>
 <style scoped lang="scss">
   .page-panel.usage-dashboard {
     overflow: hidden;
     :deep(.table), :deep(.page-content) { overflow: hidden; }
-    .usage-controls {
-      display: grid;
-      gap: 16px;
-      flex-shrink: 0;
-      max-height: 50%;
-      min-height: 0;
-      overflow: auto;
-    }
     :deep(.data-table) {
       min-height: 0;
     }
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 16px;
-      flex-shrink: 0;
-      p {
-        margin: 8px 0 0;
-        font-size: 22px;
-        font-weight: 600;
-        overflow-wrap: anywhere;
-      }
-    }
-    .trend-panel {
-      flex-shrink: 0;
-    }
     .usage-tabs {
       flex-shrink: 0;
-    }
-    @media (max-width: 650px) {
-      .metrics {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        > :last-child {
-          grid-column: 1/-1;
-        }
-      }
     }
   }
 </style>

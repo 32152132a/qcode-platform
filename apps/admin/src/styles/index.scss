@@ -3,6 +3,9 @@
   color: var(--el-text-color-primary);
   background: var(--admin-background);
   font-synthesis: none;
+  scrollbar-color: #c8cdd5 transparent;
+  --el-scrollbar-bg-color: #aab2bf;
+  --el-scrollbar-hover-bg-color: #8893a3;
   --el-color-primary: #409eff;
   --el-border-radius-base: 4px;
   --el-font-size-base: 14px;
@@ -17,6 +20,7 @@
 }
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
 }
 body {
   margin: 0;

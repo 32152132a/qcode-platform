@@ -85,7 +85,8 @@
           { prop: 'started_at', label: '时间', minWidth: 180, render: (r) => date(r.started_at) },
           ...[
             'username:用户',
-            'model:模型',
+            'model_name:模型名称',
+            'model:公开模型 ID',
             ...(mode.value === 'requests' ? ['total_tokens:总 Token'] : []),
           ].map((item) => {
             const [prop, label] = item.split(':')
