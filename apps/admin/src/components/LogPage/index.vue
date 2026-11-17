@@ -20,7 +20,6 @@
     <DataTable
       :rows="data?.items || []"
       :columns="columns"
-      :searchable="false"
       :server-pagination="{ page, pageSize: 25, total: data?.total || 0 }"
       @page-change="changePage"
   /></PagePanel>
@@ -51,9 +50,7 @@
           ...[
             'username:用户',
             'model:模型',
-            'input_tokens:输入 Token',
-            'output_tokens:输出 Token',
-            'total_tokens:总 Token',
+            ...(mode.value === 'requests' ? ['total_tokens:总 Token'] : []),
             'duration_ms:耗时 ms',
             'status:状态',
             'error_code:错误',

@@ -71,22 +71,20 @@
 <style scoped lang="scss">
   .log-filters {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     align-items: end;
-    gap: 12px;
+    column-gap: 24px;
     min-width: 0;
-    :deep(.form) {
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)) !important;
+    > :first-child {
+      grid-column: span 3;
+      min-width: 0;
+    }
+    > .el-button {
+      justify-self: end;
     }
     :deep(.el-date-editor) {
       min-width: 0;
       width: 100%;
-    }
-    @media (max-width: 650px) {
-      grid-template-columns: minmax(0, 1fr);
-      > .el-button {
-        justify-self: start;
-      }
     }
   }
 </style>

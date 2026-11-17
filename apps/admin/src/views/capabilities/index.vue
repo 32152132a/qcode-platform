@@ -35,9 +35,8 @@ void load()
 <style scoped lang="scss">
 .capability-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
   gap: var(--admin-gap);
-  max-width: 68rem;
   padding-bottom: var(--admin-gap);
 }
 </style>
