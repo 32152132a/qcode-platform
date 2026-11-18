@@ -2,8 +2,9 @@ import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createTreeStore, knowledgeLimits, revisionOf } from './knowledge-tree-store.js';
 import { parseKnowledgeFile } from './knowledge-parser.js';
-import { splitKnowledge, summarizeKnowledge, knowledgeCatalogue, readKnowledgeNodes, knowledgeRules, planKnowledgeChanges } from './knowledge-tree.js';
+import { splitKnowledge, summarizeKnowledge, knowledgeCatalogue, readKnowledgeNodes, knowledgeRules } from './knowledge-tree.js';
 import { fetchWithKeys, sourceKeyIds } from './key-pool.js';
+import { beautifyKnowledge, questionKnowledge } from './knowledge-ai.js';
 import { fail, text, now, audit, consumption } from './domain.js';
 import { checkQuota, effectiveQuotas } from './policy.js';
 import { parseUsage, reserveCredit, settleCredit } from './billing.js';
@@ -25,7 +26,7 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
   const filename=config.dbPath&&![':memory:',':sqlite:'].includes(config.dbPath)?join(dirname(config.dbPath),'knowledge-tree.sqlite'):':memory:';
   const store=createTreeStore(filename);let running=null,stopped=false,controller;
   const settings=()=>knowledgeSettings(db.read());
-  async function complete(messages,userId,selection=settings(),signal) {
+  async function complete(messages,userId,selection=settings(),signal,purpose='knowledge_index',onUsage) {
     if(!selection)fail(400,'KNOWLEDGE_MODEL_REQUIRED','请先在能力配置中设置知识整理模型');
     const state=db.read(),source=state.settings.modelSources.find(source=>source.id===selection.sourceId&&source.active),user=state.users.find(user=>user.id===userId);
     if(!source||source.protocol!=='chat-completions')fail(400,'INVALID_KNOWLEDGE_SOURCE','知识整理需选择支持Chat Completions的已启用渠道');
@@ -35,14 +36,14 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
     const requestId=randomBytes(16).toString('hex'),started=Date.now(),model=state.models.find(model=>model.source_id===source.id&&model.upstream_model===selection.model);
     // Estimate output for credit reservation; generation uses the provider's default limit.
     const outputEstimate=4096,reserved=Buffer.byteLength(JSON.stringify(messages))+outputEstimate;
-    db.transaction(next=>{checkQuota(effectiveQuotas(next,user),consumption(next,user,config.timezone||'Asia/Shanghai',now()),reserved);const credit=reserveCredit(next,user,model,reserved-outputEstimate,outputEstimate);next.requests.push({id:requestId,...credit,user_id:user.id,username:user.username,model:model?.public_name||selection.model,model_id:model?.id||null,key_id:null,purpose:'knowledge_index',status:'pending',started_at:now(),reserved_tokens:reserved,total_tokens:null,input_tokens:null,output_tokens:null});});
+    db.transaction(next=>{checkQuota(effectiveQuotas(next,user),consumption(next,user,config.timezone||'Asia/Shanghai',now()),reserved);const credit=reserveCredit(next,user,model,reserved-outputEstimate,outputEstimate);next.requests.push({id:requestId,...credit,user_id:user.id,username:user.username,model:model?.public_name||selection.model,model_id:model?.id||null,key_id:null,purpose,status:'pending',started_at:now(),reserved_tokens:reserved,total_tokens:null,input_tokens:null,output_tokens:null});});
     let usage=null,errorCode=null;
     try{
       const response=await fetchWithKeys({db,keys,signal:signal?AbortSignal.any([signal,AbortSignal.timeout(Math.min(config.timeoutMs||120000,120000))]):AbortSignal.timeout(120000),attempt:key=>db.transaction(next=>{next.requests.find(item=>item.id===requestId).key_id=key?.id||null;}),build:key=>({url:source.base_url+'/chat/completions',method:'POST',headers:{'Content-Type':'application/json',...(key?{Authorization:'Bearer '+vault.decrypt(key.secret)}:{})},body:JSON.stringify({model:selection.model,messages})})});
       if(!response.ok){await response.body?.cancel();fail(502,'KNOWLEDGE_UPSTREAM_ERROR','知识整理接口返回HTTP '+response.status);}
       const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.length;if(size>2*1024*1024)fail(502,'KNOWLEDGE_RESPONSE_TOO_LARGE','知识整理响应过大');chunks.push(chunk);}
       let value;try{value=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(502,'INVALID_KNOWLEDGE_SUMMARY','知识整理接口返回格式无效');}
-      usage=parseUsage(value.usage);
+      usage=parseUsage(value.usage);onUsage?.(usage);
       if(value.choices?.[0]?.finish_reason==='length')fail(502,'KNOWLEDGE_OUTPUT_TRUNCATED','知识整理模型的输出未完成，请重新处理');
       if(typeof value.choices?.[0]?.message?.content!=='string')fail(502,'INVALID_KNOWLEDGE_SUMMARY','模型没有返回整理内容');
       return value.choices[0].message.content;
@@ -59,10 +60,8 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
           const actor=db.read().users.find(user=>job.owner_id===0?user.role==='admin':ownerKey(user)===job.owner_id);if(!actor)throw new Error('资料所属账号已移除');
           const blocks=await parseKnowledgeFile(job.filename,Buffer.from(job.original),{signal:controller.signal});
           const nodes=splitKnowledge(blocks,job.document_id,job.revision),call=messages=>complete(messages,actor.id,undefined,controller.signal);
-          const result=await summarizeKnowledge(nodes,call);
-          const related=job.owner_id===0?store.catalogue(0).filter(doc=>doc.id!==job.document_id&&doc.nodes.length):[];
-          const changes=await planKnowledgeChanges(related,result,call);
-          if(!stopped)store.complete(job.document_id,job.revision,result,changes);
+          const result=job.owner_id===0?nodes:await summarizeKnowledge(nodes,call);
+          if(!stopped)store.complete(job.document_id,job.revision,result);
         }
         catch(error){if(!stopped)store.failed(job.document_id,job.revision,error.status?error.message:'解析或整理失败：'+error.message);}
       }
@@ -83,26 +82,74 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
   app.post('/client/knowledge/:id/received',auth,(req,res)=>{store.received(ownerKey(req.user),req.params.id,req.body?.revision);res.json({ok:true});});
   for(const prefix of ['/admin','/client']){
     const owner=req=>prefix==='/admin'?0:ownerKey(req.user),guards=prefix==='/client'?[auth]:[];
-    app.post(prefix+'/knowledge/list',...guards,(req,res)=>res.json({documents:store.list(owner(req)),limits:knowledgeLimits}));
+    app.post(prefix+'/knowledge/list',...guards,(req,res)=>res.json(prefix==='/admin'?{library:store.library.detail(),uploads:store.list(0),limits:knowledgeLimits}:{documents:store.list(owner(req)),limits:knowledgeLimits}));
     app.post(prefix+'/knowledge/upload',...guards,(req,res)=>{
-      if(!settings())fail(400,'KNOWLEDGE_MODEL_REQUIRED','请联系管理员配置知识整理模型');
+      if(prefix==='/client'&&!settings())fail(400,'KNOWLEDGE_MODEL_REQUIRED','请联系管理员配置知识整理模型');
       const body=req.body||{};
       if(typeof body.data!=='string'||body.data.length%4||!/^[A-Za-z0-9+/]*={0,2}$/.test(body.data))fail(400,'INVALID_DOCUMENT','上传文件编码无效');
       const bytes=Buffer.from(body.data,'base64');if(bytes.toString('base64')!==body.data)fail(400,'INVALID_DOCUMENT','上传文件编码无效');
       const result=store.upload(owner(req),{...body,bytes});schedule();res.status(202).json(result);
     });
-    if(prefix==='/admin'){
-      app.post(prefix+'/knowledge/:id/detail',...guards,(req,res)=>res.json(store.detail(owner(req),req.params.id)));
-      app.post(prefix+'/knowledge/:id/original',...guards,(req,res)=>res.json(store.original(owner(req),req.params.id,req.body?.revision)));
-    }
     app.post(prefix+'/knowledge/:id/retry',...guards,(req,res)=>{store.retry(owner(req),req.params.id);schedule();res.json({ok:true});});
-    app.post(prefix+'/knowledge/:id/delete',...guards,(req,res)=>{store.remove(owner(req),req.params.id);res.json({ok:true});});
+    app.post(prefix==='/admin'?'/admin/knowledge/uploads/:id/delete':prefix+'/knowledge/:id/delete',...guards,(req,res)=>{store.remove(owner(req),req.params.id);res.json({ok:true});});
   }
-  app.post('/admin/knowledge/:id/node',(req,res)=>res.json({ok:true,...store.edit(0,req.params.id,req.body||{})}));
-  app.post('/admin/knowledge/:id/proposals/dismiss',(req,res)=>{store.dismiss(0,req.params.id,req.body?.revision,req.body?.index);res.json({ok:true});});
-  app.post('/admin/knowledge/publish',(req,res)=>res.json(store.publishMany(0,req.body?.documents)));
-  app.post('/admin/knowledge/:id/publish',(req,res)=>res.json(store.publish(0,req.params.id,req.body?.revision)));
-  app.post('/admin/knowledge/:id/unpublish',(req,res)=>{store.unpublish(0,req.params.id);res.json({ok:true});});
+
+  app.post('/admin/knowledge/articles/delete/preview',(req,res)=>res.json(store.library.removalImpact(req.body?.ids,req.body?.revision)));
+  app.post('/admin/knowledge/articles/delete',(req,res)=>res.json(store.library.remove(req.body?.ids,req.body?.revision)));
+  app.post('/admin/knowledge/articles/export',(req,res)=>{
+    const node=store.library.snapshot().nodes.find(node=>node.id===req.body?.id&&node.kind==='article');
+    if(!node)fail(404,'KNOWLEDGE_NOT_FOUND','文章不存在');
+    const content=/^#{1,6}\s/.test(node.text)?node.text:'# '+node.title+'\n\n'+node.text;
+    res.json({filename:node.title.replace(/[\\/:*?"<>|]/g,'_')+'.md',content});
+  });
+  app.post('/admin/knowledge/publish',(req,res)=>res.json(store.library.publish(req.body?.revision,req.user.username)));
+  function requestSignal(res){
+    const controller=new AbortController();
+    res.once('close',()=>{if(!res.writableFinished)controller.abort();});
+    return controller.signal;
+  }
+
+  async function longOperation(res,work){
+    const signal=requestSignal(res);
+    res.setHeader('Content-Type','application/json; charset=utf-8');
+    res.setHeader('X-Accel-Buffering','no');
+    const heartbeat=setInterval(()=>{if(!signal.aborted&&!res.destroyed)res.write(' \n');},10000);
+    heartbeat.unref();
+    try{
+      const result=await work(signal);
+      if(!res.destroyed)res.end(JSON.stringify(result));
+    }catch(error){
+      if(!res.headersSent)throw error;
+      if(!res.destroyed)res.end(JSON.stringify({error:{code:error.code||'KNOWLEDGE_FAILED',message:error.status?error.message:'知识处理失败，请重试'}}));
+    }finally{clearInterval(heartbeat);}
+  }
+  app.post('/admin/knowledge/beautify',async(req,res)=>{
+    const base=store.library.snapshot(),selection=settings();
+    store.library.expect(req.body?.revision);
+    await longOperation(res,async signal=>{
+      const plan=await beautifyKnowledge(base,req.body?.nodeId,messages=>complete(messages,req.user.id,selection,signal,'knowledge_beautify'));
+      const library=store.library.beautify(plan,base.revision);
+      return { library, changed: library.revision !== base.revision, warnings: plan.warnings };
+    });
+  });
+  app.post('/admin/knowledge/test',async(req,res)=>{
+    const snapshot=store.library.snapshot('published'),documents=store.library.documents(),selection=settings();
+    if(req.body?.revision&&req.body.revision!==snapshot.revision)fail(409,'KNOWLEDGE_CHANGED','知识库已发布新版本，请重新开始这批测试');
+    await longOperation(res,async signal=>{
+      let tokens=0,unknown=false;
+      const result=await questionKnowledge(documents,req.body?.question,messages=>complete(messages,req.user.id,selection,signal,'knowledge_test',usage=>{
+        if(usage)tokens+=usage.total_tokens;else unknown=true;
+      }));
+      return{...result,revision:snapshot.revision,totalTokens:unknown?null:tokens};
+    });
+  });
+  app.post('/admin/knowledge/search',(req,res)=>{
+    const query=text(req.body?.query,'关键词',200).toLocaleLowerCase(),current=store.library.snapshot('published');
+    res.json({revision:current.revision,items:current.nodes.filter(node=>node.kind==='article'&&(node.title+' '+node.summary+' '+node.text).toLocaleLowerCase().includes(query)).slice(0,30).map(node=>{
+      const position=node.text.toLocaleLowerCase().indexOf(query);
+      return{id:node.id,title:node.title,summary:node.summary,excerpt:node.text.slice(Math.max(0,position-50),Math.max(0,position-50)+250),sources:node.sources};
+    })});
+  });
   const kickoff=setImmediate(schedule);kickoff.unref();
   return{store,settings,schedule,async idle(){await running;},async close(){stopped=true;clearImmediate(kickoff);controller?.abort();await running;store.close();}};
 }

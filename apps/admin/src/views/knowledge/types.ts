@@ -1,4 +1,22 @@
-export type KnowledgeNode = { id: string; parentId: string | null; title: string; summary: string; text: string; source: { page?: number; sheet?: string; rowStart?: number; rowEnd?: number; lineStart?: number; lineEnd?: number } }
-export type KnowledgeChange = { operation:'add'|'update';documentId:string;documentTitle:string;nodeId:string|null;parentId:string|null;baseRevision:string;before:{title:string;summary:string;text:string}|null;title:string;summary:string;text:string;reason:string;sourceNodeIds:string[] }
-export type KnowledgeDocument = { id: string; title: string; filename: string; status: string; error: string; draft_revision: string; published_revision: string | null; published: boolean; nodes: KnowledgeNode[]; sections:number;changes:number;proposals:KnowledgeChange[] }
-export type KnowledgeProgress = { stage:'uploading'|'parsing';completed:number;total:number;filename:string;failed:number }
+export type KnowledgeSource = {
+  documentId: string; revision: string; blockId: string; filename: string;
+  page?: number; sheet?: string; rowStart?: number; rowEnd?: number; lineStart?: number; lineEnd?: number;
+}
+export type KnowledgeNode = {
+  id: string; parentId: string | null; kind: 'article' | 'folder'; title: string;
+  summary: string; text: string; sources: KnowledgeSource[]; pendingDelete?: boolean;
+}
+export type KnowledgeChange = { id: string; title: string; kind: string; operation: 'add' | 'update' | 'delete' }
+export type KnowledgeLibrary = {
+  revision: string; publishedRevision: string; nodes: KnowledgeNode[]; deleted: KnowledgeNode[];
+  publishedNodes: KnowledgeNode[];
+  review: { changes: { id: string; operation: string; reason: string }[]; warnings: string[]; exclusions: { sourceNodeIds: string[]; titles: string[]; reason: string; quote?: string }[] } | null;
+  changes: KnowledgeChange[]; exclusions: { title?: string; reason: string }[];
+}
+export type KnowledgeUpload = { id: string; title: string; filename: string; status: string; error: string }
+export type KnowledgeResponse = { library: KnowledgeLibrary; uploads: KnowledgeUpload[] }
+export type KnowledgeAnswer = {
+  question: string; supported: boolean; answer: string; revision: string; durationMs: number; calls: number; totalTokens: number | null;
+  citations: { nodeId: string; title: string; quote: string; source: KnowledgeSource; sources: KnowledgeSource[] }[];
+  trace: { action: string; ids?: string[]; parentId?: string; error?: string; nodes?: { id: string; title?: string; alreadyRead?: boolean }[] }[];
+}

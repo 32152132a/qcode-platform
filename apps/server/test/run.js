@@ -15,6 +15,7 @@ import './providers.test.js';
 import './usage-statistics.test.js';
 
 import './knowledge-runtime.test.js';
+import './knowledge-library.test.js';
 
 
 import './ollama.test.js';

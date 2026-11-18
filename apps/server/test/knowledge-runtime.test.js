@@ -10,7 +10,7 @@ import { createApp } from '../src/app.js';
 import { createDatabase, hashPassword } from '../src/database.js';
 import { createTreeStore } from '../src/knowledge-tree-store.js';
 import { parseKnowledgeFile } from '../src/knowledge-parser.js';
-import { splitKnowledge, knowledgeCatalogue, readKnowledgeNodes, planKnowledgeChanges, summarizeKnowledge } from '../src/knowledge-tree.js';
+import { splitKnowledge, knowledgeCatalogue, readKnowledgeNodes, summarizeKnowledge } from '../src/knowledge-tree.js';
 
 async function fixture(t,{plan}={}){
  const db=createDatabase(),outbound=[];
@@ -26,35 +26,101 @@ async function fixture(t,{plan}={}){
 }
 const document={title:'住宿制度',filename:'住宿.md',data:Buffer.from('# 住宿制度\n适用于2026年普通员工。\n## 上海住宿\n上海每晚520元，需住宿发票。').toString('base64')};
 
-test('enterprise publication and private documents use server ACL at every read',async t=>{
- const f=await fixture(t),shared=await f.request('/admin/knowledge/upload',document,f.admin);assert.equal(shared.status,202);await f.knowledge.idle();
- const id=shared.body.id,detail=await f.request('/admin/knowledge/'+id+'/detail',{},f.admin);assert.equal(detail.body.status,'ready');assert.equal(detail.body.published,false);
- assert.ok(f.outbound.length > 0);assert.ok(f.outbound.every(body => !Object.hasOwn(body,'max_tokens')));
+
+test('enterprise upload creates drafts without model calls and publication is all-or-nothing', async t => {
+ const f=await fixture(t);
+ f.db.transaction(state=>{state.settings.knowledge=null;state.settings.modelSources[0].kind='relay';});
+ const uploaded=await f.request('/admin/knowledge/upload',document,f.admin);
+ assert.equal(uploaded.status,202);await f.knowledge.idle();
+ const data=(await f.request('/admin/knowledge/list',{},f.admin)).body;
+ assert.ok(data.library.nodes.length);assert.equal(f.outbound.length,0);
  assert.equal((await f.request('/client/knowledge/catalogue',{},f.alice)).body.documents.length,0);
- assert.equal((await f.request('/admin/knowledge/'+id+'/publish',{revision:detail.body.draft_revision},f.admin)).status,200);
- const catalogue=(await f.request('/client/knowledge/catalogue',{},f.alice)).body;assert.equal(catalogue.documents.length,1);
- const node=detail.body.nodes.find(node=>node.title==='上海住宿');
- const read=await f.request('/client/knowledge/read',{ids:[node.id]},f.alice);assert.equal(read.status,200);assert.equal(read.body.nodes.length,2);assert.ok(read.body.nodes.some(node=>node.text.includes('适用于2026')));
- const personal=await f.request('/client/knowledge/upload',{...document,title:'个人资料'},f.alice);assert.equal(personal.status,202);await f.knowledge.idle();
- const owned=(await f.request('/client/knowledge/'+personal.body.id+'/download',{},f.alice)).body.document;
- for(const [route,body]of [[`/client/knowledge/${owned.id}/download`,{}],[`/client/knowledge/${owned.id}/delete`,{}],[`/client/knowledge/${owned.id}/received`,{revision:owned.revision}],['/client/knowledge/read',{ids:[owned.nodes[0].id]}]])assert.equal((await f.request(route,body,f.bob)).status,404);
- assert.equal((await f.request('/admin/knowledge/'+owned.id+'/detail',{},f.admin)).status,404);
- assert.equal((await f.request('/client/knowledge/catalogue',{},f.bob)).body.documents.length,1);
- const skills=(await f.request('/client/skills',{},f.alice)).body.skills;
- assert.equal(skills.filter(skill=>skill.name==='qcode-knowledge').length,1);assert.ok(skills.every(skill=>!Object.values(skill.files).some(text=>text.includes('上海每晚520元'))));
- await f.request('/admin/knowledge/'+id+'/unpublish',{},f.admin);assert.equal((await f.request('/client/knowledge/read',{ids:[node.id]},f.alice)).status,404);
+ assert.equal((await f.request('/admin/knowledge/publish',{revision:'stale'},f.admin)).status,409);
+ assert.equal((await f.request('/admin/knowledge/publish',{revision:data.library.revision},f.alice)).status,403);
+ assert.equal((await f.request('/admin/knowledge/publish',{revision:data.library.revision},f.admin)).status,200);
+ const catalogue=(await f.request('/client/knowledge/catalogue',{},f.alice)).body;
+ const node=catalogue.documents[0].nodes.find(node=>node.title==='上海住宿');
+ const read=await f.request('/client/knowledge/read',{ids:[node.id]},f.alice);
+ assert.equal(read.status,200);assert.ok(read.body.nodes.some(node=>node.text.includes('2026')));
+ assert.equal(read.body.nodes.find(item=>item.id===node.id).source.filename,'住宿.md');
+ assert.equal((await f.request('/admin/knowledge/'+uploaded.body.id+'/publish',{revision:data.library.revision},f.admin)).status,404);
 });
-test('new revisions retain published evidence until release; deletion removes access',async t=>{
- const f=await fixture(t);const uploaded=(await f.request('/admin/knowledge/upload',document,f.admin)).body;await f.knowledge.idle();
- const old=f.knowledge.store.detail(0,uploaded.id);f.knowledge.store.publish(0,old.id,old.draft_revision);
- await f.request('/admin/knowledge/upload',{...document,id:old.id,data:Buffer.from('# 新制度\n上海每晚600元。').toString('base64')},f.admin);await f.knowledge.idle();
- assert.ok(f.knowledge.store.published(2,old.id).nodes.some(node=>node.text.includes('520')));
- const next=f.knowledge.store.detail(0,old.id);assert.notEqual(next.draft_revision,old.draft_revision);
- f.knowledge.store.edit(0,next.id,{revision:next.draft_revision,nodeId:next.nodes[0].id,title:'新制度',summary:'2026年新住宿制度'});
- f.knowledge.store.publish(0,next.id,next.draft_revision);
- assert.equal((await f.request('/client/knowledge/read',{ids:[old.nodes[0].id]},f.alice)).status,404);
- const original=(await f.request('/admin/knowledge/'+old.id+'/original',{revision:old.draft_revision},f.admin)).body;assert.match(Buffer.from(original.data,'base64').toString(),/520/);
- await f.request('/admin/knowledge/'+old.id+'/delete',{},f.admin);assert.equal((await f.request('/client/knowledge/shared/'+old.id+'/detail',{},f.alice)).status,404);
+
+test('replacement and bulk deletion remain drafts until one atomic release; stale references are rejected', async t => {
+ const f=await fixture(t);
+ await f.request('/admin/knowledge/upload',document,f.admin);await f.knowledge.idle();
+ const before=f.knowledge.store.library.detail();
+ f.knowledge.store.library.publish(before.revision,'admin');
+ const article=before.nodes.find(node=>node.title==='上海住宿');
+ const old=f.knowledge.store.library.documents()[0].nodes.find(node=>node.title==='上海住宿');
+ const replacement={...document,filename:'替换.md',data:Buffer.from('# 上海住宿\n上海每晚600元。').toString('base64'),targetId:article.id,expectedRevision:before.revision};
+ assert.equal((await f.request('/admin/knowledge/upload',replacement,f.admin)).status,202);await f.knowledge.idle();
+ let current=f.knowledge.store.library.detail();
+ assert.match(current.nodes.find(node=>node.id===article.id).text,/600/);
+ assert.match((await f.request('/client/knowledge/read',{ids:[old.id]},f.alice)).body.nodes[0].text,/520/);
+ assert.equal((await f.request('/admin/knowledge/upload',replacement,f.admin)).status,409);
+ const exported=await f.request('/admin/knowledge/articles/export',{id:article.id},f.admin);
+ assert.match(exported.body.content,/600/);
+ assert.equal((await f.request('/admin/knowledge/publish',{revision:current.revision},f.admin)).status,200);
+ assert.equal((await f.request('/client/knowledge/read',{ids:[old.id]},f.alice)).status,404);
+ const ids=current.nodes.filter(node=>node.kind==='article').map(node=>node.id);
+ const staged=await f.request('/admin/knowledge/articles/delete',{ids,revision:current.revision},f.admin);
+ assert.equal(staged.status,200);current=staged.body;
+ assert.equal(current.nodes.length,0);assert.equal(current.deleted.filter(node=>node.kind==='article').length,ids.length);
+ assert.equal((await f.request('/client/knowledge/catalogue',{},f.alice)).body.documents.length,1);
+ assert.equal((await f.request('/admin/knowledge/publish',{revision:current.revision},f.admin)).status,200);
+ assert.equal((await f.request('/client/knowledge/catalogue',{},f.alice)).body.documents.length,0);
+});
+
+test('AI directly saves a reviewable draft without publishing and rejects stale or unread changes', async t => {
+ let actions=[];
+ const f=await fixture(t,{plan:()=>actions.shift()});
+ await f.request('/admin/knowledge/upload',document,f.admin);await f.knowledge.idle();
+ const base=f.knowledge.store.library.detail(),node=base.nodes.find(node=>node.title==='上海住宿');
+ const change={operation:'update',...node,summary:'上海普通员工每晚520元',reason:'精简摘要，保留原条件'};
+ actions=[{action:'read',ids:[node.id]},{action:'finish',changes:[change],warnings:[],exclusions:[]}];
+ const response=await f.request('/admin/knowledge/beautify',{revision:base.revision,nodeId:node.id},f.admin);
+ assert.equal(response.status,200);assert.equal(response.body.changed,true);
+ const applied=response.body.library;
+ assert.equal(applied.nodes.find(item=>item.id===node.id).summary,change.summary);
+ assert.deepEqual(applied.nodes.find(item=>item.id===node.id).sources,node.sources);
+ assert.deepEqual(applied.publishedNodes,[]);assert.equal(applied.review.changes.find(item=>item.id===node.id).reason,change.reason);
+ assert.equal((await f.request('/client/knowledge/catalogue',{},f.alice)).body.documents.length,0);
+ assert.equal((await f.request('/admin/knowledge/beautify',{revision:base.revision},f.admin)).status,409);
+ actions=[{action:'finish',changes:[change],warnings:[],exclusions:[]}];
+ assert.equal((await f.request('/admin/knowledge/beautify',{revision:applied.revision,nodeId:node.id},f.admin)).status,502);
+ assert.ok(f.outbound.every(body=>!Object.hasOwn(body,'max_tokens')));
+});
+
+test('published question tests read real evidence and reject mixed batch versions', async t => {
+ let actions=[];
+ const f=await fixture(t,{plan:()=>actions.shift()});
+ const empty=await f.request('/admin/knowledge/test',{question:'上海住宿？'},f.admin);
+ assert.equal(empty.status,200);assert.equal(empty.body.supported,false);assert.equal(f.outbound.length,0);
+ await f.request('/admin/knowledge/upload',document,f.admin);await f.knowledge.idle();
+ const base=f.knowledge.store.library.detail();f.knowledge.store.library.publish(base.revision,'admin');
+ const node=f.knowledge.store.library.documents()[0].nodes.find(item=>item.title==='上海住宿');
+ actions=[{action:'read',ids:[node.id]},{action:'answer',supported:true,answer:'上海每晚520元，需住宿发票。',citations:[{nodeId:node.id,quote:'上海每晚520元，需住宿发票。'}]}];
+ const result=await f.request('/admin/knowledge/test',{question:'上海住宿标准是多少？'},f.admin);
+ assert.equal(result.status,200);assert.equal(result.body.supported,true);assert.equal(result.body.calls,2);assert.equal(result.body.totalTokens,300);
+ assert.equal(result.body.trace[0].action,'read');assert.equal(result.body.citations[0].source.filename,'住宿.md');
+ assert.equal((await f.request('/admin/knowledge/search',{query:'520'},f.admin)).body.items.length,1);
+ assert.equal((await f.request('/admin/knowledge/test',{question:'问题',revision:'stale'},f.admin)).status,409);
+ assert.equal((await f.request('/admin/knowledge/test',{question:'问题'},f.alice)).status,403);
+ const personal=(await f.request('/client/knowledge/upload',document,f.alice)).body;await f.knowledge.idle();
+ assert.equal((await f.request('/client/knowledge/'+personal.id+'/download',{},f.bob)).status,404);
+});
+
+test('failed imports block complete publication until removed and cannot leak partial drafts', async t => {
+ const f=await fixture(t);
+ await f.request('/admin/knowledge/upload',document,f.admin);
+ const bad=(await f.request('/admin/knowledge/upload',{...document,filename:'bad.txt',data:Buffer.from('bad\0text').toString('base64')},f.admin)).body;
+ await f.knowledge.idle();
+ const current=f.knowledge.store.library.detail();
+ assert.equal((await f.request('/admin/knowledge/publish',{revision:current.revision},f.admin)).status,409);
+ assert.equal(f.knowledge.store.library.documents().length,0);
+ assert.equal((await f.request('/admin/knowledge/uploads/'+bad.id+'/delete',{},f.admin)).status,200);
+ assert.equal((await f.request('/admin/knowledge/publish',{revision:current.revision},f.admin)).status,200);
 });
 test('personal results remain server-side until a matching download acknowledgement; cloud memory is absent',async t=>{
  const f=await fixture(t),uploaded=(await f.request('/client/knowledge/upload',document,f.alice)).body;await f.knowledge.idle();
@@ -107,107 +173,6 @@ test('PDF text is page referenced; image-only PDFs fail explicitly; DOCX extract
  await assert.rejects(parseKnowledgeFile('scan.pdf',pdfFixture(null)),/没有可提取的文字/);
  const bytes=readFileSync(new URL('../node_modules/mammoth/test/test-data/single-paragraph.docx',import.meta.url));
  const docx=await parseKnowledgeFile('sample.docx',bytes);assert.ok(docx.some(block=>block.text.trim()));assert.equal(docx[0].source.format,'docx');
-});
-
-function readyDocument(store,title,body){
- const row=store.upload(0,{title,filename:title+'.md',bytes:Buffer.from(body)});
- const nodes=splitKnowledge([{title,level:1,text:body,source:{lineStart:1,lineEnd:2}}],row.id,row.draft_revision).map(node=>({...node,summary:title}));
- store.complete(row.id,row.draft_revision,nodes);
- return store.detail(0,row.id);
-}
-const updateDraft=(target,source)=>({operation:'update',documentId:target.id,documentTitle:target.title,baseRevision:target.draft_revision,nodeId:target.nodes[0].id,parentId:null,before:{title:target.nodes[0].title,summary:target.nodes[0].summary,text:target.nodes[0].text},title:target.title,summary:'2027年适用新标准，保留2026年旧标准',text:target.nodes[0].text+'\n\n2027年起上海住宿上限600元。',sourceNodeIds:[source.nodes[0].id],reason:'新通知补充2027年的标准'});
-
-test('incremental planner reads evidence before proposing changes and rejects unread or foreign targets',async()=>{
- const store=createTreeStore();
- try{
-  const target=readyDocument(store,'差旅制度','2026年住宿上限520元。');store.publish(0,target.id,target.draft_revision);
-  const source=readyDocument(store,'新通知','2027年住宿上限600元。'),change=updateDraft(target,source);
-  const docs=store.catalogue(0).filter(doc=>doc.id===target.id),messages=[];
-  const actions=[{action:'read',ids:[target.nodes[0].id]},{action:'finish',changes:[change]}];
-  const plan=await planKnowledgeChanges(docs,source.nodes,async input=>{messages.push(structuredClone(input));return JSON.stringify(actions.shift());});
-  assert.equal(plan.length,1);assert.match(messages[1].at(-1).content,/520元/);assert.equal(plan[0].before.text,target.nodes[0].text);
-  await assert.rejects(planKnowledgeChanges(docs,source.nodes,async()=>JSON.stringify({action:'finish',changes:[change]})),/未读取/);
-  const foreign={...change,documentId:'f'.repeat(32)};
-  await assert.rejects(planKnowledgeChanges(docs,source.nodes,async()=>JSON.stringify({action:'finish',changes:[foreign]})),/无权限/);
-  const append={...change,operation:'add',nodeId:undefined,parentId:target.nodes[0].id,title:'2027补充标准'};
-  const appendActions=[{action:'read',ids:[target.nodes[0].id]},{action:'finish',changes:[append]}];
-  const added=await planKnowledgeChanges(docs,source.nodes,async()=>JSON.stringify(appendActions.shift()));
-  assert.equal(added[0].before,null);store.complete(source.id,source.draft_revision,source.nodes,added);store.publish(0,source.id,source.draft_revision);
-  const published=store.published(0,target.id);assert.equal(published.nodes.length,2);assert.equal(published.nodes[1].parentId,published.nodes[0].id);
-  let calls=0;assert.deepEqual(await planKnowledgeChanges([],source.nodes,async()=>{calls++;}),[]);assert.equal(calls,0);
- }finally{store.close();}
-});
-
-test('reviewed publication updates existing knowledge atomically, keeps originals and withdraws derived evidence',()=>{
- const store=createTreeStore();
- try{
-  const target=readyDocument(store,'差旅制度','2026年住宿上限520元。');store.publish(0,target.id,target.draft_revision);
-  const source=readyDocument(store,'补充通知','2027年住宿上限600元。');
-  store.complete(source.id,source.draft_revision,source.nodes,[updateDraft(target,source)]);
-  assert.match(store.published(7,target.id).nodes[0].text,/520/);assert.doesNotMatch(store.published(7,target.id).nodes[0].text,/600/);
-  const result=store.publishMany(0,[{id:source.id,revision:source.draft_revision}]);assert.deepEqual(result,{published:1,updated:1});
-  const revised=store.published(7,target.id);assert.match(revised.nodes[0].text,/600/);assert.match(revised.nodes[0].text,/2026年/);assert.notEqual(revised.nodes[0].id,target.nodes[0].id);
-  assert.equal(revised.nodes[0].sources.length,2);assert.equal(revised.nodes[0].sources[1].documentId,source.id);
-  const unchanged=store.upload(0,{id:target.id,title:target.title,filename:'差旅制度.md',bytes:Buffer.from('2026年住宿上限520元。')});assert.equal(unchanged.skipped,true);assert.equal(unchanged.draft_revision,revised.revision);
-  assert.match(Buffer.from(store.original(0,target.id,target.draft_revision).data,'base64').toString(),/520/);
-  assert.doesNotMatch(Buffer.from(store.original(0,target.id).data,'base64').toString(),/600/);
-  assert.throws(()=>readKnowledgeNodes(store.catalogue(7),[target.nodes[0].id]),/已更新/);
-  store.unpublish(0,source.id);assert.equal(store.published(7,target.id).nodes.length,0);
-  store.publish(0,source.id,source.draft_revision);assert.equal(store.published(7,target.id).nodes.length,1);
- }finally{store.close();}
-});
-
-test('bulk publication rejects conflicting or stale plans without partial release; dismissal and duplicate upload are explicit',()=>{
- const store=createTreeStore();
- try{
-  const target=readyDocument(store,'差旅制度','2026年住宿上限520元。');store.publish(0,target.id,target.draft_revision);
-  const first=readyDocument(store,'通知一','2027年起600元。'),second=readyDocument(store,'通知二','2028年起700元。');
-  for(const source of [first,second])store.complete(source.id,source.draft_revision,source.nodes,[updateDraft(target,source)]);
-  assert.throws(()=>store.publishMany(0,[first,second].map(source=>({id:source.id,revision:source.draft_revision}))),/同一章节/);
-  assert.equal(store.detail(0,first.id).published,false);assert.equal(store.detail(0,second.id).published,false);assert.equal(store.detail(0,target.id).draft_revision,target.draft_revision);
-  store.dismiss(0,second.id,second.draft_revision,0);assert.equal(store.detail(0,second.id).proposals.length,0);
-  store.publish(0,first.id,first.draft_revision);
-  store.complete(second.id,second.draft_revision,second.nodes,[updateDraft(target,second)]);
-  assert.throws(()=>store.publish(0,second.id,second.draft_revision),/已修改或撤回/);assert.equal(store.detail(0,second.id).published,false);
-  store.retry(0,second.id);assert.equal(store.detail(0,second.id).status,'pending');assert.equal(store.detail(0,second.id).proposals.length,0);
-  const duplicate=store.upload(0,{title:'重复',filename:'通知一.md',bytes:Buffer.from('2027年起600元。')});assert.equal(duplicate.skipped,true);assert.equal(duplicate.id,first.id);
- }finally{store.close();}
-});
-
-test('HTTP processing prepares reviewed changes and bulk release is permission checked',async t=>{
- const f=await fixture(t,{plan:messages=>{
-  const initial=JSON.parse(messages[1].content),target=initial.existing.documents[0],node=target.nodes[0];
-  if(messages.length===2)return{action:'read',ids:[node.id]};
-  const old=JSON.parse(messages.at(-1).content).result.nodes[0];
-  return{action:'finish',changes:[{operation:'update',documentId:target.id,nodeId:node.id,title:node.title,summary:'保留旧制度，补充新通知',text:old.text+'\n\n2027年起上海每晚600元。',sourceNodeIds:[initial.newNodes[0].id],reason:'补充新生效日期和金额'}]};
- }});
- const uploaded=(await f.request('/admin/knowledge/upload',document,f.admin)).body;await f.knowledge.idle();
- let detail=f.knowledge.store.detail(0,uploaded.id);await f.request('/admin/knowledge/'+detail.id+'/publish',{revision:detail.draft_revision},f.admin);
- const supplement=(await f.request('/admin/knowledge/upload',{title:'新通知',filename:'通知.md',data:Buffer.from('# 新通知\n2027年起上海每晚600元。').toString('base64')},f.admin)).body;await f.knowledge.idle();
- detail=f.knowledge.store.detail(0,supplement.id);assert.equal(detail.status,'ready');assert.equal(detail.proposals.length,1);assert.equal(detail.changes,1);
- const documents=[{id:detail.id,revision:detail.draft_revision}];
- assert.equal((await f.request('/admin/knowledge/publish',{documents},f.alice)).status,403);
- assert.equal((await f.request('/admin/knowledge/publish',{documents},f.admin)).status,200);
- const read=f.knowledge.store.published(2,uploaded.id);assert.match(read.nodes[0].text,/600/);assert.equal(read.nodes[0].sources.length,2);
- assert.ok(f.db.read().requests.filter(item=>item.purpose==='knowledge_index').length>=4);
-  assert.equal((await f.request('/admin/knowledge/publish',{documents:[null]},f.admin)).status,400);
-});
-
-test('draft editing changes reviewed content only, keeps originals and drops proposals based on corrected source text',()=>{
- const store=createTreeStore();
- try{
-  const target=readyDocument(store,'差旅制度','2026年住宿上限520元。');store.publish(0,target.id,target.draft_revision);
-  const source=readyDocument(store,'补充通知','2027年起600元。');store.complete(source.id,source.draft_revision,source.nodes,[updateDraft(target,source)]);
-  const proposal=store.detail(0,source.id).proposals[0];
-  store.edit(0,source.id,{revision:source.draft_revision,proposalIndex:0,title:'人工确认标准',summary:'需住宿发票',text:proposal.text+'\n必须提供住宿发票。'});
-  let detail=store.detail(0,source.id);assert.match(detail.proposals[0].text,/住宿发票/);assert.equal(detail.proposals[0].baseRevision,proposal.baseRevision);assert.deepEqual(detail.proposals[0].sourceNodeIds,proposal.sourceNodeIds);
-  const result=store.edit(0,source.id,{revision:source.draft_revision,nodeId:source.nodes[0].id,title:'补充通知',summary:'修正适用年度',text:'2028年起600元。'});
-  assert.equal(result.discardedChanges,1);detail=store.detail(0,source.id);assert.equal(detail.proposals.length,0);assert.equal(detail.nodes[0].text,'2028年起600元。');
-  assert.match(Buffer.from(store.original(0,source.id).data,'base64').toString(),/2027年/);assert.doesNotMatch(store.published(0,target.id).nodes[0].text,/600/);
-  for(const text of ['', '字'.repeat(12001)])assert.throws(()=>store.edit(0,source.id,{revision:source.draft_revision,nodeId:source.nodes[0].id,title:'测试',summary:'摘要',text}),/正文/);
-  store.publish(0,source.id,source.draft_revision);
-  assert.throws(()=>store.edit(0,source.id,{revision:source.draft_revision,nodeId:source.nodes[0].id,title:'测试',summary:'摘要',text:'修改'}),/撤回发布/);
- }finally{store.close();}
 });
 
 test('knowledge upload accepts files over 2 MB without relaxing ordinary JSON endpoints or authentication',async t=>{
