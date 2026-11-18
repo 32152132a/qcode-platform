@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { modelPriceMicros } from './billing.js';
 import { knowledgeSkill } from './knowledge-runtime.js';
 import { configuredVisionModel } from './model-sources.js';
 import { modelPresentation } from './model-presentation.js';
@@ -23,10 +24,9 @@ export function registerEnterpriseRoutes(app, { db, config, auth }) {
     }
     // Estimate the same request for every model: 10,000 uncached input and 1,000 output tokens.
     const costs = new Map(models.flatMap(model => {
-      const prices = [model.input_price, model.cached_input_price, model.output_price];
-      if (model.pricing_known !== true || model.currency !== 'CNY' ||
-          prices.some(price => !Number.isFinite(price) || price < 0)) return [];
-      const estimated = model.input_price * 10 + model.output_price;
+      const prices = [model.input_price, model.cached_input_price, model.output_price].map(modelPriceMicros);
+      if (model.pricing_known !== true || model.currency !== 'CNY' || prices.some(price => price === null)) return [];
+      const estimated = prices[0] * 10 + prices[2];
       return estimated > 0 || prices.every(price => price === 0) ? [[model.id, estimated]] : [];
     }));
     const baseline = models[0];

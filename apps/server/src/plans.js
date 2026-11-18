@@ -74,7 +74,7 @@ function savePlan(state, body, existing) {
     level,
     is_default: isDefault,
     description: body.description?.trim() || "",
-    price_cents: Math.round(Number(body.price) * 100),
+    price_cents: moneyMicros(Number(body.price), "套餐价格") / 10000,
     currency: "CNY",
     duration_days: days,
     model_ids: [...body.modelIds],

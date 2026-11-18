@@ -85,7 +85,7 @@ test('source discovery scopes credentials and preserves edits, disables retired 
   assert.equal(current.active, true)
   assert.equal(current.max_output_tokens, 1024)
   assert.equal(current.context_window, 65536)
-  assert.equal(current.cached_input_price, 0)
+  assert.equal(current.cached_input_price, '0')
   models = ['claude-sonnet-4']
   await sync()
   assert.equal(f.db.read().models.find((m) => m.id === gpt.id).catalog_available, false)
@@ -419,4 +419,37 @@ test('model deletion preserves usage and requires explicit creation after sync',
   assert.equal((await f.request('/admin/models/sources/' + model.source_id + '/models/' + imported.id, 'DELETE', undefined, f.admin)).status, 200)
   assert.equal((await f.request('/admin/models/sources/' + model.source_id, 'DELETE', undefined, f.admin)).status, 200)
   assert.deepEqual(f.db.read().requests, history)
+})
+
+test('model creation and editing enforce exact six-decimal prices for numeric and text submissions', async t => {
+  const f = await fixture(t)
+  const source = (await f.request('/admin/models/sources', 'GET', undefined, f.admin)).body[0]
+  const created = await addModel(f, source.id, 'decimal-test', {
+    inputPrice: '0.195800', cachedInputPrice: '0.195800', outputPrice: '0.992700',
+  })
+  assert.equal(created.status, 201)
+  assert.equal(created.body.input_price, '0.195800')
+  const updated = await f.request('/admin/models/sources/' + source.id + '/models/' + created.body.id,
+    'PATCH', { inputPrice: '0.001000', cachedInputPrice: '0.000000', outputPrice: '2.000000' }, f.admin)
+  assert.equal(updated.status, 200)
+  assert.equal(updated.body.input_price, '0.001000')
+  assert.equal(updated.body.cached_input_price, '0.000000')
+  assert.equal(updated.body.output_price, '2.000000')
+  await f.request('/admin/models/sources/' + source.id + '/models/' + created.body.id,
+    'PATCH', { inputPrice: '0.195800', cachedInputPrice: '0.195800', outputPrice: '0.992700' }, f.admin)
+  f.db.transaction(state => {
+    Object.assign(state.models[0], { input_price: '1', cached_input_price: '0', output_price: '2', pricing_known: true, currency: 'CNY' })
+    state.models.find(model => model.id === created.body.id).active = true
+  })
+  const config = (await f.request('/client/config', 'GET', undefined, f.admin)).body
+  const presented = config.models.find(model => model.id === created.body.public_name)
+  assert.equal(presented.usageRate, 2950700 / 12000000)
+
+  for (const inputPrice of [0.0000001, '0.0000001', 100001]) {
+    const response = await f.request('/admin/models/sources/' + source.id + '/models/' + created.body.id,
+      'PATCH', { inputPrice, cachedInputPrice: 0, outputPrice: 1 }, f.admin)
+    assert.equal(response.status, 400)
+    assert.equal(response.body.error.code, 'INVALID_PRICE')
+    assert.equal(f.db.read().models.find(model => model.id === created.body.id).input_price, '0.195800')
+  }
 })

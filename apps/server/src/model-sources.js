@@ -1,5 +1,5 @@
 import { bindSourceKeys, sourceKey, sourceKeyIds, fetchWithKeys } from './key-pool.js';
-import { officialPrice } from './billing.js';
+import { officialPrice, modelPrice } from './billing.js';
 import { catalogDisplayFields } from './model-presentation.js'
 import { id, now, text, baseUrl, fail, audit, availableModels } from './domain.js'
 
@@ -78,14 +78,12 @@ function modelFormBody(body) {
     settings.contextWindow = Number(settings.contextWindow)
   for (const field of ['inputPrice', 'cachedInputPrice', 'outputPrice', 'imagePrice']) {
     const value = settings[field]
-    if (typeof value !== 'string') continue
+    if (value == null) continue
     if (value === '') {
       delete settings[field]
       continue
     }
-    if (!/^[0-9]+(?:\.[0-9]{1,6})?$/.test(value))
-      fail(400, 'INVALID_PRICE', '单价最多支持六位小数')
-    settings[field] = Number(value)
+    settings[field] = modelPrice(value)
   }
   return settings
 }
@@ -94,7 +92,7 @@ function confirmedSettings(body, image) {
   if (!image && (!Number.isSafeInteger(body.contextWindow) || body.contextWindow < 1))
     fail(400, 'MODEL_CONTEXT_REQUIRED', '请填写上下文长度')
   const fields = image ? ['imagePrice'] : ['inputPrice', 'cachedInputPrice', 'outputPrice']
-  if (fields.some(field => typeof body[field] !== 'number' || !Number.isFinite(body[field])))
+  if (fields.some(field => typeof body[field] !== 'string'))
     fail(400, 'MODEL_PRICE_REQUIRED', '请填写人民币单价，免费项目请填 0')
   return { ...body, currency: 'CNY', pricingKnown: true }
 }

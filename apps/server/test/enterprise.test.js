@@ -96,12 +96,14 @@ test('SQLite commits atomically, survives reopen and encrypts secrets', () => {
   let db;
   try {
     db = createDatabase(filename,{vault});
-    db.transaction(s => { s.users.push({id:1,username:'alice',role:'user'}); s.nextUserId=2; s.keys.push({id:'k',secret:vault.encrypt('hidden-provider-secret')}); });
+    db.transaction(s => { s.users.push({id:1,username:'alice',role:'user'}); s.nextUserId=2; s.models.push({id:'decimal-model',input_price:'0.001000',cached_input_price:'0.000000',output_price:'2.000000',image_price:'0'}); s.keys.push({id:'k',secret:vault.encrypt('hidden-provider-secret')}); });
     assert.throws(()=>db.transaction(s => s.users.push({id:2,username:'ALICE'})));
     assert.equal(db.read().users.length,1);
     assert.throws(()=>createDatabase(filename,{vault}),/locked/);
     db.close(); db=createDatabase(filename,{vault});
     assert.equal(db.read().users[0].username,'alice'); assert.equal(vault.decrypt(db.read().keys[0].secret),'hidden-provider-secret');
+    assert.equal(db.read().models[0].input_price, '0.001000');
+    assert.equal(db.read().models[0].output_price, '2.000000');
     assert.equal(fs.readFileSync(filename).includes(Buffer.from('hidden-provider-secret')),false);
   } finally { db?.close(); fs.rmSync(dir,{recursive:true,force:true}); }
 });

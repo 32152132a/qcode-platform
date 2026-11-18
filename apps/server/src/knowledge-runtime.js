@@ -42,6 +42,7 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
       const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.length;if(size>2*1024*1024)fail(502,'KNOWLEDGE_RESPONSE_TOO_LARGE','知识整理响应过大');chunks.push(chunk);}
       let value;try{value=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(502,'INVALID_KNOWLEDGE_SUMMARY','知识整理接口返回格式无效');}
       usage=parseUsage(value.usage);
+      if(value.choices?.[0]?.finish_reason==='length')fail(502,'KNOWLEDGE_OUTPUT_TRUNCATED','知识整理模型的输出达到上限，请在能力配置中更换模型后重试');
       if(typeof value.choices?.[0]?.message?.content!=='string')fail(502,'INVALID_KNOWLEDGE_SUMMARY','模型没有返回整理内容');
       return value.choices[0].message.content;
     }catch(error){errorCode=error.code||'KNOWLEDGE_PROCESSING_FAILED';throw error;}

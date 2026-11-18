@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseUsage, moneyMicros, creditUsage, reserveCredit, settleCredit, officialPrice } from '../src/billing.js';
+import { parseUsage, moneyMicros, creditUsage, reserveCredit, settleCredit, officialPrice, modelPrice } from '../src/billing.js';
 
 const user = { id: 2, role: 'user' };
 const model = { pricing_known: true, currency: 'CNY', input_price: 2, cached_input_price: 0.2, output_price: 8, image_price: 0.1 };
@@ -70,4 +70,23 @@ test('official reference prices require the matching source and never apply to r
   assert.equal(officialPrice({ kind: 'relay', base_url: 'https://api.deepseek.com/v1' }, 'deepseek-flash'), null);
   assert.equal(officialPrice({ kind: 'official', base_url: 'https://example.com/v1' }, 'deepseek-flash'), null);
   assert.equal(officialPrice({ kind: 'local', base_url: 'http://localhost:11434/v1' }, 'qwen3.8-flash'), null);
+});
+
+test('decimal prices convert exactly and reject sub-micro precision before billing', () => {
+  assert.equal(moneyMicros(0.000001), 1);
+  assert.equal(moneyMicros(999999.999999), 999999999999);
+  assert.equal(modelPrice('0.195800'), '0.195800');
+  assert.equal(modelPrice('0.001000'), '0.001000');
+  assert.equal(modelPrice('100000.000000'), '100000.000000');
+  for (const value of ['0.0000001', 1.0000001, -0.0000001, Infinity, '', '1e-6', null])
+    assert.throws(() => modelPrice(value), { code: 'INVALID_PRICE' });
+  const state = fixture();
+  const record = { subscription_id: 'cycle' };
+  settleCredit(state, record, { ...model, input_price: '0.195800', cached_input_price: '0.195800', output_price: '0.992700' },
+    { input_tokens: 1000000, output_tokens: 1000000, cached_input_tokens: 500000 });
+  assert.equal(record.cost_micros, 1188500);
+  const tiny = { subscription_id: 'cycle' };
+  settleCredit(state, tiny, { ...model, input_price: 0.000001, output_price: 0.000001 },
+    { input_tokens: 500000, output_tokens: 500000, cached_input_tokens: 0 });
+  assert.equal(tiny.charged_micros, 1);
 });

@@ -45,11 +45,11 @@ export interface Model {
   catalog_available?: boolean
   is_default: boolean
   context_window: number
-  input_price: number
-  cached_input_price: number
-  image_price: number
+  input_price: string | number
+  cached_input_price: string | number
+  image_price: string | number
   reference?: ModelReference
-  output_price: number
+  output_price: string | number
   currency: string
   max_tokens_field: string
   stream_usage: boolean

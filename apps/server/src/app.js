@@ -1,3 +1,4 @@
+import { modelPrice } from './billing.js';
 import { registerEmbeddingSettings } from './embeddings.js';
 import { getHeapStatistics } from 'node:v8';
 import { keySource, sourceKeyIds, bindSourceKeys } from './key-pool.js';
@@ -326,7 +327,9 @@ export function createApp(config, database) {
     }));
   });
   function saveModel(state, body, existing) {
-    for (const price of [body.inputPrice ?? 0, body.cachedInputPrice ?? 0, body.outputPrice ?? 0, body.imagePrice ?? 0]) if (typeof price !== 'number' || !Number.isFinite(price) || price < 0 || price > 100000) fail(400, 'INVALID_PRICE', '单价必须在 0 到 100000 之间');
+    for (const field of ['inputPrice', 'cachedInputPrice', 'outputPrice', 'imagePrice']) {
+      if (body[field] != null) body[field] = modelPrice(body[field]);
+    }
     if (!['CNY','USD'].includes(body.currency || 'CNY')) fail(400, 'INVALID_CURRENCY', '币种只支持 CNY 或 USD');
     if (!['max_tokens','max_completion_tokens'].includes(body.maxTokensField || 'max_tokens')) fail(400, 'INVALID_FIELD', '无效的输出上限字段');
     if(body.pricingKnown!==undefined&&typeof body.pricingKnown!=='boolean')fail(400,'INVALID_FIELD','pricingKnown 必须为布尔值');
@@ -339,7 +342,7 @@ export function createApp(config, database) {
     if (provider === 'ollama' && (protocol !== 'chat-completions' || keyId)) fail(400, 'INVALID_MODEL', 'Ollama 使用 Chat Completions，且无需绑定 Key');
     const model = { ...existing, pricing_known:body.pricingKnown??existing?.pricing_known??true, protocol, provider, key_id: keyId, id: existing?.id || id(), name: text(body.name, 'name'), public_name: text(body.publicName, 'publicName', 80),
       upstream_model: text(body.upstreamModel, 'upstreamModel'), base_url: baseUrl(body.baseUrl),
-      context_window: integer(body.contextWindow ?? 131072, 'contextWindow', 2000000), input_price: body.inputPrice ?? 0, cached_input_price: body.cachedInputPrice ?? body.inputPrice ?? 0, output_price: body.outputPrice ?? 0, image_price: body.imagePrice ?? 0, currency: body.currency || 'CNY', max_tokens_field: body.maxTokensField || 'max_tokens',
+      context_window: integer(body.contextWindow ?? 131072, 'contextWindow', 2000000), input_price: body.inputPrice ?? '0', cached_input_price: body.cachedInputPrice ?? body.inputPrice ?? '0', output_price: body.outputPrice ?? '0', image_price: body.imagePrice ?? '0', currency: body.currency || 'CNY', max_tokens_field: body.maxTokensField || 'max_tokens',
       stream_usage: body.streamUsage !== false, active: body.active !== false, is_default: body.isDefault === true, created_at: existing?.created_at || now() };
     if (body.supportsVision !== undefined) model.capabilities = [...new Set([...(existing?.capabilities || []).filter(value => value !== 'vision'), ...(body.supportsVision ? ['vision'] : [])])];
     if (!/^[a-zA-Z0-9_.-]+$/.test(model.public_name) || !model.context_window) fail(400, 'INVALID_MODEL', '公开模型名称或上下文配置无效');

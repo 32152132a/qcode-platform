@@ -22,10 +22,28 @@ export function officialPrice(source, model) {
   return price ? { contextWindow: /^(deepseek|kimi|doubao)/.test(model) ? 1048576 : 1000000, inputPrice: price[0], cachedInputPrice: price[1], outputPrice: price[2], currency: 'CNY', pricingKnown: true } : null;
 }
 
+function decimalUnits(value, precision) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  const match = String(value).match(/^(\d+)(?:\.(\d+))?$/);
+  if (!match || (match[2]?.length ?? 0) > precision) return null;
+  const units = BigInt(match[1]) * 10n ** BigInt(precision)
+    + BigInt((match[2] || '').padEnd(precision, '0') || '0');
+  return units <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(units) : null;
+}
 export function moneyMicros(value, label = '使用额度') {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1000000 || Math.abs(value * 1000000 - Math.round(value * 1000000)) > 0.0001)
-    fail(400, 'INVALID_AMOUNT', `${label}数值无效`);
-  return Math.round(value * 1000000);
+  const units = typeof value === 'number' ? decimalUnits(value, 6) : null;
+  if (units === null || units > 1_000_000_000_000)
+    fail(400, 'INVALID_AMOUNT', `${label}须为 0 至 1000000，最多六位小数`);
+  return units;
+}
+export function modelPriceMicros(value) {
+  const units = decimalUnits(value, 6);
+  return units !== null && units <= 100_000_000_000 ? units : null;
+}
+export function modelPrice(value) {
+  if (modelPriceMicros(value) === null)
+    fail(400, 'INVALID_PRICE', '单价须为 0 至 100000，最多六位小数');
+  return String(value);
 }
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 export function parseUsage(value) {
@@ -49,7 +67,7 @@ export function creditUsage(state, user) {
 function requestCost(terms, perImage = false) {
   let total = 0n;
   for (const [quantity, price] of terms) {
-    const rate = Math.round(price * 1_000_000);
+    const rate = modelPriceMicros(price);
     if (count(quantity) === null || count(rate) === null) return null;
     total += BigInt(quantity) * BigInt(rate);
   }
@@ -81,8 +99,10 @@ export function settleCredit(state, record, model, usage, imageCount = 0) {
   }
   record.cost_micros = value;
   record.currency = model?.currency || 'CNY';
-  record.input_price = model?.input_price; record.cached_input_price = model?.cached_input_price; record.output_price = model?.output_price;
-  if (imageCount) record.image_price = model.image_price;
+  for (const field of ['input_price', 'cached_input_price', 'output_price']) {
+    if (model?.[field] != null) record[field] = String(model[field]);
+  }
+  if (imageCount) record.image_price = String(model.image_price);
   record.billing_settled = true;
   const subscription = state.subscriptions.find(item => item.id === record.subscription_id);
   if (subscription && record.cost_micros !== null && record.currency === 'CNY') {
