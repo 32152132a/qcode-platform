@@ -18,6 +18,7 @@
     </div>
     </header>
     <div class="knowledge-manager__status">
+      <el-alert v-if="versionMismatch" title="管理端与后台版本不一致，请先更新后台服务后再上传资料" type="error" :closable="false" show-icon />
       <el-alert v-if="error||actionError" :title="error||actionError" type="error" :closable="false" show-icon />
       <p v-if="beautifying" class="knowledge-manager__processing" role="status"><el-icon class="is-loading"><Loading /></el-icon>正在整理知识内容，完成后保存为草稿…</p>
       <details v-else-if="library?.review&&(library.review.warnings.length||library.review.exclusions.length)" class="knowledge-manager__notices"><summary>AI 整理记录 · {{ library.review.warnings.length+library.review.exclusions.length }} 项</summary><p v-for="warning in library.review.warnings" :key="warning">{{ warning }}</p><div v-for="(item,index) in library.review.exclusions" :key="index"><p><strong>{{ item.titles.join('、') }}</strong>：{{ item.reason }}</p><blockquote v-if="item.quote">{{ item.quote }}</blockquote></div></details>
@@ -118,10 +119,11 @@ const treeRef=ref<InstanceType<typeof ElTree>>(),picker=ref<HTMLInputElement>(),
 const beautifying=ref(false),readerMode=ref('compare')
 let beautifyController:AbortController|undefined
 const selectedId=ref(''),keyword=ref(''),selecting=ref(false),checked=ref<string[]>([]),uploading=ref(false),mutating=ref(false),actionError=ref(''),uploadProgress=ref(''),replacement=ref<KnowledgeNode>()
-const library=computed(()=>data.value?.library),canWrite=computed(()=>auth.can('knowledge:write'))
+const versionMismatch=computed(()=>Boolean(data.value&&!data.value.library))
+const library=computed(()=>data.value?.library),canWrite=computed(()=>auth.can('knowledge:write')&&!versionMismatch.value)
 const activeUploads=computed(()=>(data.value?.uploads||[]).filter(job=>job.status!=='ready'))
 const hasFailures=computed(()=>activeUploads.value.some(job=>job.status==='failed'))
-const busy=computed(()=>beautifying.value||uploading.value||mutating.value||activeUploads.value.some(job=>['pending','processing'].includes(job.status)))
+const busy=computed(()=>versionMismatch.value||beautifying.value||uploading.value||mutating.value||activeUploads.value.some(job=>['pending','processing'].includes(job.status)))
 const articles=computed(()=>library.value?.nodes.filter(node=>node.kind==='article')||[])
 const allChecked=computed(()=>articles.value.length>0&&checked.value.length===articles.value.length)
 const nodes=computed(()=>[...(library.value?.nodes||[]),...(library.value?.deleted||[]).map(node=>({...node,pendingDelete:true}))])
@@ -159,18 +161,31 @@ function checkAll(){checked.value=allChecked.value?[]:articles.value.map(node=>n
 function choose(node?:KnowledgeNode){replacement.value=node;if(picker.value){picker.value.multiple=!node;picker.value.click()}}
 async function upload(event:Event){
   const input=event.target as HTMLInputElement,files=Array.from(input.files||[]);input.value='';if(!files.length)return
-  uploading.value=true;actionError.value='';let completed=0
+  uploading.value=true;actionError.value='';let completed=0,skipped=0,failed=0,processingFailed=0
   try{
     for(const file of files){
       uploadProgress.value='正在上传 '+file.name
       try{
         const bytes=new Uint8Array(await file.arrayBuffer());let binary=''
         for(let offset=0;offset<bytes.length;offset+=32768)binary+=String.fromCharCode(...bytes.subarray(offset,offset+32768))
-        const result=await request<{skipped?:boolean}>('/admin/knowledge/upload','POST',{title:replacement.value?.title||file.name.replace(/\.[^.]+$/,''),filename:file.name,mime:file.type,data:btoa(binary),...(replacement.value?{targetId:replacement.value.id,expectedRevision:library.value?.revision}:{})})
-        if(!result.skipped)completed++
-      }catch(cause){actionError.value+=(actionError.value?'；':'')+file.name+'：'+(cause instanceof Error?cause.message:'上传失败')}
+        const result=await request<{skipped?:boolean;status:string}>('/admin/knowledge/upload','POST',{title:replacement.value?.title||file.name.replace(/\.[^.]+$/,''),filename:file.name,mime:file.type,data:btoa(binary),...(replacement.value?{targetId:replacement.value.id,expectedRevision:library.value?.revision}:{})})
+        if(result.skipped){skipped++;if(result.status==='failed')processingFailed++}
+        else completed++
+      }catch(cause){failed++;actionError.value+=(actionError.value?'；':'')+file.name+'：'+(cause instanceof Error?cause.message:'上传失败')}
     }
-    ElMessage.info('已上传 '+completed+' 份资料，解析后保存为草稿');await load()
+    if(!completed&&!skipped)ElMessage.error('资料上传失败，请查看页面中的具体原因')
+    else if(!completed&&!failed){
+      if(processingFailed)ElMessage.warning('资料已上传，其中 '+processingFailed+' 份处理失败，请在目录中点击重试')
+      else ElMessage.info('所选资料已上传，无需重复上传；处理结果请查看目录')
+    }else{
+      const results:string[]=[]
+      if(completed)results.push('已上传 '+completed+' 份，解析后保存为草稿')
+      if(skipped)results.push('已跳过 '+skipped+' 份重复资料')
+      if(failed)results.push(failed+' 份上传失败，请查看具体原因')
+      if(processingFailed)results.push(processingFailed+' 份已上传资料处理失败，请在目录中重试')
+      ElMessage({message:results.join('；'),type:failed||processingFailed?'warning':'success'})
+    }
+    await load()
   }finally{uploading.value=false;replacement.value=undefined;uploadProgress.value=''}
 }
 async function beautify(node?:KnowledgeNode){
