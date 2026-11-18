@@ -180,3 +180,22 @@ test('a rejected read does not consume budget needed by subsequent smaller reads
  assert.equal(result.supported,true);assert.equal(result.calls,4);
  assert.ok(result.trace.some(step=>step.error));
 });
+
+test('beautification corrects invalid JSON once and preserves Markdown code fences inside valid JSON', async () => {
+ const store = createTreeStore();
+ try {
+  const base = imported(store), article = base.nodes.find(node => node.title === '上海住宿');
+  const markdown = article.text + '\n\n' + String.fromCharCode(96).repeat(3) + 'json\n{"example":true}\n' + String.fromCharCode(96).repeat(3);
+  const responses = ['我会先查看相关正文。', JSON.stringify({action:'read',ids:[article.id]}), JSON.stringify({action:'finish',changes:[{...article,operation:'update',text:markdown,reason:'整理示例'}]})];
+  let calls = 0;
+  const plan = await beautifyKnowledge(base, article.id, async messages => {
+   if (++calls === 2) assert.match(messages.at(-1).content, /未通过格式校验/);
+   return responses.shift();
+  });
+  assert.equal(plan.changes[0].text, markdown);
+  assert.equal(calls, 3);
+  calls = 0;
+  await assert.rejects(beautifyKnowledge(base, article.id, async () => { calls++; return '无效输出'; }), {code:'INVALID_KNOWLEDGE_RESULT'});
+  assert.equal(calls, 2);
+ } finally { store.close(); }
+});
