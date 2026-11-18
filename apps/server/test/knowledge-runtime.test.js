@@ -10,7 +10,7 @@ import { createApp } from '../src/app.js';
 import { createDatabase, hashPassword } from '../src/database.js';
 import { createTreeStore } from '../src/knowledge-tree-store.js';
 import { parseKnowledgeFile } from '../src/knowledge-parser.js';
-import { splitKnowledge, knowledgeCatalogue, readKnowledgeNodes, planKnowledgeChanges } from '../src/knowledge-tree.js';
+import { splitKnowledge, knowledgeCatalogue, readKnowledgeNodes, planKnowledgeChanges, summarizeKnowledge } from '../src/knowledge-tree.js';
 
 async function fixture(t,{plan}={}){
  const db=createDatabase(),outbound=[];
@@ -29,6 +29,7 @@ const document={title:'住宿制度',filename:'住宿.md',data:Buffer.from('# �
 test('enterprise publication and private documents use server ACL at every read',async t=>{
  const f=await fixture(t),shared=await f.request('/admin/knowledge/upload',document,f.admin);assert.equal(shared.status,202);await f.knowledge.idle();
  const id=shared.body.id,detail=await f.request('/admin/knowledge/'+id+'/detail',{},f.admin);assert.equal(detail.body.status,'ready');assert.equal(detail.body.published,false);
+ assert.ok(f.outbound.length > 0);assert.ok(f.outbound.every(body => !Object.hasOwn(body,'max_tokens')));
  assert.equal((await f.request('/client/knowledge/catalogue',{},f.alice)).body.documents.length,0);
  assert.equal((await f.request('/admin/knowledge/'+id+'/publish',{revision:detail.body.draft_revision},f.admin)).status,200);
  const catalogue=(await f.request('/client/knowledge/catalogue',{},f.alice)).body;assert.equal(catalogue.documents.length,1);
@@ -215,4 +216,28 @@ test('knowledge upload accepts files over 2 MB without relaxing ordinary JSON en
  assert.equal((await f.request('/client/knowledge/upload',large,f.alice)).status,202);
  await f.knowledge.idle();const result=(await f.request('/client/knowledge/list',{},f.alice)).body.documents[0];assert.equal(result.bytes,3*1024*1024);assert.equal(result.status,'failed');assert.match(result.error,/正文|20万|拆分/);
  assert.equal((await f.request('/auth/login',large)).status,413);
+});
+
+test('summary generation corrects invalid JSON and oversized summaries once, retaining original node identities', async () => {
+  const node = { id: 'node-1', title: '制度', text: '上海住宿每晚500元。', summary: '' };
+  for (const invalid of ['{"nodes":[', JSON.stringify({nodes:[{id:node.id,summary:'长'.repeat(101)}]}), 'null', '{"nodes":[null]}']) {
+    let calls = 0;
+    const result = await summarizeKnowledge([node], async messages => {
+      calls++;
+      if (calls === 1) return invalid;
+      assert.equal(messages.length, 4);
+      assert.match(messages.at(-1).content, /修正/);
+      return '说明：```json\n' + JSON.stringify({nodes:[{id:node.id,summary:'上海住宿每晚500元'}]}) + '\n```';
+    });
+    assert.equal(calls, 2);
+    assert.equal(result[0].summary, '上海住宿每晚500元');
+    assert.equal(result[0].id, node.id);
+    assert.equal(node.summary, '');
+  }
+  let calls = 0;
+  await assert.rejects(summarizeKnowledge([node], async () => {
+    calls++;
+    return JSON.stringify({nodes:[{id:'foreign',summary:'错误节点'}]});
+  }), {code:'INVALID_KNOWLEDGE_SUMMARY'});
+  assert.equal(calls, 2);
 });

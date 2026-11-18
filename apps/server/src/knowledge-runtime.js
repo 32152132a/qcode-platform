@@ -33,16 +33,17 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
     const keys=source.kind==='local'?[null]:sourceKeyIds(source).map(id=>state.keys.find(key=>key.id===id&&key.active)).filter(Boolean);
     if(!keys.length)fail(503,'KEY_UNAVAILABLE','知识整理渠道暂无可用Key');
     const requestId=randomBytes(16).toString('hex'),started=Date.now(),model=state.models.find(model=>model.source_id===source.id&&model.upstream_model===selection.model);
-    const reserved=Buffer.byteLength(JSON.stringify(messages))+4096;
-    db.transaction(next=>{checkQuota(effectiveQuotas(next,user),consumption(next,user,config.timezone||'Asia/Shanghai',now()),reserved);const credit=reserveCredit(next,user,model,reserved-4096,4096);next.requests.push({id:requestId,...credit,user_id:user.id,username:user.username,model:model?.public_name||selection.model,model_id:model?.id||null,key_id:null,purpose:'knowledge_index',status:'pending',started_at:now(),reserved_tokens:reserved,total_tokens:null,input_tokens:null,output_tokens:null});});
+    // Estimate output for credit reservation; generation uses the provider's default limit.
+    const outputEstimate=4096,reserved=Buffer.byteLength(JSON.stringify(messages))+outputEstimate;
+    db.transaction(next=>{checkQuota(effectiveQuotas(next,user),consumption(next,user,config.timezone||'Asia/Shanghai',now()),reserved);const credit=reserveCredit(next,user,model,reserved-outputEstimate,outputEstimate);next.requests.push({id:requestId,...credit,user_id:user.id,username:user.username,model:model?.public_name||selection.model,model_id:model?.id||null,key_id:null,purpose:'knowledge_index',status:'pending',started_at:now(),reserved_tokens:reserved,total_tokens:null,input_tokens:null,output_tokens:null});});
     let usage=null,errorCode=null;
     try{
-      const response=await fetchWithKeys({db,keys,signal:signal?AbortSignal.any([signal,AbortSignal.timeout(Math.min(config.timeoutMs||120000,120000))]):AbortSignal.timeout(120000),attempt:key=>db.transaction(next=>{next.requests.find(item=>item.id===requestId).key_id=key?.id||null;}),build:key=>({url:source.base_url+'/chat/completions',method:'POST',headers:{'Content-Type':'application/json',...(key?{Authorization:'Bearer '+vault.decrypt(key.secret)}:{})},body:JSON.stringify({model:selection.model,messages,max_tokens:4096})})});
+      const response=await fetchWithKeys({db,keys,signal:signal?AbortSignal.any([signal,AbortSignal.timeout(Math.min(config.timeoutMs||120000,120000))]):AbortSignal.timeout(120000),attempt:key=>db.transaction(next=>{next.requests.find(item=>item.id===requestId).key_id=key?.id||null;}),build:key=>({url:source.base_url+'/chat/completions',method:'POST',headers:{'Content-Type':'application/json',...(key?{Authorization:'Bearer '+vault.decrypt(key.secret)}:{})},body:JSON.stringify({model:selection.model,messages})})});
       if(!response.ok){await response.body?.cancel();fail(502,'KNOWLEDGE_UPSTREAM_ERROR','知识整理接口返回HTTP '+response.status);}
       const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.length;if(size>2*1024*1024)fail(502,'KNOWLEDGE_RESPONSE_TOO_LARGE','知识整理响应过大');chunks.push(chunk);}
       let value;try{value=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(502,'INVALID_KNOWLEDGE_SUMMARY','知识整理接口返回格式无效');}
       usage=parseUsage(value.usage);
-      if(value.choices?.[0]?.finish_reason==='length')fail(502,'KNOWLEDGE_OUTPUT_TRUNCATED','知识整理模型的输出达到上限，请在能力配置中更换模型后重试');
+      if(value.choices?.[0]?.finish_reason==='length')fail(502,'KNOWLEDGE_OUTPUT_TRUNCATED','知识整理模型的输出未完成，请重新处理');
       if(typeof value.choices?.[0]?.message?.content!=='string')fail(502,'INVALID_KNOWLEDGE_SUMMARY','模型没有返回整理内容');
       return value.choices[0].message.content;
     }catch(error){errorCode=error.code||'KNOWLEDGE_PROCESSING_FAILED';throw error;}
