@@ -199,3 +199,18 @@ test('beautification corrects invalid JSON once and preserves Markdown code fenc
   assert.equal(calls, 2);
  } finally { store.close(); }
 });
+
+test('partial AI edits preserve the title and directory and report invalid fields before saving', () => {
+ const store = createTreeStore();
+ try {
+  const draft = imported(store), article = draft.nodes.find(node => node.title === '上海住宿');
+  const change = {operation:'update',id:article.id,reason:'精简摘要'};
+  assert.throws(() => store.library.beautify({changes:[{...change,summary:'字'.repeat(101)}]}, draft.revision), /上海住宿.*摘要.*100/);
+  assert.equal(store.library.snapshot().revision, draft.revision);
+  const updated = store.library.beautify({changes:[{...change,summary:'上海住宿标准'}]}, draft.revision).nodes.find(node => node.id === article.id);
+  assert.equal(updated.title, article.title);
+  assert.equal(updated.parentId, article.parentId);
+  assert.equal(updated.text, article.text);
+  assert.equal(updated.summary, '上海住宿标准');
+ } finally { store.close(); }
+});

@@ -43,6 +43,17 @@
             <p v-if="metric.note">{{ metric.note }}</p>
           </article>
         </div>
+        <article v-if="data.capabilityCosts" class="panel">
+          <div class="panel-heading">
+            <div><h2>能力调用成本</h2><p>按所选日期和模型配置单价估算，已包含在上游成本中。</p></div>
+          </div>
+          <dl class="capability-costs">
+            <div v-for="item in capabilityRows" :key="item.key">
+              <dt>{{ item.label }}<small>{{ item.note }}</small></dt>
+              <dd>{{ item.amount }}<small v-if="item.unknown">{{ item.unknown }} 笔成本未知</small></dd>
+            </div>
+          </dl>
+        </article>
         <article class="panel">
           <div class="panel-heading">
             <h2>用量趋势</h2>
@@ -107,6 +118,26 @@
   )
   const money = (value: number) => '¥' + value.toLocaleString('zh-CN', {
     minimumFractionDigits: 2, maximumFractionDigits: 4,
+  })
+  const capabilityRows = computed(() => {
+    const costs = data.value?.capabilityCosts ?? {}
+    const rows = [
+      { key: 'knowledge_beautify', label: '知识库 AI 美化', note: '管理员发起' },
+      { key: 'knowledge_test', label: '知识库问答测试', note: '管理员发起' },
+      { key: 'image_understanding', label: '识图', note: '记在发起识图的账号名下' },
+      { key: 'image_generation', label: '生图', note: '记在发起生图的账号名下' },
+      { key: 'embedding', label: '向量', note: '当前仅配置验证，未统计成本' },
+    ]
+    if (costs.knowledge_index) rows.splice(2, 0, { key: 'knowledge_index', label: '其他知识整理', note: '个人资料整理、配置验证及旧版导入' })
+    return rows.map(row => {
+      const group = costs[row.key]
+      const amounts = Object.entries(group?.costsMicros ?? {}).map(([currency, micros]) => {
+        const value = micros / 1_000_000
+        if (value > 0 && value < 0.0001) return currency === 'CNY' ? '< ¥0.0001' : '< 0.0001 ' + currency
+        return currency === 'CNY' ? money(value) : value.toLocaleString('zh-CN', { maximumFractionDigits: 4 }) + ' ' + currency
+      })
+      return { ...row, amount: amounts.join(' · ') || (group?.unknownCost ? '金额未知' : '—'), unknown: group?.unknownCost ?? 0 }
+    })
   })
   const metrics = computed(() => {
     if (!data.value) return []
@@ -272,6 +303,16 @@
       border-radius: var(--admin-radius);
       background: var(--admin-surface);
       padding: 20px;
+    }
+    .capability-costs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr));
+      gap: 16px;
+      margin: 0;
+      > div { min-width: 0; border-top: 1px solid var(--admin-border); padding-top: 12px; }
+      dt, dd { margin: 0; overflow-wrap: anywhere; }
+      dd { margin-top: 9px; font-weight: 600; font-variant-numeric: tabular-nums; }
+      small { display: block; color: var(--muted); margin-top: 5px; font-weight: 400; }
     }
     .panel-heading {
       display: flex;

@@ -22,5 +22,6 @@ export interface OverviewUsage {
   users: UsageGroup[]
   models: UsageGroup[]
   days: UsageGroup[]
+  capabilityCosts?: Record<string, { costsMicros: Record<string, number>; unknownCost: number }>
   timezone: string
 }

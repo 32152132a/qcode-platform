@@ -11,12 +11,21 @@ export function validateLibrary(nodes) {
   if (!Array.isArray(nodes)) fail(400, 'INVALID_KNOWLEDGE', '知识目录格式无效');
   const byId = new Map();
   for (const node of nodes) {
-    if (!node || typeof node.id !== 'string' || !/^[a-f0-9]{32}$/.test(node.id) || byId.has(node.id) ||
-        !['article', 'folder'].includes(node.kind) || typeof node.title !== 'string' || !node.title.trim() ||
-        [...node.title].length > 100 || typeof node.text !== 'string' || [...node.text].length > 12000 ||
-        typeof node.summary !== 'string' || [...node.summary].length > (node.kind === 'folder' ? 600 : 100) ||
-        node.kind === 'article' && !node.text.trim() || !Array.isArray(node.sources))
-      fail(400, 'INVALID_KNOWLEDGE', '文章标题、正文、摘要或来源格式无效');
+    if (!node || typeof node.id !== 'string' || !/^[a-f0-9]{32}$/.test(node.id) || byId.has(node.id))
+      fail(400, 'INVALID_KNOWLEDGE', '知识节点标识无效或重复');
+    if (!['article', 'folder'].includes(node.kind))
+      fail(400, 'INVALID_KNOWLEDGE', '知识节点类型无效');
+    if (typeof node.title !== 'string' || !node.title.trim() || [...node.title].length > 100)
+      fail(400, 'INVALID_KNOWLEDGE', '知识节点标题须为 1～100 字符');
+    const label = '「' + node.title + '」';
+    if (typeof node.text !== 'string' || [...node.text].length > 12000 ||
+        node.kind === 'article' && !node.text.trim())
+      fail(400, 'INVALID_KNOWLEDGE', label + '正文格式无效，文章正文不能为空且最多 12000 字符');
+    const summaryLimit = node.kind === 'folder' ? 600 : 100;
+    if (typeof node.summary !== 'string' || [...node.summary].length > summaryLimit)
+      fail(400, 'INVALID_KNOWLEDGE', label + '摘要须为文本且最多 ' + summaryLimit + ' 字符');
+    if (!Array.isArray(node.sources))
+      fail(400, 'INVALID_KNOWLEDGE', label + '来源格式无效');
     byId.set(node.id, node);
   }
   for (const node of nodes) {
@@ -132,10 +141,13 @@ export function createKnowledgeLibrary(sql, transaction) {
         ? base.nodes.filter(item => change.sourceNodeIds.includes(item.id)) : [];
       if (change.operation === 'add' && change.kind !== 'folder' && !sourceNodes.length)
         fail(400, 'INVALID_KNOWLEDGE_PLAN', '新增文章必须关联已读取的知识来源');
+      const parentId = change.parentId === undefined ? node?.parentId ?? null : change.parentId;
       const value = {
-        id: node?.id || added.get(change.id), parentId: added.get(change.parentId) || change.parentId || null,
-        title: change.title, kind: change.kind || node?.kind || 'article', text: change.text ?? node?.text ?? '',
-        summary: change.summary ?? node?.summary ?? '',
+        id: node?.id || added.get(change.id), parentId: added.get(parentId) ?? parentId,
+        title: change.title === undefined ? node?.title : change.title,
+        kind: change.kind === undefined ? node?.kind ?? 'article' : change.kind,
+        text: change.text === undefined ? node?.text ?? '' : change.text,
+        summary: change.summary === undefined ? node?.summary ?? '' : change.summary,
         sources: sourcesForNodes([...(node ? [node] : []), ...sourceNodes]),
       };
       if (node) Object.assign(node, value); else nodes.push(value);

@@ -162,7 +162,7 @@ export const deletedModelId = '__deleted_models__';
 export function statistics(state, timezone) {
   const empty = () => ({ requests: 0, success: 0, failed: 0, pending: 0, tokens: 0, inputTokens: 0, outputTokens: 0, unknownUsage: 0, costs: {}, unknownCost: 0, chargedMicros: 0 });
   const totals = empty(), users = new Map(), days = new Map(), models = new Map();
-  const activeUsers = new Map();
+  const activeUsers = new Map(), capabilityCosts = new Map();
   function add(target, row) {
     target.chargedMicros += row.charged_micros ?? 0;
     if (row.status === 'success') {
@@ -182,6 +182,14 @@ export function statistics(state, timezone) {
   }
   for (const row of state.requests) {
     add(totals, row);
+    const capability = row.purpose;
+    if (row.status !== 'pending' && ['knowledge_beautify', 'knowledge_test', 'knowledge_index', 'image_understanding', 'image_generation'].includes(capability)) {
+      if (!capabilityCosts.has(capability)) capabilityCosts.set(capability, { costsMicros: {}, unknownCost: 0 });
+      const group = capabilityCosts.get(capability);
+      const currency = row.currency || 'CNY';
+      if (row.cost_micros == null) group.unknownCost++;
+      else group.costsMicros[currency] = (group.costsMicros[currency] || 0) + row.cost_micros;
+    }
     const model = state.models?.find(model => model.id === row.model_id);
     const modelId = model?.id || deletedModelId;
     const modelName = model?.name || '已删除模型';
@@ -197,5 +205,5 @@ export function statistics(state, timezone) {
   for (const group of [totals, ...users.values(), ...days.values(), ...models.values()])
     group.activeUsers = activeUsers.get(group)?.size ?? 0;
   const ranked = map => [...map.values()].sort((a, b) => b.tokens - a.tokens || b.requests - a.requests);
-  return { totals, users: ranked(users), models: ranked(models), days: [...days.values()].sort((a,b) => b.date.localeCompare(a.date)), timezone };
+  return { totals, users: ranked(users), models: ranked(models), capabilityCosts: Object.fromEntries(capabilityCosts), days: [...days.values()].sort((a,b) => b.date.localeCompare(a.date)), timezone };
 }

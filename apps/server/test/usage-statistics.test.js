@@ -57,3 +57,21 @@ test('deleted models form one historical group without leaking internal names or
  const deleted=result.models.find(row=>row.name==='已删除模型');assert.equal(deleted.tokens,50);assert.equal(deleted.requests,2);assert.deepEqual(deleted.costs,{CNY:3});
  assert(result.models.some(row=>row.name==='DeepSeek'));assert(!JSON.stringify(result.models).includes('qcode-'));
 });
+
+test('capability costs preserve currency, distinguish unknown from free, and exclude pending calls', () => {
+  const row = { user_id: 1, started_at: '2026-10-14', status: 'success' };
+  const {totals, capabilityCosts} = statistics({requests: [
+    {...row, purpose:'knowledge_beautify', cost_micros:123, currency:'CNY'},
+    {...row, purpose:'knowledge_test', cost_micros:45, currency:'USD'},
+    {...row, purpose:'knowledge_test', cost_micros:null},
+    {...row, purpose:'knowledge_test', status:'pending'},
+    {...row, purpose:'image_generation', cost_micros:0, currency:'CNY', charged_micros:0},
+    {...row, purpose:'chat', cost_micros:77, currency:'CNY'},
+  ]}, 'Asia/Shanghai');
+  assert.deepEqual(capabilityCosts, {
+    knowledge_beautify:{costsMicros:{CNY:123},unknownCost:0},
+    knowledge_test:{costsMicros:{USD:45},unknownCost:1},
+    image_generation:{costsMicros:{CNY:0},unknownCost:0},
+  });
+  assert.ok(Math.abs(totals.costs.CNY - 0.0002) < 1e-12);
+});
