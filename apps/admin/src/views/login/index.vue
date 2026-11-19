@@ -2,7 +2,7 @@
   <div class="login">
     <router-link class="back" to="/">← 返回下载首页</router-link
     ><el-card
-      ><img src="/brand-logo.png" alt="WorkLane" />
+      ><img :src="brandLogo" alt="WorkLane" />
       <h1>登录 WorkLane 管理控制台</h1>
       <p>统一管理团队、模型和使用额度</p>
       <el-alert v-if="demoSelected" title="演示账号可浏览后台，提交操作不会修改数据" type="info" :closable="false" />
@@ -31,6 +31,7 @@
   </div>
 </template>
 <script setup lang="ts">
+  import brandLogo from '@/assets/brand-logo.png'
   import { ref, computed, onMounted } from 'vue'
   import { request } from '@/api/request'
   import { useRouter, useRoute } from 'vue-router'

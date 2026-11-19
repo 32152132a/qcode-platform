@@ -1,7 +1,7 @@
 <template>
   <div class="admin-navigation">
     <router-link class="brand" to="/" aria-label="返回 WorkLane 首页"
-      ><img src="/brand-logo.png" alt="" /><span
+      ><img :src="brandLogo" alt="" /><span
         >WorkLane<small>团队 AI 控制台</small></span
       ></router-link
     >
@@ -20,6 +20,7 @@
   </div>
 </template>
 <script setup lang="ts">
+  import brandLogo from '@/assets/brand-logo.png'
   import { computed } from 'vue'
   import { useRoute } from 'vue-router'
   import {

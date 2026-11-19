@@ -2,7 +2,7 @@
   <div ref="landingRoot" class="landing">
     <header class="navigation wrap">
       <router-link class="brand" to="/" aria-label="WorkLane 首页">
-        <img src="/brand-logo.png" alt="" /><span>WorkLane</span>
+        <img :src="brandLogo" alt="" /><span>WorkLane</span>
       </router-link>
       <nav aria-label="主导航">
         <a
@@ -38,56 +38,14 @@
           </div>
         </div>
 
-        <div
+        <img
           data-reveal
           class="preview"
-          role="img"
-          aria-label="工作台布局示意：左侧会话列表，右侧任务和输入区域。实际界面以客户端为准。"
-        >
-          <div class="window-bar">
-            <span class="window-dots"><i></i><i></i><i></i></span
-            ><span>WorkLane 工作空间</span
-            ><span class="preview-label">界面示意</span>
-          </div>
-          <div class="workspace">
-            <aside class="workspace-sidebar">
-              <div class="mini-brand">
-                <img src="/brand-logo.png" alt="" />WorkLane
-              </div>
-              <div class="new-task"><Plus /> 新建任务</div>
-              <span class="sidebar-label">最近的任务</span>
-              <div class="history active"><Document /> 整理本周项目进展</div>
-              <div class="history"><Document /> 起草一份产品说明</div>
-              <div class="history"><Folder /> 我的工作文件</div>
-              <div class="workspace-user"><span>团队</span> 我的工作空间</div>
-            </aside>
-            <div class="workspace-content">
-              <div class="workspace-heading">
-                <span>你的日常，从容一点。</span
-                ><span class="model-tag">团队模型 <Check /></span>
-              </div>
-              <div class="welcome">
-                <div class="welcome-symbol">✦</div>
-                <h2>今天想完成什么？</h2>
-                <p>从一个问题，或一份文件开始。</p>
-              </div>
-              <div class="suggestions">
-                <span><Document /> 整理一份资料</span
-                ><span><Cpu /> 解决代码问题</span>
-              </div>
-              <div class="composer">
-                <span>帮我整理本周的项目进展…</span>
-                <div>
-                  <span><Plus /> 选择工作目录</span
-                  ><span class="send"><Top /></span>
-                </div>
-              </div>
-              <span class="preview-footnote"
-                >任务在本机执行 · 模型由团队统一配置</span
-              >
-            </div>
-          </div>
-        </div>
+          :src="desktopScreenshot"
+          width="1332"
+          height="925"
+          alt="WorkLane 桌面客户端的新建会话界面，左侧是任务与知识库入口，右侧是任务输入框。"
+        />
       </section>
 
       <div class="wrap"><PlatformIntro /><TeamResources /></div>
@@ -158,6 +116,8 @@
 </template>
 
 <script setup lang="ts">
+import brandLogo from '@/assets/brand-logo.png';
+import desktopScreenshot from '@/assets/worklane-desktop-screenshot.png';
 import PlatformIntro from "../PlatformIntro/index.vue";
 import TeamResources from "../TeamResources/index.vue";
 import ClientTrialHint from "../ClientTrialHint/index.vue";
@@ -166,16 +126,12 @@ import { useLandingMotion } from "./useLandingMotion";
 import {
   ArrowRight,
   Check,
-  Cpu,
   Connection,
-  Document,
   Download,
   Folder,
   Lock,
   Monitor,
   Platform,
-  Plus,
-  Top,
 } from "@element-plus/icons-vue";
 
 const landingRoot = ref<HTMLElement>();
@@ -361,6 +317,9 @@ function scrollToInstall() {
     }
   }
   .preview {
+    display: block;
+    width: 100%;
+    height: auto;
     min-width: 0;
     border: 1px solid #e2e5ed;
     border-radius: 14px;
@@ -369,212 +328,6 @@ function scrollToInstall() {
     box-shadow:
       0 24px 65px -25px #28365e38,
       0 4px 14px #2b365c06;
-  }
-  .window-bar {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    background: #fafbfc;
-    border-bottom: 1px solid #eceef3;
-    min-height: 38px;
-    padding: 0 14px;
-    font-size: 10px;
-    color: #7b8492;
-  }
-  .window-dots {
-    display: flex;
-    gap: 5px;
-    i {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #dfe3eb;
-    }
-  }
-  .preview-label {
-    justify-self: end;
-    font-size: 9px;
-  }
-  .workspace {
-    display: grid;
-    grid-template-columns: 145px minmax(0, 1fr);
-    min-height: 350px;
-  }
-  .workspace-sidebar {
-    display: flex;
-    flex-direction: column;
-    padding: 18px 10px 13px;
-    background: #f8f9fc;
-    border-right: 1px solid #eceef3;
-  }
-  .mini-brand {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    padding: 0 4px 20px;
-    font-size: 12px;
-    font-weight: 650;
-    img {
-      width: 21px;
-      height: 21px;
-    }
-  }
-  .new-task {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    font-size: 10px;
-    padding: 8px;
-    border: 1px solid #e2e5ed;
-    border-radius: 6px;
-    background: #fff;
-    svg {
-      width: 12px;
-      height: 12px;
-    }
-  }
-  .sidebar-label {
-    font-size: 9px;
-    color: #8a92a1;
-    padding: 22px 6px 10px;
-  }
-  .history {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 9px;
-    color: #6d7686;
-    padding: 9px 6px;
-    border-radius: 5px;
-    svg {
-      width: 12px;
-      height: 12px;
-    }
-    &.active {
-      background: #ebeefa;
-      color: #5963a4;
-    }
-  }
-  .workspace-user {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin-top: auto;
-    padding: 16px 4px 0;
-    font-size: 9px;
-    color: #6d7686;
-    > span {
-      display: grid;
-      place-items: center;
-      width: 22px;
-      height: 22px;
-      background: #e6eaf5;
-      border-radius: 6px;
-      font-size: 8px;
-    }
-  }
-  .workspace-content {
-    min-width: 0;
-    padding: 18px 22px;
-    display: flex;
-    flex-direction: column;
-  }
-  .workspace-heading {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    align-items: center;
-    color: #7c8595;
-    font-size: 9px;
-  }
-  .model-tag {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    svg {
-      width: 10px;
-      height: 10px;
-      color: #7486ad;
-    }
-  }
-  .welcome {
-    margin-top: 40px;
-    text-align: center;
-    h2 {
-      font-size: 19px;
-      font-weight: 550;
-      margin: 12px 0 8px;
-      letter-spacing: -0.5px;
-    }
-    p {
-      font-size: 10px;
-      color: #858c9b;
-    }
-  }
-  .welcome-symbol {
-    color: #7e86d8;
-    font-size: 29px;
-    line-height: 1;
-  }
-  .suggestions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin: 17px 0;
-    > span {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      border: 1px solid #e9ebf1;
-      padding: 10px 7px;
-      border-radius: 7px;
-      font-size: 9px;
-      color: #727b8b;
-    }
-    svg {
-      width: 12px;
-      height: 12px;
-    }
-  }
-  .composer {
-    border: 1px solid #dfe3ed;
-    border-radius: 10px;
-    padding: 12px;
-    font-size: 10px;
-    color: #939aaa;
-    box-shadow: 0 3px 7px #26315304;
-    > div {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 23px;
-      > span {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        font-size: 8px;
-      }
-    }
-    svg {
-      width: 12px;
-      height: 12px;
-    }
-    .send {
-      display: grid;
-      place-items: center;
-      width: 22px;
-      height: 22px;
-      background: #6570da;
-      color: #fff;
-      border-radius: 6px;
-    }
-  }
-  .preview-footnote {
-    margin-top: 10px;
-    font-size: 8px;
-    color: #9299a7;
-    text-align: center;
   }
   .benefits {
     display: grid;
@@ -766,18 +519,6 @@ function scrollToInstall() {
     .hero {
       gap: 28px;
     }
-    .workspace {
-      grid-template-columns: 110px minmax(0, 1fr);
-    }
-    .workspace-content {
-      padding-inline: 14px;
-    }
-    .workspace-heading > span:first-child {
-      display: none;
-    }
-    .workspace-heading {
-      justify-content: flex-end;
-    }
     .desktop-break {
       display: none;
     }
@@ -800,9 +541,6 @@ function scrollToInstall() {
     .preview {
       width: min(600px, 100%);
       justify-self: center;
-    }
-    .workspace {
-      grid-template-columns: 145px minmax(0, 1fr);
     }
     .benefits {
       gap: 24px;
@@ -853,25 +591,6 @@ function scrollToInstall() {
     }
     .hero {
       padding-top: 40px;
-    }
-    .workspace {
-      grid-template-columns: minmax(0, 1fr);
-      min-height: 320px;
-    }
-    .workspace-sidebar {
-      display: none;
-    }
-    .workspace-content {
-      padding: 16px 20px;
-    }
-    .welcome {
-      margin-top: 25px;
-    }
-    .suggestions {
-      margin-block: 16px;
-    }
-    .preview-footnote {
-      font-size: 8px;
     }
     .benefits,
     .platforms,
