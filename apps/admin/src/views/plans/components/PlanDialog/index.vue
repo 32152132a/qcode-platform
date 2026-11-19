@@ -72,7 +72,7 @@ function dropModel(index: number) {
 let success:(()=>void)|undefined
 async function open(row?:Row,onSuccess?:()=>void){
   plan.value=row;success=onSuccess;error.value='';visible.value=true;saving.value=true
-  value.value={name:row?.name || '',level:row?.level ?? 0,isDefault:String(row?.is_default ?? false),price:Number(row?.price_cents || 0)/100,durationDays:row?.duration_days ?? 30,creditAmount:row?Number(row.credit_limit_micros)/1000:5000,modelIds:row?.model_ids || [],active:String(row?.active ?? true),description:row?.description || ''}
+  value.value={name:row?.name || '',level:row?.level ?? 0,isDefault:String(row?.is_default ?? false),price:Number(row?.price_cents || 0)/100,durationDays:row?.duration_days ?? 30,creditAmount:row?Number(row.credit_limit_micros)/1_000_000:5,modelIds:row?.model_ids || [],active:String(row?.active ?? true),description:row?.description || ''}
   try{
     const models=await request<Row[]>('/admin/models')
     const options = models.filter(model => model.model_type !== 'image' && !(Array.isArray(model.capabilities) && model.capabilities.includes('embedding')))
@@ -85,7 +85,7 @@ async function open(row?:Row,onSuccess?:()=>void){
       {prop:'level',label:'升级等级（越大越高级）',type:'number',required:true,min:0,max:1000,precision:0},
       {prop:'price',label:'价格（元）',type:'number',required:true,min:0,max:1000000,precision:2},
       {prop:'durationDays',label:'有效天数',type:'number',required:true,min:1,max:366,precision:0},
-      {prop:'creditAmount',label:'使用额度',type:'number',required:true,min:0,max:1000000000,precision:0},
+      {prop:'creditAmount',label:'使用额度（积分）',type:'money',required:true,min:0,max:1_000_000,precision:6},
       {prop:'isDefault',label:'新用户默认套餐',type:'select',options:yesNo},
       {prop:'modelIds',label:'可选对话模型',type:'slot'},
       {prop:'active',label:'上架',type:'select',options:yesNo},
@@ -98,7 +98,7 @@ async function save(){
   try{
     if(!await form.value?.validate())return
     saving.value=true;error.value=''
-    await request('/admin/plans'+(plan.value?'/'+plan.value.id:''),plan.value?'PUT':'POST',{...value.value,creditAmount:Number(value.value.creditAmount)/1000,isDefault:value.value.isDefault==='true',active:value.value.active==='true'})
+    await request('/admin/plans'+(plan.value?'/'+plan.value.id:''),plan.value?'PUT':'POST',{...value.value,creditAmount:Number(value.value.creditAmount),isDefault:value.value.isDefault==='true',active:value.value.active==='true'})
     visible.value=false;value.value={};success?.()
   }catch(cause){error.value=cause instanceof Error?cause.message:'保存失败'}finally{saving.value=false}
 }

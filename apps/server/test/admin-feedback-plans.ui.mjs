@@ -102,6 +102,11 @@ try {
     .filter({ hasText: "价格（元）" })
     .locator("input")
     .fill("19.99");
+  await dialog
+    .locator(".el-form-item")
+    .filter({ hasText: "使用额度（积分）" })
+    .locator("input")
+    .fill("200");
   await dialog.getByRole("button", { name: "已选 0 个模型" }).click();
   const picker = page.getByRole("dialog", { name: "选择与排序模型" });
   await picker.getByRole("combobox").click();
@@ -120,7 +125,7 @@ try {
   assert.equal(db.read().plans.length, 1);
   assert.equal(db.read().plans[0].price_cents, 1999);
   assert.deepEqual(db.read().plans[0].model_ids, ["m2", "m1"]);
-  assert.equal(db.read().plans[0].credit_limit_micros, 5000000);
+  assert.equal(db.read().plans[0].credit_limit_micros, 200000000);
   await page.screenshot({ path: path.resolve('apps/admin/dist/credit-plans-preview.png') });
   const png = await page.screenshot({
     clip: { x: 0, y: 0, width: 100, height: 100 },
