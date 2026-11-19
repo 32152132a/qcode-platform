@@ -14,7 +14,7 @@ export const useAuthStore = defineStore('auth', () => {
     const session = await request<Session>('/auth/login', 'POST', {
       username,
       password,
-      device: 'QCode 管理控制台',
+      device: 'WorkLane 管理控制台',
     })
     if (!session.user.permissions?.length) {
       await request('/auth/logout', 'POST', {}, false, {

@@ -38,7 +38,7 @@ export function registerEnterpriseRoutes(app, { db, config, auth }) {
         ...(costs.get(item.id) === 0 ? { usageRate: 0 } : baselineCost && costs.has(item.id)
           ? { usageRate: costs.get(item.id) / baselineCost, usageBaseline: baseline.name || baseline.public_name } : {}),
         imageInput: Boolean(item.capabilities?.includes('vision') || configuredVisionModel(state)), contextWindow: item.context_window || 131072, maxTokensField: item.max_tokens_field || 'max_tokens', toolCall: item.verification?.tools ?? item.provider !== 'ollama' })),
-      productName: 'QCode',
+      productName: 'WorkLane',
       skillsRevision: createHash('sha256').update(JSON.stringify(assignedSkills(state).map(s => [s.id,s.revision]))).digest('hex'), user: publicUser(state, req.user, config.timezone) });
   });
   app.post('/client/skills', auth, (req, res) => res.json({ skills: assignedSkills(db.read()).map(s => ({ id: s.id, name: s.name, kind: 'skill', title: s.name, description: s.description, revision: s.revision, files: s.files })) }));

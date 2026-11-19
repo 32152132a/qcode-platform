@@ -1,8 +1,8 @@
 <template>
   <div ref="landingRoot" class="landing">
     <header class="navigation wrap">
-      <router-link class="brand" to="/" aria-label="QCode 首页">
-        <img src="/brand-logo.svg" alt="" /><span>QCode</span>
+      <router-link class="brand" to="/" aria-label="WorkLane 首页">
+        <img src="/brand-logo.png" alt="" /><span>WorkLane</span>
       </router-link>
       <nav aria-label="主导航">
         <a
@@ -46,13 +46,13 @@
         >
           <div class="window-bar">
             <span class="window-dots"><i></i><i></i><i></i></span
-            ><span>QCode 工作空间</span
+            ><span>WorkLane 工作空间</span
             ><span class="preview-label">界面示意</span>
           </div>
           <div class="workspace">
             <aside class="workspace-sidebar">
               <div class="mini-brand">
-                <img src="/brand-logo.svg" alt="" />QCode
+                <img src="/brand-logo.png" alt="" />WorkLane
               </div>
               <div class="new-task"><Plus /> 新建任务</div>
               <span class="sidebar-label">最近的任务</span>
@@ -151,7 +151,7 @@
       </section>
     </main>
     <footer class="footer wrap">
-      <span>QCode <span class="footer-divider">/</span> 团队 AI 工作空间</span
+      <span>WorkLane <span class="footer-divider">/</span> 团队 AI 工作空间</span
       ><router-link to="/login">管理员入口 <ArrowRight /></router-link>
     </footer>
   </div>

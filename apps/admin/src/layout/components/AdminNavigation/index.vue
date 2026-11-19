@@ -1,8 +1,8 @@
 <template>
   <div class="admin-navigation">
-    <router-link class="brand" to="/" aria-label="返回 QCode 首页"
-      ><img src="/brand-logo.svg" alt="" /><span
-        >QCode<small>团队 AI 控制台</small></span
+    <router-link class="brand" to="/" aria-label="返回 WorkLane 首页"
+      ><img src="/brand-logo.png" alt="" /><span
+        >WorkLane<small>团队 AI 控制台</small></span
       ></router-link
     >
     <nav aria-label="后台导航">
