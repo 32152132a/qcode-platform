@@ -1,6 +1,5 @@
 import { modelPrice } from './billing.js';
 import { registerEmbeddingSettings } from './embeddings.js';
-import { getHeapStatistics } from 'node:v8';
 import { keySource, sourceKeyIds, bindSourceKeys } from './key-pool.js';
 import { registerPlans, assignUserPlan } from './plans.js';
 import { registerFeedback } from './feedback.js';
@@ -9,7 +8,7 @@ import { businessOperation, obsoleteBusinessRequest } from '../../client/api-con
 import { createAccountRequestQueue } from './request-queue.js';
 import { registerWebPages } from './web-pages.js';
 import { modelReference, registerModelSources, sourcesFor } from './model-sources.js';
-import { registerKnowledge } from './knowledge-runtime.js';
+import { registerKnowledge, knowledgeUploadBodyLimit } from './knowledge-runtime.js';
 import { protocols } from './providers.js';
 import { registerModelChecks } from './model-checks.js';
 import express from 'express';
@@ -101,7 +100,7 @@ export function createApp(config, database) {
       'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'", 'Cache-Control': 'no-store' });
     next();
   });
-  const knowledgeJson=express.json({limit:Math.floor(getHeapStatistics().heap_size_limit/32)});
+  const knowledgeJson=express.json({limit:knowledgeUploadBodyLimit});
   let activeKnowledgeUploads=0;
   app.use((req,res,next)=>{
     if(req.method!=='POST'||!/^\/(?:admin|client)\/knowledge\/upload$/.test(req.path))return next();

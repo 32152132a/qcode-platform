@@ -47,7 +47,7 @@ async function extract(filename, bytes) {
       for (let page=1;page<=pdf.numPages;page++) {
         const value=await pdf.getPage(page), text=await value.getTextContent();
         const content=text.items.map(item=>'str' in item?item.str+(item.hasEOL?'\n':' '):'').join('').trim();
-        if (!content) throw new Error(`第${page}页没有可提取的文字，请先识别扫描件或移除空白页`);
+        if (!content) throw Object.assign(new Error(`第${page}页没有可提取的文字，请先识别扫描件或移除空白页`),{code:'KNOWLEDGE_NEEDS_RECOGNITION'});
         blocks.push({title:`第${page}页`,level:1,text:content,source:{page}});value.cleanup();
       }
     } finally { await task.destroy(); }
@@ -83,9 +83,9 @@ export function parseKnowledgeFile(filename,bytes,{signal}={}) {
     const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);void worker.terminate();error?reject(error):resolve(value);};
     const abort=()=>finish(new Error('资料处理已停止'));
     const timer=setTimeout(()=>finish(new Error('解析超过60秒，请拆分文件后重试')),60000);
-    worker.once('message',result=>result.error?finish(new Error(result.error)):finish(null,result.blocks));
+    worker.once('message',result=>result.error?finish(Object.assign(new Error(result.error),{code:result.code})):finish(null,result.blocks));
     worker.once('error',error=>finish(error));worker.once('exit',code=>{if(code!==0)finish(new Error('解析进程已退出，请拆分文件后重试'));});
     if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
   });
 }
-if(!isMainThread){try{parentPort.postMessage({blocks:await extract(workerData.filename,Buffer.from(workerData.bytes))});}catch(error){parentPort.postMessage({error:error.message});}}
+if(!isMainThread){try{parentPort.postMessage({blocks:await extract(workerData.filename,Buffer.from(workerData.bytes))});}catch(error){parentPort.postMessage({error:error.message,code:error.code});}}

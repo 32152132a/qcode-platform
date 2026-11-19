@@ -14,7 +14,7 @@ export type KnowledgeLibrary = {
   changes: KnowledgeChange[]; exclusions: { title?: string; reason: string }[];
 }
 export type KnowledgeUpload = { id: string; title: string; filename: string; status: string; error: string }
-export type KnowledgeResponse = { library: KnowledgeLibrary; uploads: KnowledgeUpload[] }
+export type KnowledgeResponse = { library: KnowledgeLibrary; uploads: KnowledgeUpload[]; limits?: { uploadBytes?: number } }
 export type KnowledgeAnswer = {
   question: string; supported: boolean; answer: string; revision: string; durationMs: number; calls: number; totalTokens: number | null;
   citations: { nodeId: string; title: string; quote: string; source: KnowledgeSource; sources: KnowledgeSource[] }[];

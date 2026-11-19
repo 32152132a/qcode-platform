@@ -98,17 +98,16 @@ export function createTreeStore(filename = ':memory:') {
       sql.prepare("UPDATE versions SET status='processing' WHERE document_id=? AND revision=?").run(row.document_id, row.revision);
       return row;
     },
-    complete(id, sourceRevision, nodes) {
+    complete(id, sourceRevision, nodes, stagedImport) {
       return transaction(() => {
         const row = sql.prepare('SELECT * FROM documents WHERE id=?').get(id);
         if (!row || row.draft_revision !== sourceRevision) return;
-        const data = version(id, sourceRevision);
-        if (row.owner_id === 0) library.importDocument({ ...data, title: row.title, document_id: id }, nodes);
+        if (row.owner_id === 0) library.commitImport(stagedImport);
         sql.prepare("UPDATE versions SET status='ready',error='',nodes=? WHERE document_id=? AND revision=?").run(JSON.stringify(nodes), id, sourceRevision);
       });
     },
-    failed(id, sourceRevision, message) {
-      sql.prepare("UPDATE versions SET status='failed',error=? WHERE document_id=? AND revision=?").run(String(message).slice(0, 200), id, sourceRevision);
+    failed(id, sourceRevision, message, needsRecognition = false) {
+      sql.prepare('UPDATE versions SET status=?,error=? WHERE document_id=? AND revision=?').run(needsRecognition ? 'needs_recognition' : 'failed', String(message).slice(0, 200), id, sourceRevision);
     },
     retry(ownerId, id) {
       const row = document(ownerId, id), data = version(id, row.draft_revision);
@@ -117,7 +116,7 @@ export function createTreeStore(filename = ':memory:') {
     },
     remove(ownerId, id) {
       const row = document(ownerId, id), data = version(id, row.draft_revision);
-      if (ownerId === 0 && data.status !== 'failed') fail(409, 'DOCUMENT_BUSY', '仅支持移除失败的上传任务；文章请在目录中删除');
+      if (ownerId === 0 && !['failed', 'needs_recognition'].includes(data.status)) fail(409, 'DOCUMENT_BUSY', '仅支持移除失败或待识别的上传任务；文章请在目录中删除');
       sql.prepare('DELETE FROM documents WHERE id=?').run(id);
     },
     download(ownerId, id) {

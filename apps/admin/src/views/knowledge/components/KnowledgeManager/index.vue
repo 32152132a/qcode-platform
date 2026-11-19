@@ -13,7 +13,7 @@
         <el-tooltip content="优化目录、标题和摘要，可大幅提升知识检索命中率。" placement="bottom">
           <el-button class="knowledge-manager__beautify" :icon="MagicStick" :loading="beautifying" :disabled="!library?.nodes.length||busy" @click="beautify()">整体 AI 美化</el-button>
         </el-tooltip>
-        <el-button type="primary" :icon="Upload" :disabled="!library?.changes.length||busy||hasFailures" @click="publish">发布全部</el-button>
+        <el-button type="primary" :icon="Upload" :disabled="!library?.changes.length||busy" @click="publish">发布全部</el-button>
       </template>
     </div>
     </header>
@@ -48,9 +48,9 @@
           <el-empty v-if="!tree.length&&!busy" description="上传资料，建立知识目录" :image-size="60" />
           <div v-for="job in activeUploads" :key="job.id" class="knowledge-manager__job">
             <el-text>{{ job.filename }}</el-text>
-            <el-text :type="job.status==='failed'?'danger':'info'" size="small">{{ job.error || (job.status==='processing'?'解析中…':'等待解析') }}</el-text>
-            <div v-if="job.status==='failed'&&canWrite">
-              <el-button link @click="retry(job.id)">重试</el-button><el-button link type="danger" @click="removeUpload(job.id)">移除</el-button>
+            <el-text :type="job.status==='failed'?'danger':job.status==='needs_recognition'?'warning':'info'" size="small">{{ job.status==='needs_recognition'?'待识别：'+job.error:job.error || (job.status==='processing'?'正在解析或 AI 整理…':'等待处理') }}</el-text>
+            <div v-if="['failed','needs_recognition'].includes(job.status)&&canWrite">
+              <el-button v-if="job.status==='failed'" link @click="retry(job.id)">重试</el-button><el-button link type="danger" @click="removeUpload(job.id)">移除</el-button>
             </div>
           </div>
         </el-scrollbar>
@@ -122,7 +122,6 @@ const selectedId=ref(''),keyword=ref(''),selecting=ref(false),checked=ref<string
 const versionMismatch=computed(()=>Boolean(data.value&&!data.value.library))
 const library=computed(()=>data.value?.library),canWrite=computed(()=>auth.can('knowledge:write')&&!versionMismatch.value)
 const activeUploads=computed(()=>(data.value?.uploads||[]).filter(job=>job.status!=='ready'))
-const hasFailures=computed(()=>activeUploads.value.some(job=>job.status==='failed'))
 const busy=computed(()=>versionMismatch.value||beautifying.value||uploading.value||mutating.value||activeUploads.value.some(job=>['pending','processing'].includes(job.status)))
 const articles=computed(()=>library.value?.nodes.filter(node=>node.kind==='article')||[])
 const allChecked=computed(()=>articles.value.length>0&&checked.value.length===articles.value.length)
@@ -161,29 +160,39 @@ function checkAll(){checked.value=allChecked.value?[]:articles.value.map(node=>n
 function choose(node?:KnowledgeNode){replacement.value=node;if(picker.value){picker.value.multiple=!node;picker.value.click()}}
 async function upload(event:Event){
   const input=event.target as HTMLInputElement,files=Array.from(input.files||[]);input.value='';if(!files.length)return
-  uploading.value=true;actionError.value='';let completed=0,skipped=0,failed=0,processingFailed=0
+  uploading.value=true;actionError.value='';let completed=0,skipped=0,failed=0,processingFailed=0,needsRecognition=0
   try{
     for(const file of files){
       uploadProgress.value='正在上传 '+file.name
       try{
+        if (!/\.(md|txt|pdf|docx|xlsx)$/i.test(file.name)) throw new Error('支持 Markdown、TXT、PDF、DOCX 和 XLSX')
+        if (!file.size) throw new Error('文件不能为空')
+        const uploadLimit = data.value?.limits?.uploadBytes
+        if (uploadLimit && file.size > uploadLimit) throw new Error('文件超过上传上限，请拆分后上传')
         const bytes=new Uint8Array(await file.arrayBuffer());let binary=''
         for(let offset=0;offset<bytes.length;offset+=32768)binary+=String.fromCharCode(...bytes.subarray(offset,offset+32768))
         const result=await request<{skipped?:boolean;status:string}>('/admin/knowledge/upload','POST',{title:replacement.value?.title||file.name.replace(/\.[^.]+$/,''),filename:file.name,mime:file.type,data:btoa(binary),...(replacement.value?{targetId:replacement.value.id,expectedRevision:library.value?.revision}:{})})
-        if(result.skipped){skipped++;if(result.status==='failed')processingFailed++}
+        if(result.skipped){
+          skipped++
+          if(result.status==='failed')processingFailed++
+          if(result.status==='needs_recognition')needsRecognition++
+        }
         else completed++
       }catch(cause){failed++;actionError.value+=(actionError.value?'；':'')+file.name+'：'+(cause instanceof Error?cause.message:'上传失败')}
     }
     if(!completed&&!skipped)ElMessage.error('资料上传失败，请查看页面中的具体原因')
     else if(!completed&&!failed){
-      if(processingFailed)ElMessage.warning('资料已上传，其中 '+processingFailed+' 份处理失败，请在目录中点击重试')
+      if(needsRecognition)ElMessage.warning('有资料待识别，请查看对应页码，补齐后重新上传')
+      else if(processingFailed)ElMessage.warning('资料已上传，其中 '+processingFailed+' 份处理失败，请在目录中点击重试')
       else ElMessage.info('所选资料已上传，无需重复上传；处理结果请查看目录')
     }else{
       const results:string[]=[]
-      if(completed)results.push('已上传 '+completed+' 份，解析后保存为草稿')
+      if(completed)results.push('已接收 '+completed+' 份，正在解析和整理')
       if(skipped)results.push('已跳过 '+skipped+' 份重复资料')
       if(failed)results.push(failed+' 份上传失败，请查看具体原因')
       if(processingFailed)results.push(processingFailed+' 份已上传资料处理失败，请在目录中重试')
-      ElMessage({message:results.join('；'),type:failed||processingFailed?'warning':'success'})
+      if(needsRecognition)results.push(needsRecognition+' 份资料待识别，请查看对应页码')
+      ElMessage({message:results.join('；'),type:failed||processingFailed||needsRecognition?'warning':'success'})
     }
     await load()
   }finally{uploading.value=false;replacement.value=undefined;uploadProgress.value=''}

@@ -11,7 +11,7 @@ import {beautifyKnowledge,questionKnowledge} from '../src/knowledge-ai.js';
 function imported(store) {
  const row=store.upload(0,{title:'住宿制度',filename:'住宿.md',bytes:Buffer.from('# 适用范围\n2026年普通员工。\n## 上海住宿\n上海每晚520元。')});
  const job=store.next(),nodes=splitKnowledge(markdownBlocks(Buffer.from(job.original).toString()),row.id,row.draft_revision);
- store.complete(row.id,row.draft_revision,nodes);
+ store.complete(row.id,row.draft_revision,nodes,store.library.prepareImport(job,nodes));
  return store.library.detail();
 }
 
@@ -70,8 +70,10 @@ test('a replacement cannot overwrite an article changed during parsing',()=>{
   const base=imported(store),article=base.nodes.find(node=>node.title==='上海住宿');
   const row=store.upload(0,{title:article.title,filename:'修改.md',bytes:Buffer.from('新正文'),targetId:article.id,expectedRevision:base.revision});
   const job=store.next();
+  const nodes=splitKnowledge(markdownBlocks('新正文'),row.id,row.draft_revision);
+  const staged=store.library.prepareImport(job,nodes);
   const changed=store.library.remove([article.id],base.revision);
-  assert.throws(()=>store.complete(row.id,row.draft_revision,splitKnowledge(markdownBlocks('新正文'),row.id,row.draft_revision)),{code:'KNOWLEDGE_CHANGED'});
+  assert.throws(()=>store.complete(row.id,row.draft_revision,nodes,staged),{code:'KNOWLEDGE_CHANGED'});
   assert.equal(store.library.detail().revision,changed.revision);
   assert.equal(store.detail(0,job.document_id).status,'processing');
  }finally{store.close();}
@@ -145,7 +147,8 @@ test('pending AI deletion review survives another upload and clears after publis
   const edited=store.library.beautify({changes:[{operation:'delete',id:article.id,reason:'重复内容'}],warnings:[],exclusions:[{sourceNodeIds:[article.id],reason:'合并重复说明'}]},base.revision);
   function upload(filename){
    const row=store.upload(0,{title:'补充资料',filename,bytes:Buffer.from('# 补充资料\n请保留发票。')});
-   store.next();store.complete(row.id,row.draft_revision,splitKnowledge(markdownBlocks('# 补充资料\n请保留发票。'),row.id,row.draft_revision));
+   const job=store.next(),nodes=splitKnowledge(markdownBlocks('# 补充资料\n请保留发票。'),row.id,row.draft_revision);
+  store.complete(row.id,row.draft_revision,nodes,store.library.prepareImport(job,nodes));
   }
   upload('补充.md');
   const draft=store.library.detail();
@@ -162,7 +165,8 @@ test('single article changes preserve unrelated curated directory summaries',()=
  try{
   const first=imported(store);
   const row=store.upload(0,{title:'财务',filename:'财务.md',bytes:Buffer.from('# 发票\n需要合法发票。')});
-  store.next();store.complete(row.id,row.draft_revision,splitKnowledge(markdownBlocks('# 发票\n需要合法发票。'),row.id,row.draft_revision));
+  const job=store.next(),nodes=splitKnowledge(markdownBlocks('# 发票\n需要合法发票。'),row.id,row.draft_revision);
+  store.complete(row.id,row.draft_revision,nodes,store.library.prepareImport(job,nodes));
   const base=store.library.detail(),folder=base.nodes.find(node=>node.kind==='folder'&&node.title==='财务');
   const curated=store.library.beautify({changes:[{operation:'update',...folder,summary:'财务凭证及票据要求',reason:'提炼目录语义'}],warnings:[],exclusions:[]},base.revision);
   const article=curated.nodes.find(node=>node.title==='上海住宿');

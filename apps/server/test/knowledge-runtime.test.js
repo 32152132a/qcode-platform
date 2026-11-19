@@ -14,7 +14,7 @@ import { splitKnowledge, knowledgeCatalogue, readKnowledgeNodes, summarizeKnowle
 
 async function fixture(t,{plan}={}){
  const db=createDatabase(),outbound=[];
- const upstream=http.createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;const data=JSON.parse(body);outbound.push(data);let content='收到';try{const nodes=JSON.parse(data.messages.at(-1).content);content=JSON.stringify(Array.isArray(nodes)?{nodes:nodes.map(node=>({id:node.id,summary:node.title.slice(0,50)+'：参考原文'}))}:plan?plan(data.messages):{action:'finish',changes:[]});}catch{}res.setHeader('Content-Type','application/json');res.end(JSON.stringify({choices:[{message:{role:'assistant',content}}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150}}));});
+ const upstream=http.createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;const data=JSON.parse(body);outbound.push(data);let content='收到';try{const nodes=JSON.parse(data.messages.at(-1).content);content=JSON.stringify(Array.isArray(nodes)?{nodes:nodes.map(node=>({id:node.id,summary:node.title.slice(0,50)+'：参考原文'}))}:plan?.(data.messages)??{action:'finish',changes:[]});}catch{}res.setHeader('Content-Type','application/json');res.end(JSON.stringify({choices:[{message:{role:'assistant',content}}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150}}));});
  upstream.listen(0,'127.0.0.1');await once(upstream,'listening');
  const app=createApp({encryptionSecret:'a'.repeat(64),adminUsername:'admin',adminPassword:'admin-password',baseUrl:`http://127.0.0.1:${upstream.address().port}/v1`,upstreamModel:'test',upstreamKey:'fake-key',publicModel:'qcode-model'},db);
  db.transaction(state=>{state.settings.knowledge={sourceId:state.settings.modelSources[0].id,model:'test'};for(const username of ['alice','bob'])state.users.push({id:state.nextUserId++,username,password_hash:hashPassword('user-password'),role:'user',is_active:1,session_limit:2,quotas:{},created_at:new Date().toISOString()});});
@@ -27,13 +27,19 @@ async function fixture(t,{plan}={}){
 const document={title:'住宿制度',filename:'住宿.md',data:Buffer.from('# 住宿制度\n适用于2026年普通员工。\n## 上海住宿\n上海每晚520元，需住宿发票。').toString('base64')};
 
 
-test('enterprise upload creates drafts without model calls and publication is all-or-nothing', async t => {
- const f=await fixture(t);
- f.db.transaction(state=>{state.settings.knowledge=null;state.settings.modelSources[0].kind='relay';});
+test('enterprise upload sends extracted text to AI and stays unpublished until release', async t => {
+ const f=await fixture(t,{plan:messages=>{
+  const input=JSON.parse(messages[1].content);
+  const node=input.incoming?.find(item=>item.title==='上海住宿');
+  return {action:'finish',changes:node?[{operation:'update',id:node.id,summary:'住宿上限和票据要求',reason:'完善摘要'}]:[]};
+ }});
  const uploaded=await f.request('/admin/knowledge/upload',document,f.admin);
  assert.equal(uploaded.status,202);await f.knowledge.idle();
  const data=(await f.request('/admin/knowledge/list',{},f.admin)).body;
- assert.ok(data.library.nodes.length);assert.equal(f.outbound.length,0);
+ assert.equal(data.library.nodes.find(node=>node.title==='上海住宿').summary,'住宿上限和票据要求');
+ assert.equal(f.outbound.length,1);
+ const input=JSON.parse(f.outbound[0].messages[1].content);
+ assert.equal(input.scope,'import');assert.match(input.incoming.find(node=>node.title==='上海住宿').text,/520/);
  assert.equal((await f.request('/client/knowledge/catalogue',{},f.alice)).body.documents.length,0);
  assert.equal((await f.request('/admin/knowledge/publish',{revision:'stale'},f.admin)).status,409);
  assert.equal((await f.request('/admin/knowledge/publish',{revision:data.library.revision},f.alice)).status,403);
@@ -56,6 +62,9 @@ test('replacement and bulk deletion remain drafts until one atomic release; stal
  const replacement={...document,filename:'替换.md',data:Buffer.from('# 上海住宿\n上海每晚600元。').toString('base64'),targetId:article.id,expectedRevision:before.revision};
  assert.equal((await f.request('/admin/knowledge/upload',replacement,f.admin)).status,202);await f.knowledge.idle();
  let current=f.knowledge.store.library.detail();
+ const replacementInput=JSON.parse(f.outbound.at(-1).messages[1].content);
+ assert.equal(replacementInput.scope,'replace');assert.match(replacementInput.previous.text,/520/);
+ assert.match(replacementInput.incoming[0].text,/600/);
  assert.match(current.nodes.find(node=>node.id===article.id).text,/600/);
  assert.match((await f.request('/client/knowledge/read',{ids:[old.id]},f.alice)).body.nodes[0].text,/520/);
  assert.equal((await f.request('/admin/knowledge/upload',replacement,f.admin)).status,409);
@@ -111,16 +120,20 @@ test('published question tests read real evidence and reject mixed batch version
  assert.equal((await f.request('/client/knowledge/'+personal.id+'/download',{},f.bob)).status,404);
 });
 
-test('failed imports block complete publication until removed and cannot leak partial drafts', async t => {
+test('failed and unreadable imports leave no draft changes or model calls and do not block ready files', async t => {
  const f=await fixture(t);
  await f.request('/admin/knowledge/upload',document,f.admin);
  const bad=(await f.request('/admin/knowledge/upload',{...document,filename:'bad.txt',data:Buffer.from('bad\0text').toString('base64')},f.admin)).body;
+ const scan=(await f.request('/admin/knowledge/upload',{...document,filename:'扫描.pdf',data:pdfFixture(null).toString('base64')},f.admin)).body;
  await f.knowledge.idle();
  const current=f.knowledge.store.library.detail();
- assert.equal((await f.request('/admin/knowledge/publish',{revision:current.revision},f.admin)).status,409);
+ assert.equal(f.knowledge.store.detail(0,bad.id).status,'failed');
+ const unreadable=f.knowledge.store.detail(0,scan.id);
+ assert.equal(unreadable.status,'needs_recognition');assert.match(unreadable.error,/第1页/);
+ assert.equal(f.outbound.length,1);
  assert.equal(f.knowledge.store.library.documents().length,0);
- assert.equal((await f.request('/admin/knowledge/uploads/'+bad.id+'/delete',{},f.admin)).status,200);
  assert.equal((await f.request('/admin/knowledge/publish',{revision:current.revision},f.admin)).status,200);
+ assert.equal((await f.request('/admin/knowledge/uploads/'+scan.id+'/delete',{},f.admin)).status,200);
 });
 test('personal results remain server-side until a matching download acknowledgement; cloud memory is absent',async t=>{
  const f=await fixture(t),uploaded=(await f.request('/client/knowledge/upload',document,f.alice)).body;await f.knowledge.idle();
@@ -205,4 +218,20 @@ test('summary generation corrects invalid JSON and oversized summaries once, ret
     return JSON.stringify({nodes:[{id:'foreign',summary:'错误节点'}]});
   }), {code:'INVALID_KNOWLEDGE_SUMMARY'});
   assert.equal(calls, 2);
+});
+
+test('successful import batches are not committed when a later batch fails', async t => {
+ const f=await fixture(t,{plan:messages=>{
+  const input=JSON.parse(messages[1].content);
+  if (!input.incoming.some(node=>node.title==='章节1')) return {action:'finish',changes:[{operation:'update',id:'unread',title:'无效改动',reason:'测试失败'}]};
+  return {action:'finish',changes:[{operation:'update',id:input.incoming[0].id,summary:'整理后的摘要',reason:'测试成功批次'}]};
+ }});
+ const markdown=Array.from({length:7},(_,index)=>'# 章节'+(index+1)+'\n正文内容').join('\n\n');
+ const before=f.knowledge.store.library.snapshot();
+ const upload=await f.request('/admin/knowledge/upload',{...document,filename:'多章节.md',data:Buffer.from(markdown).toString('base64')},f.admin);
+ assert.equal(upload.status,202);await f.knowledge.idle();
+ assert.equal(f.outbound.length,2);
+ assert.equal(f.knowledge.store.detail(0,upload.body.id).status,'failed');
+ assert.equal(f.knowledge.store.library.snapshot().revision,before.revision);
+ assert.deepEqual(f.knowledge.store.library.snapshot().nodes,[]);
 });

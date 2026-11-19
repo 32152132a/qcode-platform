@@ -166,6 +166,20 @@ export function createKnowledgeLibrary(sql, transaction) {
     refreshFolders(nodes, base.nodes, preserved);
     return { nodes, changes: plan.changes.map(change => ({ id: added.get(change.id) || change.id, operation: change.operation, reason: change.reason })) };
   }
+  function importReview(base, changes, plan) {
+    const previous = base.review;
+    const newExclusions = (plan.exclusions || []).map(item => ({
+      ...item,
+      titles: item.sourceNodeIds.map(id => base.nodes.find(node => node.id === id)?.title).filter(Boolean),
+    }));
+    const merged = new Map((previous?.changes || []).map(change => [change.id, change]));
+    for (const change of changes) merged.set(change.id, change);
+    return {newExclusions, value: {
+      changes: [...merged.values()],
+      warnings: [...new Set([...(previous?.warnings || []), ...(plan.warnings || [])])],
+      exclusions: [...(previous?.exclusions || []), ...newExclusions],
+    }};
+  }
   function removalImpact(ids, expected) {
     expect(expected);
     const base = snapshot();
@@ -191,14 +205,18 @@ export function createKnowledgeLibrary(sql, transaction) {
         sql.prepare('INSERT OR REPLACE INTO library_imports VALUES(?,?,?,?)').run(documentId, sourceRevision, targetId, revision(node));
       } else sql.prepare('INSERT OR REPLACE INTO library_imports VALUES(?,?,NULL,NULL)').run(documentId, sourceRevision);
     },
-    importDocument(job, sections) {
+    prepareImport(job, sections) {
       const mapping = sql.prepare('SELECT * FROM library_imports WHERE document_id=? AND revision=?').get(job.document_id, job.revision);
       if (!mapping) fail(409, 'KNOWLEDGE_IMPORT_MISSING', '上传任务缺少文章关联，请重新上传');
       const draft = snapshot(), nodes = copy(draft.nodes);
       const evidence = section => ({ documentId: job.document_id, revision: job.revision, blockId: section.id, filename: job.filename, ...section.source });
+      let previous = null;
+      const incomingIds = [];
       if (mapping.target_id) {
         const target = nodes.find(node => node.id === mapping.target_id);
         if (!target || revision(target) !== mapping.target_revision) fail(409, 'KNOWLEDGE_CHANGED', '文章在上传期间已修改，请重新替换');
+        previous = draft.nodes.find(node => node.id === target.id);
+        incomingIds.push(target.id);
         const text = sections.map(section => section.text).join('\n\n');
         if ([...text].length > 12000) fail(400, 'SECTION_TOO_LARGE', '替换后的单篇文章超过12000字，请拆分后新增上传');
         Object.assign(target, { text, summary: summarize(text), sources: sections.map(evidence) });
@@ -206,6 +224,7 @@ export function createKnowledgeLibrary(sql, transaction) {
         const rootId = identifier(), ids = new Map(sections.map(section => [section.id, identifier()]));
         nodes.push({ id: rootId, parentId: null, kind: 'folder', title: job.title, summary: '', text: '', sources: [] });
         for (const section of sections) {
+          incomingIds.push(ids.get(section.id));
           const body = section.text.replace(/^#{1,6}\s+[^\n]+/, '').trim();
           const hasChildren = sections.some(child => child.parentId === section.id);
           nodes.push({
@@ -215,7 +234,22 @@ export function createKnowledgeLibrary(sql, transaction) {
           });
         }
       }
-      return save(nodes, draft.exclusions);
+      validateLibrary(nodes);
+      refreshFolders(nodes, draft.nodes);
+      const published = snapshot('published');
+      const review = draft.revision === published.revision ? null : draft.review;
+      return { ...draft, nodes, review, incomingIds, previous };
+    },
+    applyImportPlan(staged, plan) {
+      if (!plan.changes.length && plan.exclusions?.length)
+        fail(400, 'INVALID_KNOWLEDGE_PLAN', '排除原文需要同时说明对应的目录改动');
+      const result = plan.changes.length ? applyPlan(staged, plan) : {nodes: staged.nodes, changes: []};
+      const review = importReview(staged, result.changes, plan);
+      return { ...staged, nodes: result.nodes, exclusions: [...staged.exclusions, ...review.newExclusions], review: review.value };
+    },
+    commitImport(staged) {
+      expect(staged.revision);
+      return save(staged.nodes, staged.exclusions, 'admin', false, staged.review);
     },
     remove(ids, expected) {
       return transaction(() => {
@@ -236,12 +270,8 @@ export function createKnowledgeLibrary(sql, transaction) {
         if (!plan.changes.length) return detail();
         const base = snapshot(), result = applyPlan(base, plan), nodes = result.nodes;
         if (revision(nodes) === revision(base.nodes) && !plan.exclusions?.length) return detail();
-        const review = {
-          changes: result.changes,
-          warnings: plan.warnings || [],
-          exclusions: (plan.exclusions || []).map(item => ({ ...item, titles: item.sourceNodeIds.map(id => base.nodes.find(node => node.id === id)?.title).filter(Boolean) })),
-        };
-        return save(nodes, [...base.exclusions, ...review.exclusions], 'admin', false, review);
+        const review = importReview(base.revision === snapshot('published').revision ? {...base, review: null} : base, result.changes, plan);
+        return save(nodes, [...base.exclusions, ...review.newExclusions], 'admin', false, review.value);
       });
     },
     publish(expected, actor) {
@@ -249,8 +279,8 @@ export function createKnowledgeLibrary(sql, transaction) {
         expect(expected);
         const current = snapshot();
         validateLibrary(current.nodes);
-        const unfinished = sql.prepare("SELECT count(*) AS count FROM versions v JOIN documents d ON d.id=v.document_id AND d.draft_revision=v.revision WHERE d.owner_id=0 AND v.status IN ('pending','processing','failed')").get().count;
-        if (unfinished) fail(409, 'KNOWLEDGE_PROCESSING', '还有未完成或失败的上传任务，请先重试或移除');
+        const unfinished = sql.prepare("SELECT count(*) AS count FROM versions v JOIN documents d ON d.id=v.document_id AND d.draft_revision=v.revision WHERE d.owner_id=0 AND v.status IN ('pending','processing')").get().count;
+        if (unfinished) fail(409, 'KNOWLEDGE_PROCESSING', '还有上传任务正在处理，请等待完成');
         if (!changes().length) fail(409, 'KNOWLEDGE_UNCHANGED', '没有待发布的变更');
         sql.prepare('UPDATE library_state SET published=? WHERE id=1').run(current.revision);
         sql.prepare('UPDATE library_versions SET actor=? WHERE revision=?').run(actor, current.revision);

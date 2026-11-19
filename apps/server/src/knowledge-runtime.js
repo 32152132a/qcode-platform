@@ -1,3 +1,4 @@
+import { getHeapStatistics } from 'node:v8';
 import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createTreeStore, knowledgeLimits, revisionOf } from './knowledge-tree-store.js';
@@ -22,6 +23,32 @@ export function knowledgeSettings(state) {
   const source=state.settings.modelSources.find(source=>source.active&&source.kind==='official'&&/^https:\/\/dashscope\.aliyuncs\.com\//.test(source.base_url+'/'));
   return source?{sourceId:source.id,model:'qwen3.8-max'}:null;
 }
+export const knowledgeUploadBodyLimit = Math.floor(getHeapStatistics().heap_size_limit / 32);
+
+async function organizeImport(library, job, nodes, complete) {
+  let staged = library.prepareImport(job, nodes);
+  const { incomingIds, previous } = staged;
+  let ids = [], characters = 0;
+  for (const id of incomingIds) {
+    const node = staged.nodes.find(item => item.id === id);
+    if (!node) continue;
+    if (ids.length && (ids.length === 6 || characters + node.text.length > 12000)) {
+      const plan = await beautifyKnowledge(staged, undefined, complete, {ids, previous});
+      staged = library.applyImportPlan(staged, plan);
+      ids = []; characters = 0;
+    }
+    const current = staged.nodes.find(item => item.id === id);
+    if (!current) continue;
+    ids.push(id);
+    characters += current.text.length;
+  }
+  if (ids.length) {
+    const plan = await beautifyKnowledge(staged, undefined, complete, {ids, previous});
+    staged = library.applyImportPlan(staged, plan);
+  }
+  return staged;
+}
+
 export function registerKnowledge(app,{db,auth,vault,config}) {
   const filename=config.dbPath&&![':memory:',':sqlite:'].includes(config.dbPath)?join(dirname(config.dbPath),'knowledge-tree.sqlite'):':memory:';
   const store=createTreeStore(filename);let running=null,stopped=false,controller;
@@ -59,11 +86,18 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
         try{
           const actor=db.read().users.find(user=>job.owner_id===0?user.role==='admin':ownerKey(user)===job.owner_id);if(!actor)throw new Error('资料所属账号已移除');
           const blocks=await parseKnowledgeFile(job.filename,Buffer.from(job.original),{signal:controller.signal});
-          const nodes=splitKnowledge(blocks,job.document_id,job.revision),call=messages=>complete(messages,actor.id,undefined,controller.signal);
-          const result=job.owner_id===0?nodes:await summarizeKnowledge(nodes,call);
-          if(!stopped)store.complete(job.document_id,job.revision,result);
+          const nodes = splitKnowledge(blocks, job.document_id, job.revision);
+          const selection = settings();
+          const call = messages => complete(messages, actor.id, selection, controller.signal);
+          if (job.owner_id === 0) {
+            const staged = await organizeImport(store.library, job, nodes, call);
+            if (!stopped) store.complete(job.document_id, job.revision, nodes, staged);
+          } else {
+            const result = await summarizeKnowledge(nodes, call);
+            if (!stopped) store.complete(job.document_id, job.revision, result);
+          }
         }
-        catch(error){if(!stopped)store.failed(job.document_id,job.revision,error.status?error.message:'解析或整理失败：'+error.message);}
+        catch(error){if(!stopped)store.failed(job.document_id,job.revision,error.status?error.message:'解析或整理失败：'+error.message, job.owner_id === 0 && error.code === 'KNOWLEDGE_NEEDS_RECOGNITION');}
       }
     })().finally(()=>{running=null;});
   }
@@ -82,7 +116,7 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
   app.post('/client/knowledge/:id/received',auth,(req,res)=>{store.received(ownerKey(req.user),req.params.id,req.body?.revision);res.json({ok:true});});
   for(const prefix of ['/admin','/client']){
     const owner=req=>prefix==='/admin'?0:ownerKey(req.user),guards=prefix==='/client'?[auth]:[];
-    app.post(prefix+'/knowledge/list',...guards,(req,res)=>res.json(prefix==='/admin'?{library:store.library.detail(),uploads:store.list(0),limits:knowledgeLimits}:{documents:store.list(owner(req)),limits:knowledgeLimits}));
+    app.post(prefix+'/knowledge/list',...guards,(req,res)=>res.json(prefix==='/admin'?{library:store.library.detail(),uploads:store.list(0),limits:{...knowledgeLimits,uploadBytes:Math.floor((knowledgeUploadBodyLimit-4096)*3/4)}}:{documents:store.list(owner(req)),limits:knowledgeLimits}));
     app.post(prefix+'/knowledge/upload',...guards,(req,res)=>{
       if(prefix==='/client'&&!settings())fail(400,'KNOWLEDGE_MODEL_REQUIRED','请联系管理员配置知识整理模型');
       const body=req.body||{};
