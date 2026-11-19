@@ -49,7 +49,7 @@
           </div>
           <dl class="capability-costs">
             <div v-for="item in capabilityRows" :key="item.key">
-              <dt>{{ item.label }}<small>{{ item.note }}</small></dt>
+              <dt>{{ item.label }}<small v-if="item.note">{{ item.note }}</small></dt>
               <dd>{{ item.amount }}<small v-if="item.unknown">{{ item.unknown }} 笔成本未知</small></dd>
             </div>
           </dl>
@@ -122,13 +122,9 @@
   const capabilityRows = computed(() => {
     const costs = data.value?.capabilityCosts ?? {}
     const rows = [
-      { key: 'knowledge_beautify', label: '知识库 AI 美化', note: '管理员发起' },
-      { key: 'knowledge_test', label: '知识库问答测试', note: '管理员发起' },
-      { key: 'image_understanding', label: '识图', note: '记在发起识图的账号名下' },
-      { key: 'image_generation', label: '生图', note: '记在发起生图的账号名下' },
+      { key: 'knowledge', label: '知识库', note: '' },
       { key: 'embedding', label: '向量', note: '当前仅配置验证，未统计成本' },
     ]
-    if (costs.knowledge_index) rows.splice(2, 0, { key: 'knowledge_index', label: '其他知识整理', note: '个人资料整理、配置验证及旧版导入' })
     return rows.map(row => {
       const group = costs[row.key]
       const amounts = Object.entries(group?.costsMicros ?? {}).map(([currency, micros]) => {

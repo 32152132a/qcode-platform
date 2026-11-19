@@ -182,10 +182,9 @@ export function statistics(state, timezone) {
   }
   for (const row of state.requests) {
     add(totals, row);
-    const capability = row.purpose;
-    if (row.status !== 'pending' && ['knowledge_beautify', 'knowledge_test', 'knowledge_index', 'image_understanding', 'image_generation'].includes(capability)) {
-      if (!capabilityCosts.has(capability)) capabilityCosts.set(capability, { costsMicros: {}, unknownCost: 0 });
-      const group = capabilityCosts.get(capability);
+    if (row.status !== 'pending' && ['knowledge_beautify', 'knowledge_test', 'knowledge_index'].includes(row.purpose)) {
+      if (!capabilityCosts.has('knowledge')) capabilityCosts.set('knowledge', { costsMicros: {}, unknownCost: 0 });
+      const group = capabilityCosts.get('knowledge');
       const currency = row.currency || 'CNY';
       if (row.cost_micros == null) group.unknownCost++;
       else group.costsMicros[currency] = (group.costsMicros[currency] || 0) + row.cost_micros;
