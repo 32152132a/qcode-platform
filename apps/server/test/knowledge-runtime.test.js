@@ -96,7 +96,7 @@ test('AI directly saves a reviewable draft without publishing and rejects stale 
  assert.deepEqual(applied.publishedNodes,[]);assert.equal(applied.review.changes.find(item=>item.id===node.id).reason,change.reason);
  assert.equal((await f.request('/client/knowledge/catalogue',{},f.alice)).body.documents.length,0);
  assert.equal((await f.request('/admin/knowledge/beautify',{revision:base.revision},f.admin)).status,409);
- actions=[{action:'finish',changes:[change],warnings:[],exclusions:[]}];
+ actions=Array(2).fill({action:'finish',changes:[change],warnings:[],exclusions:[]});
  assert.equal((await f.request('/admin/knowledge/beautify',{revision:applied.revision,nodeId:node.id},f.admin)).status,502);
  assert.ok(f.outbound.every(body=>!Object.hasOwn(body,'max_tokens')));
 });
@@ -230,8 +230,25 @@ test('successful import batches are not committed when a later batch fails', asy
  const before=f.knowledge.store.library.snapshot();
  const upload=await f.request('/admin/knowledge/upload',{...document,filename:'多章节.md',data:Buffer.from(markdown).toString('base64')},f.admin);
  assert.equal(upload.status,202);await f.knowledge.idle();
- assert.equal(f.outbound.length,2);
+ assert.equal(f.outbound.length,3);
  assert.equal(f.knowledge.store.detail(0,upload.body.id).status,'failed');
  assert.equal(f.knowledge.store.library.snapshot().revision,before.revision);
  assert.deepEqual(f.knowledge.store.library.snapshot().nodes,[]);
+});
+
+
+test('knowledge import keeps the existing parent and retries invalid plan details once', async t => {
+ const f=await fixture(t,{plan:messages=>{
+  const {incoming:[node]}=JSON.parse(messages[1].content);
+  const correction=messages.length>2?JSON.parse(messages.at(-1).content):null;
+  const change={operation:'update',id:node.id,parentId:node.parentId,summary:'核对过的摘要',reason:'补充检索摘要'};
+  return {action:'finish',changes:[change],exclusions:correction?[]:[{sourceNodeIds:[node.id],reason:'重复内容',quote:'原文不存在的片段'}]};
+ }});
+ const result=await f.request('/admin/knowledge/upload',document,f.admin);
+ await f.knowledge.idle();
+ assert.equal(f.knowledge.store.detail(0,result.body.id).status,'ready');
+ assert.equal(f.outbound.length,2);
+ assert.match(JSON.parse(f.outbound[1].messages.at(-1).content).error,/逐字/);
+ const id=JSON.parse(f.outbound[0].messages[1].content).incoming[0].id;
+ assert.equal(f.knowledge.store.library.snapshot().nodes.find(node=>node.id===id).summary,'核对过的摘要');
 });

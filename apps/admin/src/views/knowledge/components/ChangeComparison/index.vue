@@ -41,10 +41,10 @@ const fields=computed(()=>{
 </script>
 <style scoped lang="scss">
 .change-comparison{
-  &__field{margin:18px 0;h4{font-size:12px;margin:0 0 8px;font-weight:500;color:var(--el-text-color-secondary)}}
+  &__field{margin:10px 0;h4{font-size:12px;margin:0 0 8px;font-weight:500;color:var(--el-text-color-secondary)}}
   &__diff{border:1px solid var(--el-border-color-lighter);border-radius:6px;overflow:hidden}
   &__diff-heading,&__diff-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
-  &__diff-heading{background:var(--el-fill-color-lighter);font-size:11px;color:var(--el-text-color-secondary);span{padding:10px 12px}}
+  &__diff-heading{background:var(--el-fill-color-lighter);font-size:11px;color:var(--el-text-color-secondary);span{padding:7px 10px}}
   &__line{display:grid;grid-template-columns:30px 14px minmax(0,1fr);align-items:start;min-width:0;line-height:1.9;font-size:12px;padding:2px 8px 2px 0;>span{text-align:center;color:var(--el-text-color-placeholder);user-select:none}code{font-family:ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere} &:first-child{border-right:1px solid var(--el-border-color-lighter)}&.is-removed{background:var(--el-color-danger-light-9)}&.is-added{background:var(--el-color-success-light-9)}&.is-empty{background:var(--el-fill-color-lighter)}}
   &__columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   &__before,&__after{min-width:0;padding:12px 14px;border-radius:6px;border:1px solid var(--el-border-color-lighter);>span{font-size:11px;color:var(--el-text-color-secondary)}pre{font:inherit;font-size:13px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0 0;max-height:240px;overflow:auto}}
