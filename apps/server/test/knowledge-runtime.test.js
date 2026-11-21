@@ -14,7 +14,7 @@ import { splitKnowledge, knowledgeCatalogue, readKnowledgeNodes, summarizeKnowle
 
 async function fixture(t,{plan}={}){
  const db=createDatabase(),outbound=[];
- const upstream=http.createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;const data=JSON.parse(body);outbound.push(data);let content='收到';try{const nodes=JSON.parse(data.messages.at(-1).content);content=JSON.stringify(Array.isArray(nodes)?{nodes:nodes.map(node=>({id:node.id,summary:node.title.slice(0,50)+'：参考原文'}))}:plan?.(data.messages)??{action:'finish',changes:[]});}catch{}res.setHeader('Content-Type','application/json');res.end(JSON.stringify({choices:[{message:{role:'assistant',content}}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150}}));});
+ const upstream=http.createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;const data=JSON.parse(body);outbound.push(data);let content='收到';try{const nodes=JSON.parse(data.messages.at(-1).content);const result=Array.isArray(nodes)?{nodes:nodes.map(node=>({id:node.id,summary:node.title.slice(0,50)+'：参考原文'}))}:plan?.(data.messages);content=result===null?null:JSON.stringify(result??{action:'finish',changes:[]});}catch{}res.setHeader('Content-Type','application/json');res.end(JSON.stringify({choices:[{message:{role:'assistant',content}}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150}}));});
  upstream.listen(0,'127.0.0.1');await once(upstream,'listening');
  const app=createApp({encryptionSecret:'a'.repeat(64),adminUsername:'admin',adminPassword:'admin-password',baseUrl:`http://127.0.0.1:${upstream.address().port}/v1`,upstreamModel:'test',upstreamKey:'fake-key',publicModel:'qcode-model'},db);
  db.transaction(state=>{state.settings.knowledge={sourceId:state.settings.modelSources[0].id,model:'test'};for(const username of ['alice','bob'])state.users.push({id:state.nextUserId++,username,password_hash:hashPassword('user-password'),role:'user',is_active:1,session_limit:2,quotas:{},created_at:new Date().toISOString()});});
@@ -96,8 +96,20 @@ test('AI directly saves a reviewable draft without publishing and rejects stale 
  assert.deepEqual(applied.publishedNodes,[]);assert.equal(applied.review.changes.find(item=>item.id===node.id).reason,change.reason);
  assert.equal((await f.request('/client/knowledge/catalogue',{},f.alice)).body.documents.length,0);
  assert.equal((await f.request('/admin/knowledge/beautify',{revision:base.revision},f.admin)).status,409);
- actions=Array(2).fill({action:'finish',changes:[change],warnings:[],exclusions:[]});
- assert.equal((await f.request('/admin/knowledge/beautify',{revision:applied.revision,nodeId:node.id},f.admin)).status,502);
+ f.knowledge.store.library.publish(applied.revision,'admin');
+ actions=[{action:'finish',changes:[change],warnings:[],exclusions:[]},null];
+ const start=f.outbound.length;
+ const rejected=await f.request('/admin/knowledge/beautify',{revision:applied.revision,nodeId:node.id},f.admin);
+ assert.equal(rejected.status,502);
+ assert.equal(rejected.body.error.code,'INVALID_KNOWLEDGE_PLAN');
+ assert.match(rejected.body.error.message,/未读取/);
+ assert.equal(f.outbound.length,start+2);
+ assert.equal(f.knowledge.store.library.snapshot().revision,applied.revision);
+ assert.equal(f.knowledge.store.library.snapshot('published').revision,applied.revision);
+ actions=[null,{action:'finish',changes:[]}];
+ const recovered=await f.request('/admin/knowledge/beautify',{revision:applied.revision,nodeId:node.id},f.admin);
+ assert.equal(recovered.status,200);
+ assert.equal(recovered.body.changed,false);
  assert.ok(f.outbound.every(body=>!Object.hasOwn(body,'max_tokens')));
 });
 

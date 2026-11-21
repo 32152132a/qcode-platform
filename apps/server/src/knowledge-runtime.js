@@ -72,8 +72,16 @@ export function registerKnowledge(app,{db,auth,vault,config}) {
       let value;try{value=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(502,'INVALID_KNOWLEDGE_SUMMARY','知识整理接口返回格式无效');}
       usage=parseUsage(value.usage);onUsage?.(usage);
       if(value.choices?.[0]?.finish_reason==='length')fail(502,'KNOWLEDGE_OUTPUT_TRUNCATED','知识整理模型的输出未完成，请重新处理');
-      if(typeof value.choices?.[0]?.message?.content!=='string')fail(502,'INVALID_KNOWLEDGE_SUMMARY','模型没有返回整理内容');
-      return value.choices[0].message.content;
+      const content = value.choices?.[0]?.message?.content;
+      if (typeof content !== 'string' || !content.trim()) {
+        if (purpose === 'knowledge_beautify' || purpose === 'knowledge_index') {
+          // Let the organizer use its bounded correction round for an empty model response.
+          errorCode = 'INVALID_KNOWLEDGE_RESULT';
+          return '';
+        }
+        fail(502,'INVALID_KNOWLEDGE_SUMMARY','模型没有返回整理内容');
+      }
+      return content;
     }catch(error){errorCode=error.code||'KNOWLEDGE_PROCESSING_FAILED';throw error;}
     finally{db.transaction(next=>{const record=next.requests.find(item=>item.id===requestId);if(record){Object.assign(record,usage||{},{status:errorCode?'failed':'success',error_code:errorCode,finished_at:now(),duration_ms:Date.now()-started,usage_source:usage?'provider':'unknown',charged_tokens:usage?.total_tokens||0});settleCredit(next,record,model,usage);}});}
   }

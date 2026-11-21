@@ -84,7 +84,12 @@ test('single-article beautification rejects changes to other articles and no-op 
  try{
   const base=imported(store),article=base.nodes.find(node=>node.title==='上海住宿'),other=base.nodes.find(node=>node.kind==='article'&&node.id!==article.id);
   const steps=[{action:'read',ids:[other.id]},{action:'finish',changes:[{...other,operation:'update',reason:'修改别篇'}]}];
-  await assert.rejects(beautifyKnowledge(base,article.id,async()=>JSON.stringify(steps.shift())),{code:'INVALID_KNOWLEDGE_PLAN'});
+  store.library.publish(base.revision,'admin');
+  let calls=0;
+  await assert.rejects(beautifyKnowledge(base,article.id,async()=>{calls++;return JSON.stringify(steps.shift());}),{code:'INVALID_KNOWLEDGE_PLAN',message:/超出范围/});
+  assert.equal(calls,3);
+  assert.equal(store.library.snapshot().revision,base.revision);
+  assert.equal(store.library.snapshot('published').revision,base.revision);
   assert.equal(store.library.beautify({changes:[],warnings:['可保留当前结构'],exclusions:[]},base.revision).revision,base.revision);
  }finally{store.close();}
 });
@@ -193,13 +198,13 @@ test('beautification corrects invalid JSON once and preserves Markdown code fenc
   const responses = ['我会先查看相关正文。', JSON.stringify({action:'read',ids:[article.id]}), JSON.stringify({action:'finish',changes:[{...article,operation:'update',text:markdown,reason:'整理示例'}]})];
   let calls = 0;
   const plan = await beautifyKnowledge(base, article.id, async messages => {
-   if (++calls === 2) assert.match(messages.at(-1).content, /未通过格式校验/);
+   if (++calls === 2) assert.equal(JSON.parse(messages.at(-1).content).code,'INVALID_KNOWLEDGE_RESULT');
    return responses.shift();
   });
   assert.equal(plan.changes[0].text, markdown);
   assert.equal(calls, 3);
   calls = 0;
-  await assert.rejects(beautifyKnowledge(base, article.id, async () => { calls++; return '无效输出'; }), {code:'INVALID_KNOWLEDGE_RESULT'});
+  await assert.rejects(beautifyKnowledge(base, article.id, async () => { calls++; return calls === 1 ? '无效输出' : undefined; }), {code:'INVALID_KNOWLEDGE_RESULT'});
   assert.equal(calls, 2);
  } finally { store.close(); }
 });
