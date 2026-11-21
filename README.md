@@ -11,7 +11,7 @@
 - [在线项目](https://code.quyongqing.cn/)
 - [作者介绍](https://quyongqing.cn/about.html)
 - [组件与项目文档](https://docs.quyongqing.cn/)
-- [Gitee 仓库](https://gitee.com/quyongqing/qcode-platform)
+- [Gitee 仓库](https://gitee.com/quyongqing/ai-workbench-platform)
 
 当前主线是 **QCode 管理网关 + QCode Desktop**。管理员统一管理账号、模型、Key、配额、共享 Skill 和知识库；员工安装桌面客户端后登录使用。供应商 Key 只在网关加密保存。
 
