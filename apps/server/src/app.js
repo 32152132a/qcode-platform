@@ -398,7 +398,7 @@ export function createApp(config, database) {
     return complete(req, res, { db, vault, config, activeRequests });
   }));
   app.use((req, _res) => {
-    if (obsoleteBusinessRequest(req.method, req.path)) fail(426, 'CLIENT_UPGRADE_REQUIRED', '接口已升级，请刷新管理端或升级 QCode 客户端');
+    if (obsoleteBusinessRequest(req.method, req.path)) fail(426, 'CLIENT_UPGRADE_REQUIRED', '接口已升级，请刷新管理端或升级 WorkLane 客户端');
     fail(404, 'NOT_FOUND', 'Endpoint not found');
   });
   app.use((error, _req, res, _next) => {

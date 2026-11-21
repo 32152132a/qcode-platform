@@ -122,7 +122,7 @@
     try {
       await download(
         '/admin/' + kind.value + '/export?' + query.value.slice(1),
-        'qcode-' + kind.value + '.csv',
+        'worklane-' + kind.value + '.csv',
       )
     } catch (cause) {
       ElMessage.error(cause instanceof Error ? cause.message : '导出失败')
